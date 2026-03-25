@@ -1,66 +1,60 @@
-FUNCTION momentaA0(nsubsmax,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmax, npos
-    REAL*8 :: x, pbinomial, momentaA0
-    momentaA0 = 0.0
-    do nsubs = nsubsmax+1,npos
-       momentaA0 = momentaA0 + pbinomial(nsubs,npos,x) 
-    enddo
-END FUNCTION momentaA0
+function momentaa0(nsubsmax, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmax, npos
+  real*8 :: x, pbinomial, momentaa0
+  momentaa0 = 0.0
+  do nsubs = nsubsmax + 1, npos
+    momentaa0 = momentaa0 + pbinomial(nsubs, npos, x)
+  end do
+end function momentaa0
 
+function momentaa1(nsubsmax, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmax, npos
+  real*8 :: x, pbinomial, momentaa1
+  momentaa1 = 0.0
+  do nsubs = nsubsmax + 1, npos
+    momentaa1 = momentaa1 + pbinomial(nsubs, npos, x)*nsubs
+  end do
+end function momentaa1
 
-FUNCTION momentaA1(nsubsmax,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmax, npos
-    REAL*8 :: x, pbinomial, momentaA1
-    momentaA1 = 0.0
-    do nsubs = nsubsmax+1,npos
-       momentaA1 = momentaA1 + pbinomial(nsubs,npos,x) * nsubs
-    enddo
-END FUNCTION momentaA1
+function momentaa2(nsubsmax, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmax, npos
+  real*8 :: x, pbinomial, momentaa2
+  momentaa2 = 0.0
+  do nsubs = nsubsmax + 1, npos
+    momentaa2 = momentaa2 + pbinomial(nsubs, npos, x)*(nsubs**2)
+  end do
+end function momentaa2
 
+function momentab0(nsubsmin, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmin, npos
+  real*8 :: x, pbinomial, momentab0
+  momentab0 = 0.0
+  do nsubs = 0, nsubsmin - 1
+    momentab0 = momentab0 + pbinomial(nsubs, npos, x)
+  end do
+end function momentab0
 
-FUNCTION momentaA2(nsubsmax,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmax, npos
-    REAL*8 :: x, pbinomial, momentaA2
-    momentaA2 = 0.0
-    do nsubs = nsubsmax+1,npos
-       momentaA2 = momentaA2 + pbinomial(nsubs,npos,x) * (nsubs**2)
-    enddo
-END FUNCTION momentaA2
+function momentab1(nsubsmin, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmin, npos
+  real*8 :: x, pbinomial, momentab1
+  momentab1 = 0.0
+  do nsubs = 0, nsubsmin - 1
+    momentab1 = momentab1 + pbinomial(nsubs, npos, x)*nsubs
+  end do
+end function momentab1
 
-
-FUNCTION momentaB0(nsubsmin,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmin, npos
-    REAL*8 :: x, pbinomial, momentaB0
-    momentaB0 = 0.0
-    do nsubs = 0,nsubsmin-1
-       momentaB0 = momentaB0 + pbinomial(nsubs,npos,x)
-    enddo
-END FUNCTION momentaB0
-
-
-FUNCTION momentaB1(nsubsmin,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmin, npos
-    REAL*8 :: x, pbinomial, momentaB1
-    momentaB1 = 0.0
-    do nsubs = 0,nsubsmin-1
-       momentaB1 = momentaB1 + pbinomial(nsubs,npos,x) * nsubs
-    enddo
-END FUNCTION momentaB1
-
-
-FUNCTION momentaB2(nsubsmin,npos,x)
-    IMPLICIT NONE
-    INTEGER :: nsubs, nsubsmin, npos
-    REAL*8 :: x, pbinomial, momentaB2
-    momentaB2 = 0.0
-    do nsubs = 0,nsubsmin-1
-       momentaB2 = momentaB2 + pbinomial(nsubs,npos,x) * (nsubs**2)
-    enddo
-END FUNCTION momentaB2
-
+function momentab2(nsubsmin, npos, x)
+  implicit none
+  integer :: nsubs, nsubsmin, npos
+  real*8 :: x, pbinomial, momentab2
+  momentab2 = 0.0
+  do nsubs = 0, nsubsmin - 1
+    momentab2 = momentab2 + pbinomial(nsubs, npos, x)*(nsubs**2)
+  end do
+end function momentab2
 

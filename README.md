@@ -1,6 +1,6 @@
-# SOD 0.52 - Notes for users
+# SOD 0.60 - Notes for users
 
-SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
+SOD (standing for Site-Occupation Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
 The package is distributed under the [GPL licence](https://github.com/ypriverol/sod/blob/master/LICENSE.md). 
 
@@ -20,12 +20,12 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 - sod(version)/src contains the source files.
 - sod(version)/sgo is a library of space group operators (e.g. 131.sgo contains the operators of the space group 131).
-- sod(version)/bin contains the executables. Linux executables are provided here.
-- sod(version)/examples contains three examples, based on the cubic perovskite, rutile and rocksalt structures.
+- sod(version)/bin contains the executables. Compile for your platform using `make all`.
+- sod(version)/examples contains five examples, covering rocksalt (MgO), inverse spinel (magnetite), rutile, perovskite (LaFeO3) and pyrochlore (La2Zr2O7) structures.
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.52.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.60.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -58,11 +58,13 @@ cp ROOTSOD/sod(version)/sgo ./SGO
 
 otherwise you have to create the file using the International Tables of Crystallography, or from the website of the Bilbao Crystallographic Server <www.cryst.ehy.es>. The first three numbers in each line are one row of the operator matrix and the fourth number is the component of the operator translation vector.
 
-- If you want to generate Gulp input files for all the independent configurations found by SOD, in addition to setting FILER=1 in the INPUT file, you must provide two files in the working directory:
+- If you want to generate GULP input files for all the independent configurations found by SOD, in addition to setting FILER=1 in the INSOD file, you must provide two files in the working directory:
 
 top.gulp contains the heading of the gulp input file (until the keyword cell).
 
 bottom.gulp contains the tail of the gulp input file (everything after the list of coordinates, including species, potentials, etc).
+
+Optionally, you can request that GULP write output structure files by setting the `genxtl` and `genarc` flags in INSOD (see the GULP examples for the format). Setting `genxtl 1` adds an `output xtl` directive, and `genarc 1` adds an `output arc` directive to each GULP input file.
 
 - To run the combinatorics program, just type:
 
@@ -138,7 +140,7 @@ From version 0.51, it is possible to do statistics in a grand-canonical ensemble
 
 We recommend to create a file with name x??? at the same level as the n?? files. For example x250 is used for a grandcanonical analyis at composition x=0.250. 
 
- The *OUTSOD_00*, *OUTSOD_01*, *OUTSOD_02*, *OUTSOD_03, and *OUTSOD04* files are the *OUTSOD* files for 0, 1, 2, 3, and 4 substitutions, respectively (note that sod_comb returns an error when you try to create zero substitutions, so *OUTSOD_00* must be created by hand at the moment; this will be corrected in future versions). You also need the *ENERGIES_00* ... *ENERGIES_04* files there. Optionally, you can add *DATA_00*, ..., *DATA_04*. The *TEMPERATURES* file can also be provided (optional, as for the canonical statistics). 
+ The *OUTSOD_00*, *OUTSOD_01*, *OUTSOD_02*, *OUTSOD_03*, and *OUTSOD_04* files are the *OUTSOD* files for 0, 1, 2, 3, and 4 substitutions, respectively. You also need the *ENERGIES_00* ... *ENERGIES_04* files there. Optionally, you can add *DATA_00*, ..., *DATA_04*. The *TEMPERATURES* file can also be provided (optional, as for the canonical statistics). 
 
 In order to do the grand-canonical analysis, you need the grand-canonical input file *INGC*, which has a very simple structure. For example, to set the chemical potential, the first few lines of the file look like this:
 
@@ -166,9 +168,11 @@ To run the grand-canonical analysis, type:
 
 If the naming convention *n??* for the different compositions was followed, and the *x???* file is at the same level of those, the script will copy all the necessary files automatically, so you only need the *INGC* file. The analysis produces a probabilities.dat and a thermodynamics.dat file as in the canonical analysis.   
 
-Finally, it is possible to make a "stress-volume" correction to the energies in the grand-canonical configurational ensemble. This correction is a simple way to account for the fact that if a cell with number of substitutions n (different from xN) contributes to a grand-canonical ensemble representing composition x, there is an additional stress-related energy cost. This is due to the difference in equilibrium volumes at compositions n/N and x. In a first approximation, if we know both the equilibrium volume and bulk module as a function of x, the energy of the stress-volume correction ($ESVC$) is 
+Finally, it is possible to make a "stress-volume" correction to the energies in the grand-canonical configurational ensemble. This correction is a simple way to account for the fact that if a cell with number of substitutions n (different from xN) contributes to a grand-canonical ensemble representing composition x, there is an additional stress-related energy cost. This is due to the difference in equilibrium volumes at compositions n/N and x. In a physically grounded approximation based on the second-order Birch-Murnaghan (BM2) equation of state, the energy of the stress-volume correction ($ESVC$) is
 
-$ESVC(n,x) = \frac{1}{2} B(x) (V(x) - V\left(\frac{n}{N}\right))^2$
+$ESVC(n,x) = \frac{9}{8} V(x) B(x) \left[ \left(\frac{V(x)}{V\left(\frac{n}{N}\right)}\right)^{2/3} - 1 \right]^2$
+
+where $B(x)$ is the bulk modulus and $V(x)$ is the equilibrium volume at composition $x$, and $V(n/N)$ is the equilibrium volume at the composition of the contributing supercell. This expression is positive definite for any volume departure, reduces correctly to $\frac{1}{2} B(x) (\Delta V)^2 / V(x)$ in the small-strain limit, and requires only $B_0$ as a parameter (implicitly assuming $B'=4$).
 
 It is possible to introduce this correction in the grand-canonical analysis by adding the following lines to INGC (see example5): 
 
@@ -194,7 +198,21 @@ Often, what is originally calculated for a given configuration is a list of peak
 will generate the broadened spectra that will be averaged. This requires two input files (with fixed names):
 
 - *PEAKS* contains a list of peaks in each line; each line represents a different configuration (a different spectrum is generated for each configuration)
-- *INP2S* contains other info needed to generate the spectra, e.g. xmin, xmax, broadening(sigma), etc. See example5 for the format.
+- *INP2S* contains other info needed to generate the spectra, e.g. xmin, xmax, broadening(sigma), etc. See in example5, where we use:
+```
+ # nconfs
+ 22
+ # peaks
+ 4
+ # xmin
+ -680
+ # xmax
+ -620
+ # npoints
+ 601
+ # broadening (sigma)
+ 0.85
+```
 
 That generates two output files:
 
@@ -240,4 +258,4 @@ If you use SOD in your research work, please include a citation to this article:
 
 Happy SODing!!!
 
-Ricardo Grau-Crespo (r.grau-crespo@reading.ac.uk) and Said Hamad (said@upo.es)
+Ricardo Grau-Crespo (r.grau-crespo@qmul.ac.uk) and Said Hamad (said@upo.es)

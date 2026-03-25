@@ -1,0 +1,3 @@
+vasp < c1.vasp > c1.vout
+vasp < c2.vasp > c2.vout
+vasp < c3.vasp > c3.vout

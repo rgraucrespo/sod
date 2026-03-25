@@ -18,34 +18,35 @@
 !
 !******************************************************************************
 
-        SUBROUTINE Bubble(A, N)
+subroutine bubble(a, n)
 
-	IMPLICIT NONE
-	INTEGER,PARAMETER :: NATMAX=1000
-	INTEGER :: I,J,ITemp,N
-	INTEGER,DIMENSION(1:NATMAX)   :: A
+  implicit none
+  integer, parameter :: natmax = 1000
+  integer :: i, j, n
+  integer, dimension(1:natmax)   :: a
 
 !
 !       Make N-1 passes through the array.
 !       On pass i, "bubble" the next smallest element
 !       up from the end of the array to position i.
 !
-        DO I = 1, N-1
-        DO J = N, I+1, -1
-            IF (A(J) < A(J-1)) THEN
-              CALL Swap(A(J), A(J-1))
-            ENDIF
-          END DO 
-        END DO 
-        RETURN
-        END
+  do i = 1, n - 1
+  do j = n, i + 1, -1
+    if (a(j) < a(j - 1)) then
+      call swap(a(j), a(j - 1))
+    end if
+  end do
+  end do
+  return
+end
 
-        SUBROUTINE Swap(I, J)
+subroutine swap(i, j)
 !       Exchanges the integers I and J.
-!
-        ITemp = I
-        I = J
-        J = ITemp
-        RETURN
-        END
+  implicit none
+  integer :: i, j, itemp
+  itemp = i
+  i = j
+  j = itemp
+  return
+end
 

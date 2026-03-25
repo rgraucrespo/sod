@@ -30,14 +30,12 @@ M  O
 #                 symbol to be inserted in the rest of the positions for the same species.
 Fe  Sb
 
-# FILER, MAPPER
-# FILER:   0 (no calc files generated), 1 (GULP), 2 (METADISE), 11 (VASP), 12 (CASTEP)
-# MAPPER:  0 (no mapping, use currect structure), >0 (map to structure in MAPTO file)
-# (each position in old structure is mapped to MAPPER positions in new structure)
-11 0
+# FILER: 0 (no calc files generated), 1 (GULP), 2 (METADISE), 11 (VASP), 12 (CASTEP)
+11
 
-# If FILER=1 then: 
-# ishell(1:nsp) 0 core only / 1 core and shell (for the species listed in symbol(1:nsp)) 
-0 0 
+# This section is not read if VASP files are being created
+# If FILER=1 then:
+# ishell(1:nsp) 0 core only / 1 core and shell (for the species listed in symbol(1:nsp))
+0 0
 # newshell(1:2) 0 core only / 1 core and shell (for the species listed in newsymbol(1:2))
 0 0

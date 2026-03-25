@@ -1,10 +1,10 @@
-space group no. 3 (P 2) - unique axis c
-1     
-  1  0  0   0
-  0  1  0   0
-  0  0  1   0  
-2     
-  -1  0  0   0
-  0 -1  0   0
-  0  0  1   0  
+Space group 3 (unique axis c)
+1
+   1   0   0   0
+   0   1   0   0
+   0   0   1   0
+2
+  -1   0   0   0
+   0  -1   0   0
+   0   0   1   0
 0

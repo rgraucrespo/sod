@@ -1,8 +1,8 @@
-       subroutine ksubset(n,k,a,more)
+subroutine ksubset(n, k, a, more)
 
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad 
-!    
+!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!
 !    This file is part of the SOD package.
 !
 !    SOD is free software: you can redistribute it and/or modify
@@ -50,44 +50,42 @@
 !
 !*********************************************************************************
 
-       implicit none
+  implicit none
 
-       integer k
-       integer a(k)
-       integer j
-       integer, save :: m = 0
-       integer, save :: m2 = 0
-       logical more
-       integer n
+  integer k
+  integer a(k)
+  integer j
+  integer, save :: m = 0
+  integer, save :: m2 = 0
+  logical more
+  integer n
 
+  if (k < 1 .or. n < k) then
+    write (*, '(a)') ' '
+    write (*, '(a)') 'KSUB_NEXT - Fatal error!'
+    write (*, '(a,i6)') 'N = ', n
+    write (*, '(a,i6)') 'K = ', k
+    write (*, '(a)') 'but 1 <= K <= N is required!'
+    stop
+  end if
 
-       if ( k < 1 .or. n < k ) then
-         write ( *, '(a)' ) ' '
-         write ( *, '(a)' ) 'KSUB_NEXT - Fatal error!'
-         write ( *, '(a,i6)' ) 'N = ', n
-         write ( *, '(a,i6)' ) 'K = ', k
-         write ( *, '(a)' ) 'but 1 <= K <= N is required!'
-         stop
-       end if
+  if (.not. more) then
+    m2 = 0
+    m = k
+  else
+    if (m2 < n - m) then
+      m = 0
+    end if
+    m = m + 1
+    m2 = a(k + 1 - m)
+  end if
 
-       if ( .not. more ) then
-         m2 = 0
-         m = k
-       else
-         if ( m2 < n-m ) then
-           m = 0
-         end if
-         m = m + 1
-         m2 = a(k+1-m)
-       end if
+  do j = 1, m
+    a(k + j - m) = m2 + j
+  end do
 
-       do j = 1, m
-         a(k+j-m) = m2 + j
-       end do
+  more = a(1) /= (n - k + 1)
 
-       more = a(1) /= (n-k+1)
-
-	return
-	end
-
+  return
+end
 

@@ -30,4 +30,24 @@
 - Made arrays allocatable in gcstatsod.f90, which fixes some issue with gfortran compilar in MacOS.
 - Added the sgo/ folder, which was missing in previous release by mistake. 
 
+## Version 0.60 (March 2026)
+- Removed MAPPER feature entirely from `combsod.f90`, `genersod.f90`, and all INSOD example files.
+- Bug fix: stress-volume correction in `gcstatsod.f90` now uses the correct second-order Birch-Murnaghan expression.
+- Memory guards added to all `allocate` calls in `combsod.f90`; prints an informative error and exits if memory is insufficient.
+- Edge cases handled gracefully: nsubs=0 and nsubs=npos now produce a single valid configuration and exit cleanly; nsubs>npos raises an error.
+- Guard added to entropy calculation to avoid `log(0)` when x=0 or x=1.
+- `sod_vasp_cell.sh` rewritten to support all lattice types (cubic, tetragonal, orthorhombic, hexagonal, rhombohedral, monoclinic, triclinic), matching the functionality of `sod_gulp_cell.sh`.
+- Bug fix: monoclinic cell parameter `a` calculation in `sod_gulp_cell.sh` corrected (was dividing by uninitialised awk variables).
+- Bug fix: `sod_comb.sh` no longer performs `cd ..` when FILER=0 (no CALCS directory is created in that case).
+- Optional xtl and arc output directives for GULP input files, controlled by two new `genxtl` and `genarc` flags in INSOD.
+- Output filenames (e.g. `c01.gin`) now use the minimum zero-padding needed for correct sorting, rather than a fixed 5-digit width. This also removes the previous limit of 99999 configurations.
+- Deleted `sod_bcs2sgo.sh` and `bcs2sgo.awk` (obsolete).
+- Bug fix: example5/INSOD corrected (`natsp0` was `1 1 1` instead of `1 1 2` for the two-oxygen-site pyrochlore structure).
+- Bug fix: `Einf` uninitialised before accumulation in `statsod.f90` (caused wrong infinite-temperature energy).
+- Bug fix: `nat=sum(natsp)` in `genersod.f90` corrected to `nat=sum(natsp(1:nsp))` to avoid summing uninitialised array elements.
+- Bug fix: `sod_gcstat.sh` now copies `DATA` files alongside OUTSOD/ENERGIES for grand-canonical data averaging.
+- Bug fix: `sod_gener.sh` `cd ..` outside the FILER≠0 block corrected; dynamic zero-padding applied (consistent with `sod_comb.sh`).
+- Refactoring: `combsod` now only performs combinatorics; `sod_comb.sh` calls `genersod` automatically when FILER≠0, removing duplicated file-generation code.
+- Code cleanup: removed dead code and commented-out blocks; hardcoded pi values replaced with `acos(-1.0)` in `cell.f90` and `peaks2spec.f90`; obsolete `bcs2sgo` files deleted.
+- Makefile now cross-platform (macOS and Linux).
 

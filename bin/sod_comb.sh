@@ -7,14 +7,19 @@ rm -rf CALCS
 
 clear
 
-combsod
+combsod || { echo "Error: combsod failed"; exit 1; }
 
+if [ ! -f filer ]; then
+  echo "Error: filer not created by combsod"
+  exit 1
+fi
 FILER=$(<filer)
 
-if [ $FILER -ne 0 ]; then
+if [ "$FILER" -ne 0 ]; then
+  genersod
   mkdir -p CALCS
   cd CALCS
-  mv ../fort.* .
+  mv ../fort.* . 2>/dev/null || true
   cp ../OUTSOD .
 
   # FILER=1 for GULP
@@ -47,14 +52,9 @@ if [ $FILER -ne 0 ]; then
 
   ls fort.* > tmp1
 
-  sed s/fort.// tmp1 |awk '{printf ("%+4s\n",$1-100000)}' > tmp3
-
-  awk '{ if ($1<10) {print "0000"$1}}'                 tmp3 > tmp4
-  awk '{ if (($1>9)&&($1<100)) {print "000"$1}}'       tmp3 >>tmp4
-  awk '{ if (($1>99)&&($1<1000)) {print "00"$1}}'      tmp3 >>tmp4
-  awk '{ if (($1>999)&&($1<10000)) {print   "0"$1}}'   tmp3 >>tmp4
-  awk '{ if (($1>9999)&&($1<100000)) {print    $1}}'   tmp3 >>tmp4
-  awk '{ if ($1>99999) {print    "Error in file numbering, too many configurations (> SOD limit = 99999)"}}'  tmp3
+  nconf=$(awk 'END{print NR}' tmp1)
+  ndigits=${#nconf}
+  sed s/fort.// tmp1 | awk -v nd="$ndigits" '{printf "%0" nd "d\n", $1-100000}' > tmp4
 
   awk -v extin=$extin '{print "c"$1"."extin}' tmp4 > tmp5
 
@@ -70,7 +70,7 @@ if [ $FILER -ne 0 ]; then
  ls -l *$extin |awk -v nc=$n_columns_ls -v extout=$extout -v program=$program '{print program,"<",$nc,">",$nc"."extout}' |sed s/$extin.$extout/$extout/  > job_sender
   chmod +x job_sender
 
+  cd ..
 fi
 
-cd ..
-rm -f filer coord* 
+rm -f filer coord*

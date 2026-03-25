@@ -18,21 +18,21 @@
 !
 !******************************************************************************
 
-        SUBROUTINE member(vlength,ivector,iele,f)
-        IMPLICIT NONE
-        INTEGER,PARAMETER :: NSUBSMAX=20
-        INTEGER,DIMENSION(1:NSUBSMAX),INTENT(IN)   :: ivector
-        INTEGER,INTENT(IN) :: iele,vlength
-        INTEGER,INTENT(OUT) :: f
-        INTEGER :: i
+subroutine member(vlength, ivector, iele, f)
+  implicit none
+  integer, parameter :: nsubsmax = 20
+  integer, dimension(1:nsubsmax), intent(in)   :: ivector
+  integer, intent(in) :: iele, vlength
+  integer, intent(out) :: f
+  integer :: i
 
 ! This subrutine checks if iele is a member of ivector
 
-        f=0
-        do i=1,vlength
-           if  (ivector(i).eq.iele) f=1
-        enddo
+  f = 0
+  do i = 1, vlength
+    if (ivector(i) == iele) f = 1
+  end do
 
-        RETURN
-        END
+  return
+end
 

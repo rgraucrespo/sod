@@ -18,11 +18,11 @@
 !
 !******************************************************************************
 
-FUNCTION cc(x) &
-    RESULT(corx)
-    REAL, INTENT(IN) :: x
-    REAL :: corx,tol1=0.0001
-    corx=x-FLOOR(x)
-    IF( corx.gt.(1.0-tol1) ) corx=0.0
-END FUNCTION cc
+function cc(x) &
+  result(corx)
+  real, intent(in) :: x
+  real :: corx, tol1 = 0.0001
+  corx = x - floor(x)
+  if (corx > (1.0 - tol1)) corx = 0.0
+end function cc
 

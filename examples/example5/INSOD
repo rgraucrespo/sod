@@ -11,7 +11,7 @@ Pyrochlore A2B2O7: B site substitution
 La Zr O
 
 # natsp0(1:nsp): Number of atoms for each species (enough to specify those in the asymmetric unit)
-1 1 1
+1 1 2
 
 # coords0(1:nat0,1:3): Coordinates of each atom (one line per atom)
 0.0 0.0 0.0
@@ -32,14 +32,14 @@ La Zr O
 #                 symbol to be inserted in the rest of the positions for the same species.
 Sn Zr
 
-# FILER, MAPPER
-# FILER:   0 (no calc files generated), 1 (GULP), 2 (METADISE), 11 (VASP), 12 (CASTEP)
-# MAPPER:  0 (no mapping, use currect structure), >0 (map to structure in MAPTO file)
-# (each position in old structure is mapped to MAPPER positions in new structure)
-1 0
+# FILER: 0 (no calc files generated), 1 (GULP), 2 (METADISE), 11 (VASP), 12 (CASTEP)
+11
 
+# This section is not read if VASP files are being created
 # If FILER=1 then:
 # ishell(1:nsp) 0 core only / 1 core and shell (for the species listed in symbol(1:nsp))
-0 0 1
+0 0 0
 # newshell(1:2) 0 core only / 1 core and shell (for the species listed in newsymbol(1:2))
+0 0
+# genxtl, genarc: 1/0 to add xtl / arc output directives to GULP input
 0 0

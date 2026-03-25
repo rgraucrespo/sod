@@ -18,399 +18,369 @@
 !
 !******************************************************************************
 
-       PROGRAM stats 
+program stats
 
-       IMPLICIT NONE
+  implicit none
 
-       INTEGER,PARAMETER :: NCONFMAX=10000, NCOLMAX=10, NPOINTSMAX=800, NTEMPMAX=50
-       REAL (kind=8),PARAMETER :: kB=8.61734E-5, tolprob=1.0E-12, tolminspec=1.0E-6
-       INTEGER :: m, auxm, Mm, g, ncol, npoints, col, tt, Ntt, nsubs, point
-       INTEGER :: mEmin, mEmax
-       REAL (kind=8)  :: Emin, Emax, paux, maxspec
-       REAL (kind=8),DIMENSION(NTEMPMAX) :: Z,E,F,S,T
-       REAL (kind=8) :: Zinf, Einf, Sinf
-       REAL (kind=8),DIMENSION(NCONFMAX) :: ene, Erel 
-       REAL (kind=8),DIMENSION(NCONFMAX,NTEMPMAX) :: p
-       REAL (kind=8),DIMENSION(NCONFMAX) :: pinf
-       INTEGER,DIMENSION(NCONFMAX) :: conf,omega
-       REAL (kind=8),DIMENSION(NCOLMAX,NCONFMAX) :: data 
-       REAL (kind=8),DIMENSION(NCOLMAX,NTEMPMAX) :: avedata 
-       REAL (kind=8),DIMENSION(NPOINTSMAX,NCONFMAX) :: spec 
-       REAL (kind=8),DIMENSION(NPOINTSMAX,NTEMPMAX) :: avespec 
-       REAL (kind=8),DIMENSION(NCOLMAX) :: avedatainf 
-       REAL (kind=8),DIMENSION(NPOINTSMAX) :: xspec, avespecinf 
-       CHARACTER(len=30) fmtemplist
-       LOGICAL :: TEMPERATURES_exists, DATA_exists, SPECTRA_exists
-       INTEGER :: n, npos
-
-
+  integer, parameter :: nconfmax = 10000, ncolmax = 10, npointsmax = 800, ntempmax = 50
+  real(kind=8), parameter :: kb = 8.61734e-5, tolprob = 1.0e-12, tolminspec = 1.0e-6
+  integer :: m, auxm, mm, ncol, npoints, col, tt, ntt, nsubs, point, ios
+  integer :: memin, memax
+  real(kind=8)  :: emin, emax, maxspec
+  real(kind=8), dimension(ntempmax) :: z, e, f, s, t
+  real(kind=8) :: zinf, einf, sinf
+  real(kind=8), dimension(nconfmax) :: ene, erel
+  real(kind=8), dimension(nconfmax, ntempmax) :: p
+  real(kind=8), dimension(nconfmax) :: pinf
+  integer, dimension(nconfmax) :: omega
+  real(kind=8), dimension(ncolmax, nconfmax) :: data
+  real(kind=8), dimension(ncolmax, ntempmax) :: avedata
+  real(kind=8), dimension(npointsmax, nconfmax) :: spec
+  real(kind=8), dimension(npointsmax, ntempmax) :: avespec
+  real(kind=8), dimension(ncolmax) :: avedatainf
+  real(kind=8), dimension(npointsmax) :: xspec, avespecinf
+  character(len=30) fmtemplist
+  logical :: temperatures_exists, data_exists, spectra_exists
 
 !Input files
 
-       INQUIRE(FILE="TEMPERATURES", EXIST=TEMPERATURES_exists)
-       if (TEMPERATURES_exists) then
-          OPEN (UNIT=10, FILE="TEMPERATURES")
-       endif
+  inquire (file="TEMPERATURES", exist=temperatures_exists)
+  if (temperatures_exists) then
+    open (unit=10, file="TEMPERATURES")
+  end if
 
-       OPEN (UNIT=11,FILE="OUTSOD")
-       OPEN (UNIT=12,FILE="ENERGIES")
+  open (unit=11, file="OUTSOD")
+  open (unit=12, file="ENERGIES")
 
-       INQUIRE(FILE="DATA", EXIST=DATA_exists)
-       if (DATA_exists) then
-          write (*,*) "DATA file found"
-          write (*,*) 
-          OPEN (UNIT=13, FILE="DATA")
-       else
-          write(*,*) "DATA file not found. No averaging of DATA will be performed."
-       endif
+  inquire (file="DATA", exist=data_exists)
+  if (data_exists) then
+    write (*, *) "DATA file found"
+    write (*, *)
+    open (unit=13, file="DATA")
+  else
+    write (*, *) "DATA file not found. No averaging of DATA will be performed."
+  end if
 
-       INQUIRE(FILE="SPECTRA", EXIST=SPECTRA_exists)
-       if (SPECTRA_exists) then
-          write (*,*) "SPECTRA file found"
-          write (*,*) 
-          OPEN (UNIT=14, FILE="SPECTRA")
-          OPEN (UNIT=15, FILE="XSPEC")
-       else
-          write(*,*) "SPECTRA file not found. No averaging of SPECTRA will be performed."
-       endif
+  inquire (file="SPECTRA", exist=spectra_exists)
+  if (spectra_exists) then
+    write (*, *) "SPECTRA file found"
+    write (*, *)
+    open (unit=14, file="SPECTRA")
+    open (unit=15, file="XSPEC")
+  else
+    write (*, *) "SPECTRA file not found. No averaging of SPECTRA will be performed."
+  end if
 
 !Output files
-       OPEN (UNIT=20,FILE="probabilities.dat")
-       OPEN (UNIT=21,FILE="thermodynamics.dat")
-       
-       if (DATA_exists) then
-           OPEN (UNIT=22,FILE="ave_data.dat")
-       endif
+  open (unit=20, file="probabilities.dat")
+  open (unit=21, file="thermodynamics.dat")
 
-       if (SPECTRA_exists) then
-           OPEN (UNIT=23,FILE="ave_spectra.dat")
-       endif
+  if (data_exists) then
+    open (unit=22, file="ave_data.dat")
+  end if
+
+  if (spectra_exists) then
+    open (unit=23, file="ave_spectra.dat")
+  end if
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Read the TEMPERATURES files
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-        if (TEMPERATURES_exists) then
-           tt=1
-  1        continue
-           read(10,*,end=10)  T(tt)
-           tt=tt+1
-           goto 1
-  10       continue
-           Ntt=tt-1
-           CLOSE (10)
-        else
-           T(1)=1.0
-           T(2)=300.0
-           T(3)=1000.0
-           Ntt=3
-        endif
+  if (temperatures_exists) then
+    tt = 1
+    do
+      read (10, *, iostat=ios) t(tt)
+      if (ios /= 0) exit
+      tt = tt + 1
+    end do
+    ntt = tt - 1
+    close (10)
+  else
+    t(1) = 1.0
+    t(2) = 300.0
+    t(3) = 1000.0
+    ntt = 3
+  end if
 
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !      Read the OUTSOD file, which is the output from SOD,
+  !      giving configuration numbers and degeneracies
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
+  read (11, *) nsubs
+  read (11, *) mm
+  do m = 1, mm
+    read (11, *) auxm, omega(m)
+  end do
+  close (11)
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !      Read the OUTSOD file, which is the output from SOD, 
-    !      giving configuration numbers and degeneracies
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !      Read ENERGIES
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    read(11,*) nsubs 
-    read(11,*) Mm 
-    do m=1, Mm
-        read(11,*)  auxm, omega(m)
-    enddo
-    CLOSE (11)
+  do m = 1, mm
+    read (12, *) ene(m)
+  end do
+  close (12)
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !      Read ENERGIES 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !      Read the data file, DATA
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    do m=1,Mm
-       read(12,*) ene(m)
-    enddo
-    CLOSE (12)
+  if (data_exists) then
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !      Read the data file, DATA 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    read (13, *) ncol
+    do m = 1, mm
+      read (13, *) data(1:ncol, m)
+    end do
+    close (13)
+  end if
 
-    if (DATA_exists) then
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !      Read the SPECTRA and XSPEC files, and calculate maximum spectrum intensity
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-       read(13,*) ncol
-       do m=1,Mm
-          read(13,*) data(1:ncol,m) 
-       enddo
-       CLOSE (13)
-    endif
+  if (spectra_exists) then
+    write (*, *) "Reading SPECTRA file..."
+    write (*, *)
+    read (14, *) npoints
+    do m = 1, mm
+      read (14, *) spec(1:npoints, m)
+    end do
+    close (14)
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !      Read the SPECTRA and XSPEC files, and calculate maximum spectrum intensity 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    maxspec = maxval(spec)
 
+    do point = 1, npoints
+      read (15, *) xspec(point)
+    end do
+    close (15)
 
-    if (SPECTRA_exists) then
-       write(*,*) "Reading SPECTRA file..."
-       write(*,*) 
-       read(14,*) npoints
-       do m=1,Mm
-          read(14,*) spec(1:npoints,m)
-       enddo
-       CLOSE (14)
+  end if
 
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       Start writing thermodynamics.dat file
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-       maxspec=MAXVAL(spec)
+  write (21, *) "       T             E               F          S             "
 
-       do point=1,npoints 
-          read(15,*)  xspec(point)
-       enddo
-       CLOSE (15)
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       Start writing ave_data.dat file
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    endif
+  if (data_exists) then
+    write (22, *) "       T    Average data"
+  end if
 
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       Start writing ave_spectra.dat file
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       Start writing thermodynamics.dat file
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  if (spectra_exists) then
+    write (23, *) "x   ", t(1:ntt), "    Infinity"
+  end if
 
-    write(21,*) "       T             E               F          S             "
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !          Get minimum and maximum energies and relative energies with
+  !          respect to minimum in order to get better accuracy for the
+  !          exponential calculations
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       Start writing ave_data.dat file
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  emin = ene(1)
+  emax = ene(1)
+  memin = 1
+  memax = 1
+  do m = 2, mm
+    if (emin > ene(m)) then
+      emin = ene(m)
+      memin = m
+    end if
+    if (emax < ene(m)) then
+      emax = ene(m)
+      memax = m
+    end if
+  end do
 
-    if (DATA_exists) then
-       write(22,*) "       T    Average data"
-    endif
+  write (20, *) "Configuration with minimum energy: ", memin
+  write (20, *) "Configuration with maximum energy: ", memax
+  write (20, *)
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       Start writing ave_spectra.dat file
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  do m = 1, mm
+    erel(m) = ene(m) - emin
+  end do
 
-    if (SPECTRA_exists) then
-!       WRITE(fmtemplist,'(a4,i1,a15)') "(a6,",Ntt,adjustl("(f13.1,2x),a12)")
-!       write(23,fmtemplist) "x   ",     T(1:Ntt),"    Infinity"
-! XXX Arreglar esto
-       write(23,*) "x   ",     T(1:Ntt)
-    endif
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       This starts the loop over all temperature values
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
+  do tt = 1, ntt
 
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!          Calculate the partition function and probabilities
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-            
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !          Get minimum and maximum energies and relative energies with
-    !          respect to minimum in order to get better accuracy for the 
-    !          exponential calculations
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    z(tt) = 0.0
+    do m = 1, mm
+      z(tt) = z(tt) + omega(m)*exp(-erel(m)/(kb*t(tt)))
+    end do
 
-    Emin=ene(1)
-    Emax=ene(1)
-    mEmin=1
-    mEmax=1
-    do m=2,Mm
-       if (Emin > ene(m)) then
-           Emin=ene(m)
-           mEmin=m
-       endif
-       if (Emax < ene(m)) then
-           Emax=ene(m)
-           mEmax=m
-       endif
-    enddo                        
+    do m = 1, mm
+      p(m, tt) = omega(m)*exp(-erel(m)/(kb*t(tt)))/z(tt)
+    end do
 
-    write(20,*) "Configuration with minimum energy: ", mEmin
-    write(20,*) "Configuration with maximum energy: ", mEmax
-    write(20,*)
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Calculate the energy (E) and Helmholtz free energy (F)
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-    do m=1,Mm
-        Erel(m) = ene(m) - Emin
-    enddo
+    e(tt) = 0.0
+    s(tt) = 0.0
 
+    do m = 1, mm
+      e(tt) = e(tt) + ene(m)*p(m, tt)
+    end do
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       This starts the loop over all temperature values
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    f(tt) = emin - kb*t(tt)*log(z(tt))
 
-    do tt=1,Ntt
+    s(tt) = (e(tt) - f(tt))/t(tt)
 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !          Calculate the partition function and probabilities
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Calculate the average data
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-       Z(tt)=0.0
-       do m=1,Mm
-          Z(tt)=Z(tt)+omega(m)*exp(-Erel(m)/(kB*T(tt)))
-       enddo
-    
-       do m=1,Mm
-          p(m,tt)=omega(m)*exp(-Erel(m)/(kB*T(tt)))/Z(tt)
-       enddo
+    if (data_exists) then
 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !      Calculate the energy (E) and Helmholtz free energy (F)
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      avedata(1:ncol, tt) = 0.0
 
-       E(tt)=0.0
-       S(tt)=0.0
-     
-       do m=1,Mm
-          E(tt)=E(tt)+ene(m)*p(m,tt)
-       enddo
+      do col = 1, ncol
+        do m = 1, mm
+          avedata(col, tt) = avedata(col, tt) + data(col, m)*p(m, tt)
+        end do
+      end do
 
-       F(tt)=Emin-kB*T(tt)*log(Z(tt))
+    end if
 
-       S(tt)=(E(tt)-F(tt))/T(tt)
-    
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Calculate the average spectra
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !      Calculate the average data
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    if (spectra_exists) then
 
-       if (DATA_exists) then
-        
-           avedata(1:ncol,tt)=0.0
-        
-           do col=1,ncol
-              do m=1,Mm
-                 avedata(col,tt)=avedata(col,tt)+data(col,m)*p(m,tt)
-              enddo
-           enddo
-        
-        endif
+      avespec(1:npoints, tt) = 0.0
 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !      Calculate the average spectra
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      do point = 1, npoints
+        do m = 1, mm
+          avespec(point, tt) = avespec(point, tt) + spec(point, m)*p(m, tt)
+        end do
+        if (avespec(point, tt)/maxspec < tolminspec) then
+          avespec(point, tt) = 0.0
+        end if
+      end do
 
-       if (SPECTRA_exists) then
+    end if
 
-           avespec(1:npoints,tt)=0.0
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!          Write PROBABILITIES for each temperature T
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    write (20, 100) "Temperature=", t(tt)
+100 format(a12, 2x, f10.4)
+    write (20, *) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
+    do m = 1, mm
+      write (20, 101) m, omega(m), erel(m), p(m, tt), p(m, tt)/omega(m)
+101   format(i10, 2x, i8, 2x, e12.6, 2(2x, f10.4))
+    end do
 
-           do point=1,npoints
-              do m=1,Mm
-                 avespec(point,tt)=avespec(point,tt)+spec(point,m)*p(m,tt)
-              enddo
-              if (avespec(point,tt)/maxspec.lt.tolminspec) then 
-                 avespec(point,tt)=0.0
-              endif
-           enddo
+    write (20, *)
+    write (20, *)
 
-        endif
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!          Write thermodynamic information for each temperature T
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
+    write (21, 200) t(tt), e(tt), f(tt), s(tt)
+200 format(f10.1, 2x, 2(f14.4, 2x), e12.6)
 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !          Write PROBABILITIES for each temperature T 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       write(20,100) "Temperature=",T(tt)
-  100         format(a12,2x,f10.4)
-       write(20,*) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
-       do m=1,Mm
-          write(20,101) m,omega(m),Erel(m),p(m,tt),p(m,tt)/omega(m)
-  101         format(i10,2x,i8,2x,e12.6,2(2x,f10.4))
-       enddo
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!       Writing ave_data for each temperature
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-       write(20,*) 
-       write(20,*)
-
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !          Write thermodynamic information for each temperature T 
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-       write(21,200)  T(tt), E(tt), F(tt), S(tt)
-  200          format(f10.1,2x,2(f14.4,2x),e12.6)
-
-
-
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-       !       Writing ave_data for each temperature
-       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      
-       if (DATA_exists) then
-          write(22,201)  T(tt), avedata(1:ncol,tt) 
-  201          format(f10.1,2x,10(f10.4,2x))
-       endif
-
-
-
-
+    if (data_exists) then
+      write (22, 201) t(tt), avedata(1:ncol, tt)
+201   format(f10.1, 2x, 10(f10.4, 2x))
+    end if
 
     !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     !       This ends the loop over all temperature values
     !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    enddo 
+  end do
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       Calculating results in the limit of infinite temperature
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
- 
-    Zinf=0.0
-    do m=1,Mm
-       Zinf=Zinf+omega(m)
-    enddo                                                                                
- 
-    do m=1,Mm
-       pinf(m)=omega(m)/Zinf
-    enddo
- 
-    do m=1,Mm
-       Einf=Einf+ene(m)*pinf(m)
-    enddo
- 
-    Sinf=kB*log(Zinf)
- 
-    write(20,*) "Infinite Temperature Limit"
-    write(20,*) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
-    do m=1,Mm
-       write(20,101) m, omega(m), Erel(m), pinf(m), pinf(m)/omega(m)
-    enddo
- 
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       Calculating results in the limit of infinite temperature
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
+  zinf = 0.0
+  einf = 0.0
+  do m = 1, mm
+    zinf = zinf + omega(m)
+  end do
 
-    write(21,300)  "Infinite", Einf, " - ",Sinf
-   300         format(a10,2x,f14.4,8x,a3,7x,e12.6)
+  do m = 1, mm
+    pinf(m) = omega(m)/zinf
+  end do
 
-    if (DATA_exists) then
-       avedatainf(1:ncol)=0.0
-       do m=1,Mm
-          do col=1,ncol
-             avedatainf(col)=avedatainf(col)+data(col,m)*pinf(m)
-          enddo
-       enddo
-       write(22,301) adjustr("Infinite"), avedatainf(1:ncol) 
-   301         format(a10,2x,10(f10.4,2x))
-   endif
+  do m = 1, mm
+    einf = einf + ene(m)*pinf(m)
+  end do
 
-    if (SPECTRA_exists) then
-       avespecinf(1:npoints)=0.0
-       do point=1,npoints
-          do m=1,Mm
-             avespecinf(point)=avespecinf(point)+spec(point,m)*pinf(m)
-          enddo
-          if (avespecinf(point)/maxspec.lt.tolminspec) then
-             avespecinf(point)=0.0
-          endif
-       enddo
-   endif
+  sinf = kb*log(zinf)
 
+  write (20, *) "Infinite Temperature Limit"
+  write (20, *) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
+  do m = 1, mm
+    write (20, 101) m, omega(m), erel(m), pinf(m), pinf(m)/omega(m)
+  end do
 
+  write (21, 300) "Infinite", einf, " - ", sinf
+300 format(a10, 2x, f14.4, 8x, a3, 7x, e12.6)
 
+  if (data_exists) then
+    avedatainf(1:ncol) = 0.0
+    do m = 1, mm
+      do col = 1, ncol
+        avedatainf(col) = avedatainf(col) + data(col, m)*pinf(m)
+      end do
+    end do
+    write (22, 301) adjustr("Infinite"), avedatainf(1:ncol)
+301 format(a10, 2x, 10(f10.4, 2x))
+  end if
 
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-    !       Writing ave_spectra for all temperatures
-    !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  if (spectra_exists) then
+    avespecinf(1:npoints) = 0.0
+    do point = 1, npoints
+      do m = 1, mm
+        avespecinf(point) = avespecinf(point) + spec(point, m)*pinf(m)
+      end do
+      if (avespecinf(point)/maxspec < tolminspec) then
+        avespecinf(point) = 0.0
+      end if
+    end do
+  end if
 
-    if (SPECTRA_exists) then
-       do point=1,npoints
-          write(23,302) xspec(point),avespec(point,1:Ntt),avespecinf(point)
-       enddo
-   302         format(1(f10.3,2x),7(e12.6,2x))
-    endif
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !       Writing ave_spectra for all temperatures
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
+  if (spectra_exists) then
+    write (fmtemplist, '(a,i0,a)') '(f10.3,2x,', ntt + 1, '(e12.6,2x))'
+    do point = 1, npoints
+      write (23, fmtemplist) xspec(point), avespec(point, 1:ntt), avespecinf(point)
+    end do
+  end if
 
-
-    CLOSE(20)
-    CLOSE(21)
-    if (DATA_exists) CLOSE(22)
-    if (SPECTRA_exists) CLOSE(23)
-
+  close (20)
+  close (21)
+  if (data_exists) close (22)
+  if (spectra_exists) close (23)
 
 end
 
