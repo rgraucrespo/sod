@@ -51,3 +51,9 @@
 - Code cleanup: removed dead code and commented-out blocks; hardcoded pi values replaced with `acos(-1.0)` in `cell.f90` and `peaks2spec.f90`; obsolete `bcs2sgo` files deleted.
 - Makefile now cross-platform (macOS and Linux).
 
+## Version 0.61 (March 2026)
+- Three TODO fixes: graceful failure when configuration count overflows integer range; blank line after FILER value no longer required in INSOD when no classical-code block follows (filer >= 10); calculation input folder renamed from `CALCS` to `nXX` (XX = zero-padded number of substitutions), with existence check to prevent overwriting.
+- Classical-code block in INSOD (ishell, newshell, genxtl, genarc) is now read for all filer < 10, including filer = 0.
+- Bug fix: stale `indcount > 99999` guards removed from CASTEP case in `genersod.f90`.
+- New feature: Quantum ESPRESSO input files (filer = 13, extension `.pwi`). `genersod` writes `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}`, sandwiched between user-supplied `top.qe` and `bottom.qe` templates.
+

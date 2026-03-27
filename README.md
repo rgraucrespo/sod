@@ -1,4 +1,4 @@
-# SOD 0.60 - Notes for users
+# SOD 0.61 - Notes for users
 
 SOD (standing for Site-Occupation Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -21,11 +21,25 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - sod(version)/src contains the source files.
 - sod(version)/sgo is a library of space group operators (e.g. 131.sgo contains the operators of the space group 131).
 - sod(version)/bin contains the executables. Compile for your platform using `make all`.
-- sod(version)/examples contains five examples, covering rocksalt (MgO), inverse spinel (magnetite), rutile, perovskite (LaFeO3) and pyrochlore (La2Zr2O7) structures.
+- sod(version)/examples contains six examples, covering rocksalt (MgO), inverse spinel (magnetite), rutile, perovskite (LaFeO3), pyrochlore (La2Zr2O7) and wurtzite (ZnO) structures.
+
+## Examples
+
+- **example1**: Ca/Mg substitutions in a 2×2×2 supercell of rocksalt MgO. VASP input files created.
+
+- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (cubic unit cell of the spinel structure). The substitution occurs in both tetrahedral and octahedral sites, allowing the study of the distribution of substitutions over the two different sites. VASP input files created.
+
+- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄. Starting from a generic MO₂ composition, M(IV) is replaced by equal parts of Fe(III) and Sb(V). VASP input files created. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
+
+- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite, using GULP. Also contains examples of energy extrapolation using SPBE0 and SPBE1 (see folders inside n04) and of grand-canonical statistics (x0.25 folder).
+
+- **example5**: Averaging NMR spectra in the canonical or grand-canonical configurational space of the La₂Zr₂O₇–La₂Sn₂O₇ solid solution. CASTEP input files are generated (FILER=12). The DFT calculation files are excluded to save space; only the statistical analysis files (ENERGIES, PEAKS, SPECTRA, etc.) are included in the n00–n16 folders.
+
+- **example6**: Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group 186, P6₃mc). The 8 cation sites with 2 Mg substitutions (Mg₀.₂₅Zn₀.₇₅O) reduce to 3 inequivalent configurations under the hexagonal symmetry. Quantum ESPRESSO input files are generated (FILER=13). Includes `top.qe` and `bottom.qe` templates; replace `Mg.upf`, `Zn.upf`, `O.upf` with your pseudopotential files before running.
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.60.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.61.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -81,7 +95,7 @@ sod_comb.sh
 
 - It also writes the file *EQMATRIX*, which gives information about  how each supercell operator transforms each atom position. 
 
-- The directory *CALCS* is generated, which contains the input files for GULP or VASP, a copy of the *OUTSOD* and *EQMATRIX* files,  and a script that sends the job. It is good practice to rename the *CALCS* folders as *n01*, *n02*, etc depending on the number of substitutions. That folder structure is used by some of the other sod executables (say for statistics or for energy extrapolation). 
+- A folder named *nXX* is generated (where XX is the zero-padded number of substitutions, e.g. *n04*), which contains the calculation input files, a copy of *OUTSOD*, and a script that sends the jobs. This naming convention is used by the other SOD scripts for statistics and energy extrapolation.
 
 
 ## Configurational averages and thermodynamics:
@@ -241,7 +255,7 @@ However,  the easiest way to run the spbe module is like this:
 
 - Use the names n00 n01 n02 n03 etc for the folders containing the calculations for 0, 1, 2, 3... substitutions. 
 - Make sure that the folders n00, n01 and n02 contain an ENERGIES and an OUTSOD file each (OUTSOD is not necessary for n00)
-- If you want to use spbe, say, for n=3, first run ```sod_comb``` for n=3 substitutions, rename CALCS to n03, and create a folder within n03, say n03/spbe/
+- If you want to use spbe, say, for n=3, first run ```sod_comb.sh``` for n=3 substitutions (this automatically creates the folder n03), and create a subfolder within it, say n03/spbe/
 - From the n03/spbe folder, just run the script ```sod_spbe0.sh```, which will copy the relevant input files into the current folder and will call ```spbesod```
 - It is also possible to run the spbe program using data from the other end of the solid solution (i.e. *x*=1). In that case, run the script ```sod_spbe1.sh```, which will copy the files from the folders with *N*, *N*-1, *N*-2 substitutions, will "invert" the OUTSOD files as needed, and call ```spbesod```. 
 

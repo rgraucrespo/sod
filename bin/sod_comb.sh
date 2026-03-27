@@ -1,9 +1,8 @@
 #!/bin/bash
-# This script generates the correct names for the input files 
+# This script generates the correct names for the input files
 # It also generates a script that can be used to run all the simulations
 
-rm -f OUTSOD SUPERCELL EQMATRIX OPERATORS cSGO 
-rm -rf CALCS
+rm -f OUTSOD SUPERCELL EQMATRIX OPERATORS cSGO
 
 clear
 
@@ -16,9 +15,15 @@ fi
 FILER=$(<filer)
 
 if [ "$FILER" -ne 0 ]; then
+  NSUBS=$(awk 'NR==1{print $1}' OUTSOD)
+  FOLDER="n$(printf "%02d" $NSUBS)"
+  if [ -d "$FOLDER" ]; then
+    echo "Error: folder $FOLDER already exists. Remove it first to avoid overwriting."
+    exit 1
+  fi
   genersod
-  mkdir -p CALCS
-  cd CALCS
+  mkdir -p "$FOLDER"
+  cd "$FOLDER"
   mv ../fort.* . 2>/dev/null || true
   cp ../OUTSOD .
 
@@ -27,14 +32,14 @@ if [ "$FILER" -ne 0 ]; then
     extin="gin"
     extout="gout"
     program="gulp"
-  fi  
+  fi
 
   # FILER=2 for METADISE
   if [ $FILER -eq 2 ]; then
     extin="min"
     extout="mout"
     program="metadise"
-  fi 
+  fi
 
   # FILER=11 for VASP
   if [ $FILER -eq 11 ]; then
@@ -48,6 +53,13 @@ if [ "$FILER" -ne 0 ]; then
     extin="cell"
     extout="castep"
     program="castep"
+  fi
+
+  # FILER=13 for Quantum ESPRESSO
+  if [ $FILER -eq 13 ]; then
+    extin="pwi"
+    extout="pwo"
+    program="pw.x"
   fi
 
   ls fort.* > tmp1

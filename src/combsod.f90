@@ -99,7 +99,7 @@ program combsod
 !
 
   write (*, *) "**************************************************************************** "
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.60  "
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.61  "
   write (*, *) " "
   write (*, *) "         Authors: R. Grau-Crespo and S. Hamad                                   "
   write (*, *) " "
@@ -175,9 +175,9 @@ program combsod
   read (9, *)
   read (9, *)
   read (9, *) filer
-  read (9, *)
 
-  if ((filer > 0) .and. (filer < 10)) then
+  if (filer < 10) then
+    read (9, *)        ! blank line after filer
     read (9, *)
     read (9, *)
     read (9, *) (ishell(sp), sp=1, nsp)
@@ -532,6 +532,11 @@ program combsod
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   ntc = combinations(nsubs, npos)
+  if (ntc <= 0) then
+    write (*, *) "Error: the total number of configurations exceeds the integer range."
+    write (*, *) "       The problem is too large for SOD. Reduce supercell or substitutions."
+    stop
+  end if
   maxentropy = kb*log(real(ntc))
   write (*, *) " "
   write (*, *) "       Total number of configurations in the supercell:     ", ntc

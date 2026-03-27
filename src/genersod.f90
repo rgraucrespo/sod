@@ -131,9 +131,9 @@ program genersod
   read (9, *)
   read (9, *)
   read (9, *) filer
-  read (9, *)
 
-  if ((filer > 0) .and. (filer < 10)) then
+  if (filer < 10) then
+    read (9, *)        ! blank line after filer
     read (9, *)
     read (9, *)
     read (9, *) (ishell(sp), sp=1, nsp)
@@ -231,7 +231,7 @@ program genersod
   case (1)
 
     write (*, *) " "
-    write (*, *) "Creating input files for GULP in ./CALCS... "
+    write (*, *) "Creating input files for GULP in calculation folder... "
     write (*, *) " "
 
     open (unit=41, file="top.gulp")
@@ -294,7 +294,7 @@ program genersod
   case (2)
 
     write (*, *) " "
-    write (*, *) "Creating input files for METADISE in ./CALCS... "
+    write (*, *) "Creating input files for METADISE in calculation folder..."
     write (*, *) " "
 
     open (unit=51, file="top.metadise")
@@ -348,7 +348,7 @@ program genersod
   case (11)
 
     write (*, *) " "
-    write (*, *) "Creating input files for VASP in ./CALCS... "
+    write (*, *) "Creating input files for VASP in calculation folder..."
     write (*, *) " "
 
     title = 'vasp'
@@ -420,7 +420,7 @@ program genersod
   case (12)
 
     write (*, *) " "
-    write (*, *) "Creating input files for CASTEP in ./CALCS... "
+    write (*, *) "Creating input files for CASTEP in calculation folder..."
     write (*, *) " "
 
     open (unit=62, file="bottom.castep")
@@ -456,10 +456,6 @@ program genersod
 
       write (indcount + 100000, '(a24)') "%ENDBLOCK positions_frac"
 
-      if (indcount > 99999) then
-        write (indcount + 100000, *) "Error, too many configurations (>99999)! Calculation files not written!"
-      end if
-
       do l = 1, nlineamax
         read (62, 332, end=499) linea
         write (indcount + 100000, 333) linea
@@ -467,15 +463,70 @@ program genersod
 499   continue
       rewind (62)
 
-      if (indcount > 99999) then
-        write (indcount + 100000, *) "Error, too many configurations (>99999)! Calculation files not written!"
-      end if
-
       close (unit=indcount + 100000)
 
     end do
 
     close (unit=62)
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!  QUANTUM ESPRESSO !!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  case (13)
+
+    write (*, *) " "
+    write (*, *) "Creating input files for Quantum ESPRESSO in calculation folder... "
+    write (*, *) " "
+
+    open (unit=63, file="top.qe")
+    open (unit=64, file="bottom.qe")
+
+    call cell(cellvector, a, b, c, alpha, beta, gamma)
+
+    do indcount = 1, nic
+      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+
+      do l = 1, nlineamax
+        read (63, 332, end=599) linea
+        write (indcount + 100000, 332) linea
+      end do
+599   continue
+      rewind (63)
+
+      write (indcount + 100000, '(a26)') "CELL_PARAMETERS {angstrom}"
+      write (indcount + 100000, 335) cellvector(1, 1), cellvector(2, 1), cellvector(3, 1)
+      write (indcount + 100000, 335) cellvector(1, 2), cellvector(2, 2), cellvector(3, 2)
+      write (indcount + 100000, 335) cellvector(1, 3), cellvector(2, 3), cellvector(3, 3)
+
+      write (indcount + 100000, '(a26)') "ATOMIC_POSITIONS {crystal}"
+      do at = 1, nat
+        sp = spat(at)
+        if (sp /= sptarget) then
+          write (indcount + 100000, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
+        else
+          att = at - atini + 1
+          call member(nsubs, newconf, att, ifound)
+          if (ifound == 1) then
+            write (indcount + 100000, 337) newsymbol(1), coords(at, 1), coords(at, 2), coords(at, 3)
+          else
+            write (indcount + 100000, 337) newsymbol(2), coords(at, 1), coords(at, 2), coords(at, 3)
+          end if
+        end if
+      end do
+
+      do l = 1, nlineamax
+        read (64, 332, end=699) linea
+        write (indcount + 100000, 333) linea
+      end do
+699   continue
+      rewind (64)
+
+      close (unit=indcount + 100000)
+
+    end do
+
+    close (unit=63)
+    close (unit=64)
 
   end select
 
