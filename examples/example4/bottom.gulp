@@ -1,0 +1,26 @@
+#                                                                                    
+#  BUSH -library of potentials for GULP                                              
+#                                                                                    
+#  from T.S.Bush, J.D.Gale, C.R.A.Catlow and P.D. Battle                             
+#  J. Mater Chem., 4, 831-837 (1994)                                                 
+#                                                                                    
+species                                                                              
+Fe core  1.971                                                                       
+Fe shel  1.029                                                                       
+Al core  0.043                                                                       
+Al shel  2.957                                                                       
+La core  5.149                                                                       
+La shel -2.149                                                                       
+O  core  0.513                                                                       
+O  shel -2.513                                                                       
+buckingham                                                                           
+Fe shel O shel  3219.335 0.2641  0.00 0.0 10.0                                       
+Al shel O shel  2409.505 0.2649  0.00 0.0 10.0                                       
+La shel O shel  5436.827 0.2939  0.00 0.0 10.0                                       
+O  shel O shel    25.410 0.6937 32.32 0.0 12.0                                       
+spring                                                                               
+Fe 179.58                                                                            
+Al 403.98                                                                            
+La 173.90                                                                            
+O   20.53                                                                            
+gmax 0.01                                                                            

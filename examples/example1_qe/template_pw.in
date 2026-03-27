@@ -1,0 +1,29 @@
+&CONTROL
+  calculation = 'relax'
+  prefix = 'NiMgO_@configuration_number@'
+  outdir = './out'
+  pseudo_dir = '../../pseudo'
+/
+&SYSTEM
+  ibrav = 0
+  nat = 64
+  ntyp = 3
+  ecutwfc = 60.0
+  ecutrho = 480.0
+/
+&ELECTRONS
+  conv_thr = 1.0d-8
+/
+&IONS
+  ion_dynamics = 'bfgs'
+/
+
+ATOMIC_SPECIES
+  Ni  58.6934  Ni.upf
+  Mg  24.3050  Mg.upf
+  O   15.9994  O.upf
+
+@configuration_structure@
+
+K_POINTS automatic
+  4 4 4  0 0 0

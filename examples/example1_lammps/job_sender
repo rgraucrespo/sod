@@ -1,0 +1,4 @@
+#!/bin/bash
+for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
+  (cd "$dir" && lmp < in.lammps > out.lammps)
+done

@@ -1,0 +1,34 @@
+# Title
+Ni/Mg substitutions in MgO rocksalt
+
+# a,b,c,alpha,beta,gamma
+4.22  4.22  4.22  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+2
+
+# symbol(1:nsp): Atom symbols
+Mg O
+
+# natsp0(1:nsp): Number of atoms for each species (enough to specify those in the asymmetric unit)
+1 1
+
+# coords0(1:nat0,1:3): Coordinates of each atom (one line per atom)
+0.0  0.0  0.0
+0.5  0.5  0.5
+
+# na,nb,nc (supercell definition)
+2 2 2
+
+# sptarget: Species to be substituted
+1
+
+# nsubs: Number of substitutions in the supercell
+4
+
+# newsymbol(1:2): Symbol of atom to be inserted in the selected position,
+#                 symbol to be inserted in the rest of the positions for the same species.
+Ni Mg
+
+# FILER: -1 (no calc files), 0 (CIF), 1 (GULP), 2 (LAMMPS), 11 (VASP), 12 (CASTEP), 13 (QE)
+12

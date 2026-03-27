@@ -1,0 +1,16 @@
+# Compiled executables
+bin/combsod
+bin/genersod
+bin/gcstatsod
+bin/invertOUTSOD
+bin/peaks2spec
+bin/spbesod
+bin/statsod
+
+# Fortran object and module files
+src/*.o
+src/*.mod
+
+# Miscellaneous
+*.swp
+.DS_Store
