@@ -266,51 +266,71 @@ program genersod
     write (*, *) "Creating CIF files for each configuration..."
     write (*, *) " "
 
+    write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
+
+    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
+    call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
+    if (ios /= 0) then
+      write (*, *) "Error: could not create directory ", trim(ndir_gulp)
+      stop
+    end if
+
     do indcount = 1, nic
       newconf(1:nsubs) = indconf(indcount, 1:nsubs)
 
-      write (indcount + 100000, '(a, i0)') "data_c", indcount
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_a     ", a
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_b     ", b
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_c     ", c
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_alpha  ", alpha
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_beta   ", beta
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_gamma  ", gamma
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
-      write (indcount + 100000, '(a)') "_symmetry_Int_Tables_number      1"
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "loop_"
-      write (indcount + 100000, '(a)') "_symmetry_equiv_pos_as_xyz"
-      write (indcount + 100000, '(a)') "'x, y, z'"
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "loop_"
-      write (indcount + 100000, '(a)') "_atom_site_label"
-      write (indcount + 100000, '(a)') "_atom_site_type_symbol"
-      write (indcount + 100000, '(a)') "_atom_site_fract_x"
-      write (indcount + 100000, '(a)') "_atom_site_fract_y"
-      write (indcount + 100000, '(a)') "_atom_site_fract_z"
+      write (numstr, numfmt) indcount
+      confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
+      call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
+      if (ios /= 0) then
+        write (*, *) "Error: could not create directory ", trim(confdir_gulp)
+        stop
+      end if
+
+      inpfile_gulp = trim(confdir_gulp) // '/configuration.cif'
+      open (unit=72, file=trim(inpfile_gulp), status='replace')
+
+      write (72, '(a, i0)') "data_c", indcount
+      write (72, '(a)') " "
+      write (72, '(a, f12.6)') "_cell_length_a     ", a
+      write (72, '(a, f12.6)') "_cell_length_b     ", b
+      write (72, '(a, f12.6)') "_cell_length_c     ", c
+      write (72, '(a, f12.6)') "_cell_angle_alpha  ", alpha
+      write (72, '(a, f12.6)') "_cell_angle_beta   ", beta
+      write (72, '(a, f12.6)') "_cell_angle_gamma  ", gamma
+      write (72, '(a)') " "
+      write (72, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
+      write (72, '(a)') "_symmetry_Int_Tables_number      1"
+      write (72, '(a)') " "
+      write (72, '(a)') "loop_"
+      write (72, '(a)') "_symmetry_equiv_pos_as_xyz"
+      write (72, '(a)') "'x, y, z'"
+      write (72, '(a)') " "
+      write (72, '(a)') "loop_"
+      write (72, '(a)') "_atom_site_label"
+      write (72, '(a)') "_atom_site_type_symbol"
+      write (72, '(a)') "_atom_site_fract_x"
+      write (72, '(a)') "_atom_site_fract_y"
+      write (72, '(a)') "_atom_site_fract_z"
 
       do at = 1, nat
         sp = spat(at)
         if (sp /= sptarget) then
-          write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+          write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                 trim(symbol(sp)), at, trim(symbol(sp)), coords(at, 1), coords(at, 2), coords(at, 3)
         else
           att = at - atini + 1
           call member(nsubs, newconf, att, ifound)
           if (ifound == 1) then
-            write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                   trim(newsymbol(1)), at, trim(newsymbol(1)), coords(at, 1), coords(at, 2), coords(at, 3)
           else
-            write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                   trim(newsymbol(2)), at, trim(newsymbol(2)), coords(at, 1), coords(at, 2), coords(at, 3)
           end if
         end if
       end do
 
-      close (unit=indcount + 100000)
+      close (unit=72)
 
     end do
 

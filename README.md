@@ -147,7 +147,7 @@ sod_comb.sh
 
 - It also writes the file *EQMATRIX*, which gives information about  how each supercell operator transforms each atom position. 
 
-- For calculators that use template files (GULP, LAMMPS, CASTEP, QE), SOD creates a folder `nXX/` (where XX is the zero-padded number of substitutions, e.g. `n04`) and inside it one folder `cYY/` per configuration (e.g. `c1`, `c01`, `c001` depending on total count). Each `cYY/` folder contains the complete, ready-to-run input for that configuration. A `job_sender` script is written in the working directory to run all configurations in sequence. For VASP and CIF, a single `nXX/` folder is created containing one file per configuration. This naming convention is used by the other SOD scripts for statistics and energy extrapolation.
+- For all calculators, SOD creates a folder `nXX/` (where XX is the zero-padded number of substitutions, e.g. `n04`) and inside it one folder `cYY/` per configuration (e.g. `c1`, `c01`, `c001` depending on total count). Each `cYY/` folder contains the complete input for that configuration. For GULP, LAMMPS, CASTEP, QE, and VASP, a `job_sender` script is written in the working directory to run all configurations in sequence. For CIF (FILER=0), only the `configuration.cif` files are written; no `job_sender` is created. This naming convention is used by the other SOD scripts for statistics and energy extrapolation.
 
 
 ## Configurational averages and thermodynamics:
