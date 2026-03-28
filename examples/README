@@ -5,7 +5,7 @@ The example1_* series all use the same physical system — Ni/Mg substitutions i
 supercell of rocksalt MgO (space group Fm-3m) — and illustrate how to generate input
 files for five different calculators using the same INSOD file (apart from the FILER value).
 
-- example1_gulp:    Ni/Mg in MgO rocksalt, GULP (FILER=1). 1 Ni substitution (nsubs=1) in
+- example1_gulp:    Ni/Mg in MgO rocksalt, GULP (FILER=1). 4 Ni substitutions (nsubs=4) in
                     32 Mg sites. Uses catlow.lib (Buckingham potentials with core-shell model
                     for Ni and O2). Demonstrates the library directive and sod_type_map (the
                     SOD species O maps to the GULP type O2 in the library).

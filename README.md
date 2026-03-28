@@ -27,7 +27,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 The **example1_\*** series all use the same physical system — Ni/Mg substitutions in a 2×2×2 supercell of rocksalt MgO (space group Fm-3m) — and illustrate input generation for five different calculators using the same INSOD file (differing only in FILER):
 
-- **example1_gulp**: 1 Ni substitution (nsubs=1). GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
+- **example1_gulp**: 4 Ni substitutions (nsubs=4). GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
 
 - **example1_lammps**: 4 Ni substitutions (nsubs=4). LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
 
