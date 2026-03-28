@@ -52,8 +52,12 @@
 - Makefile now cross-platform (macOS and Linux).
 
 ## Version 0.61 (March 2026)
-- Three TODO fixes: graceful failure when configuration count overflows integer range; blank line after FILER value no longer required in INSOD when no classical-code block follows (filer >= 10); calculation input folder renamed from `CALCS` to `nXX` (XX = zero-padded number of substitutions), with existence check to prevent overwriting.
-- Classical-code block in INSOD (ishell, newshell, genxtl, genarc) is now read for all filer < 10, including filer = 0.
-- Bug fix: stale `indcount > 99999` guards removed from CASTEP case in `genersod.f90`.
-- New feature: Quantum ESPRESSO input files (filer = 13, extension `.pwi`). `genersod` writes `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}`, sandwiched between user-supplied `top.qe` and `bottom.qe` templates.
+- METADISE output (FILER=3) removed; LAMMPS is now FILER=2.
+- Classical-code block in INSOD (ishell, newshell, genxtl, genarc) removed entirely from `combsod.f90` and `genersod.f90`. INSOD files no longer require this block.
+- Template-based input generation for all calculators: `template_input.gin` (GULP), `template_in.lammps` (LAMMPS), `template_castep.cell` (CASTEP), `template_pw.in` (QE). VASP generates POSCAR directly.
+- Uniform `nXX/cYY/` directory structure for all calculators including CIF (which writes `configuration.cif` in each `cYY/`).
+- `# sod_type_map` lines in template files are parsed by SOD for type mapping and stripped from all generated input files.
+- GULP library reduction: when copying the force-field library, sections with no interactions relevant to the current system (e.g. `morse`, `three`) are omitted.
+- Quantum ESPRESSO support (FILER=13): `genersod` reads `template_pw.in` and replaces `@configuration_structure@` with `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}` blocks.
+- Five parallel `example1_*` examples (GULP, LAMMPS, VASP, CASTEP, QE) all using Ni/Mg substitutions in MgO rocksalt.
 

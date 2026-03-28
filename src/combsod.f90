@@ -27,14 +27,14 @@ program combsod
   integer :: i, j, t, ina, inb, inc, elei, ierr
   integer :: op1, nop1, op, nop, op1new, nop1new, opc
   integer :: sp, nsp, cumnatsp, sptarget
-  integer :: at0, nat0, at1, nat1, nat1r, at, nat, at1r, at1i, attmp, att, filer, genxtl, genarc
+  integer :: at0, nat0, at1, nat1, nat1r, at, nat, at1r, at1i, attmp, att, atsp, filer
   integer :: na, nb, nc, nsubs, atini, atfin
   integer :: pos, npos
   integer(kind=8):: ntc, count, nic, equivcount, indcount, combinations, r
   logical :: found, foundnoind, mores
   integer, dimension(:), allocatable:: newconf
   logical, dimension(:), allocatable:: visited
-  integer, dimension(2)   :: newshell
+
   integer, dimension(nopmax)   :: op1good
   real, dimension(nopmax, 3, 3) :: mgroup1, mgroup, mgroup1new
   real, dimension(nopmax, 3)   :: vgroup1, vgroup, vgroup1new
@@ -43,7 +43,7 @@ program combsod
   real, dimension(natmax, 3) :: coords0, coords1, coords, coords1r
   integer, dimension(natmax)   :: as
   integer, dimension(:), allocatable:: degen
-  integer, dimension(nspmax) :: natsp0, natsp1, natsp, ishell
+  integer, dimension(nspmax) :: natsp0, natsp1, natsp
   real, dimension(3) :: coordstemp
   real, dimension(ncellmax, 3)   :: vt
   integer, dimension(:, :), allocatable:: conf, indconf
@@ -60,10 +60,9 @@ program combsod
 
 ! Output files
 
-  open (unit=25, file="coordinates.xyz")
   open (unit=26, file="EQMATRIX")
   open (unit=30, file="OUTSOD")
-  open (unit=31, file="SUPERCELL")
+  open (unit=31, file="supercell.cif")
   open (unit=43, file="filer")
   open (unit=46, file="OPERATORS")
   open (unit=47, file="cSGO")
@@ -175,17 +174,6 @@ program combsod
   read (9, *)
   read (9, *)
   read (9, *) filer
-
-  if (filer < 10) then
-    read (9, *)        ! blank line after filer
-    read (9, *)
-    read (9, *)
-    read (9, *) (ishell(sp), sp=1, nsp)
-    read (9, *)
-    read (9, *) (newshell(i), i=1, 2)
-    read (9, *)
-    read (9, *) genxtl, genarc
-  end if
 
 !cccccccccccccccccccccccccccccccccccc
 ! Generating spat0 array
@@ -363,15 +351,37 @@ program combsod
   nat = at
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-! Write a file with the fractional coordinates of the supercell
+! Write supercell.cif with P1 symmetry; atom order matches OUTSOD indices
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  write (31, 111) a, b, c, alpha, beta, gamma
-111 format(6(f10.4, 2x))
-  write (31, *) natsp(1:nsp)
+  write (31, '(a)') "data_supercell"
+  write (31, '(a)') " "
+  write (31, '(a, f12.6)') "_cell_length_a     ", a
+  write (31, '(a, f12.6)') "_cell_length_b     ", b
+  write (31, '(a, f12.6)') "_cell_length_c     ", c
+  write (31, '(a, f12.6)') "_cell_angle_alpha  ", alpha
+  write (31, '(a, f12.6)') "_cell_angle_beta   ", beta
+  write (31, '(a, f12.6)') "_cell_angle_gamma  ", gamma
+  write (31, '(a)') " "
+  write (31, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
+  write (31, '(a)') "_symmetry_Int_Tables_number      1"
+  write (31, '(a)') " "
+  write (31, '(a)') "loop_"
+  write (31, '(a)') "_symmetry_equiv_pos_as_xyz"
+  write (31, '(a)') "'x, y, z'"
+  write (31, '(a)') " "
+  write (31, '(a)') "loop_"
+  write (31, '(a)') "_atom_site_label"
+  write (31, '(a)') "_atom_site_type_symbol"
+  write (31, '(a)') "_atom_site_fract_x"
+  write (31, '(a)') "_atom_site_fract_y"
+  write (31, '(a)') "_atom_site_fract_z"
+  atsp = 0
   do at = 1, nat
-    write (31, 110) symbol(spat(at)), coords(at, 1), coords(at, 2), coords(at, 3)
-110 format(a3, 2x, 3(f11.7, 2x))
+    if (at == 1 .or. spat(at) /= spat(at - 1)) atsp = 0
+    atsp = atsp + 1
+    write (31, '(a, i0, 2x, a, 3(2x, f11.7))') trim(symbol(spat(at))), atsp, &
+          trim(symbol(spat(at))), coords(at, 1), coords(at, 2), coords(at, 3)
   end do
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -746,7 +756,7 @@ program combsod
 !!!!!!! Write FILER to file, to be read by the shell script
   write (43, *) filer
 ! Calculation input file generation is handled by genersod,
-! called automatically by sod_comb.sh when FILER is not 0.
+! called automatically by sod_comb.sh when FILER is not -1.
 
 !!!!!!!Deallocating arrays
   deallocate (newconf)

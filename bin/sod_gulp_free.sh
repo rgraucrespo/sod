@@ -1,10 +1,9 @@
 #!/bin/bash
 
-rm -f ENERGIES 
+rm -f ENERGIES
 
-n_columns_ls=`ls -l |tail -1 |awk '{ FS = "|" } ; { print NF}'`
-ls -l *.gout |awk -v nc=$n_columns_ls '{print "freegulp.sh", $nc}' > rungetener
-chmod +x rungetener
-./rungetener
-rm rungetener
-
+for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
+  if [ -f "${dir}output.gout" ]; then
+    freegulp.sh "${dir}output.gout"
+  fi
+done

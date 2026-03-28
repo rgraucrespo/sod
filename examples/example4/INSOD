@@ -1,5 +1,5 @@
-# Title 
-Al/Fe substitutions in LaFeO3  perovskite 
+# Title
+Al/Fe substitutions in LaFeO3  perovskite
 
 # a,b,c,alpha,beta,gamma
 3.7  3.7  3.7  90.000  90.000  90.000
@@ -27,18 +27,9 @@ La Fe O
 # nsubs: Number of substitutions in the supercell
 4
 
-# newsymbol(1:2): Symbol of atom to be inserted in the selected position, 
+# newsymbol(1:2): Symbol of atom to be inserted in the selected position,
 #                 symbol to be inserted in the rest of the positions for the same species.
-Al Fe 
+Al Fe
 
-# FILER: 0 (no calc files generated), 1 (GULP), 2 (METADISE), 11 (VASP), 12 (CASTEP), 13 (QE)
+# FILER: -1 (no calc files), 0 (CIF), 1 (GULP), 2 (LAMMPS), 11 (VASP), 12 (CASTEP), 13 (QE)
 1
-
-# If FILER=1 then: 
-# ishell(1:nsp) 0 core only / 1 core and shell (for the species listed in symbol(1:nsp)) 
-1 1 1  
-# newshell(1:2) 0 core only / 1 core and shell (for the species listed in newsymbol(1:2))
-1 1
-# genxtl, genarc: 1/0 to add xtl / arc output directives to GULP input
-0 0
-

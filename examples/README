@@ -1,14 +1,61 @@
 Explanation of examples:
 ------------------------
 
-- example1:  Ca/Mg substitutions in a 2x2x2 supercell of rocksalt MgO. VASP input files created (FILER=11). The pre-generated VASP inputs are in n16.
+The example1_* series all use the same physical system — Ni/Mg substitutions in a 2×2×2
+supercell of rocksalt MgO (space group Fm-3m) — and illustrate how to generate input
+files for five different calculators using the same INSOD file (apart from the FILER value).
 
-- example2:  Al/Fe substitution in magnetite Fe3O4 (cubic unit cell of the spinel structure). The substitution occurs in both tetrahedral and octahedral sites, allowing the study of the distribution of substitutions over the two different sites. VASP input files created (FILER=11). The pre-generated VASP inputs are in n04.
+- example1_gulp:    Ni/Mg in MgO rocksalt, GULP (FILER=1). 4 Ni substitutions (nsubs=4) in
+                    32 Mg sites. Uses catlow.lib (Buckingham potentials with core-shell model
+                    for Ni and O2). Demonstrates the library directive and sod_type_map (the
+                    SOD species O maps to the GULP type O2 in the library).
 
-- example3:  Fe/Sb disorder in a 2x2x2 supercell of rutile FeSbO4. Starting from a generic MO2 composition, M(IV) is replaced by equal parts of Fe(III) and Sb(V). VASP input files created (FILER=11). The pre-generated VASP inputs are in n08. See Grau-Crespo et al. Chemistry of Materials (2004): https://pubs.acs.org/doi/abs/10.1021/cm035271y.
+- example1_lammps:  Same system, LAMMPS (FILER=2). 4 Ni substitutions (nsubs=4). Demonstrates
+                    the template_in.lammps file with sod_type_map lines and core-shell
+                    representation in conf.data.
 
-- example4:  Al/Fe substitution in a 2x2x2 supercell of LaFeO3 perovskite, using GULP (FILER=1). Also contains examples of energy extrapolation using SPBE0 and SPBE1 (see folders inside n04) and of grand-canonical statistics (x0.25 folder).
+- example1_vasp:    Same system, VASP (FILER=11). 4 Ni substitutions. SOD generates POSCAR
+                    files; the user must supply INCAR, KPOINTS and POTCAR.
 
-- example5:  Averaging NMR spectra in the canonical or grand-canonical configurational space of the La2Zr2O7-La2Sn2O7 solid solution. CASTEP input files are generated (FILER=12). The DFT calculation files are excluded to save space; only the statistical analysis files (ENERGIES, PEAKS, SPECTRA, etc.) are included in the n00-n16 folders.
+- example1_castep:  Same system, CASTEP (FILER=12). 4 Ni substitutions. Demonstrates the
+                    template_castep.cell file. The user must supply the .param file.
 
-- example6:  Mg/Zn substitution in a 2x2x1 supercell of wurtzite ZnO (space group 186, P6_3mc). The 8 cation sites with 2 Mg substitutions (Mg_0.25Zn_0.75O) reduce to 3 inequivalent configurations under the hexagonal symmetry. Quantum ESPRESSO input files are generated (FILER=13). Includes top.qe and bottom.qe templates; replace Mg.upf, Zn.upf, O.upf with your pseudopotential files before running.
+- example1_qe:      Same system, Quantum ESPRESSO (FILER=13). 4 Ni substitutions. Demonstrates
+                    the template_pw.in file. Replace Ni.upf, Mg.upf, O.upf with your own
+                    pseudopotential files before running.
+
+- example2:         Al/Fe substitution in magnetite Fe3O4 (1×1×1 cubic spinel unit cell,
+                    space group Fd-3m). 4 Al substitutions across 24 mixed-occupancy Fe sites
+                    (8 tetrahedral + 16 octahedral), giving 99 inequivalent configurations.
+                    VASP input files (FILER=11) are pre-generated in n04/. The complexity of
+                    this example arises because the substituted species (Fe) occupies two
+                    structurally distinct sites, allowing study of the Al distribution over
+                    tetrahedral and octahedral environments.
+
+- example3:         Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO4 (space group P4_2/mnm).
+                    Starting from a generic MO2 parent structure, 8 M(IV) sites are replaced
+                    by equal numbers of Fe(III) and Sb(V), giving 182 inequivalent configurations
+                    out of a total of 12870. VASP input files (FILER=11) pre-generated in n08/.
+                    See Grau-Crespo et al. Chem. Mater. 2004:
+                    https://pubs.acs.org/doi/abs/10.1021/cm035271y
+
+- example4:         Al/Fe substitution in a 2×2×2 supercell of LaFeO3 perovskite (space group
+                    Pnma). 4 Al substitutions in 8 Fe sites give 6 inequivalent configurations.
+                    GULP input files (FILER=1) using the Bush et al. potential (inline in
+                    template_input.gin). Also includes:
+                    - SPBE energy extrapolation (n04/spbe0 and n04/spbe1 subfolders)
+                    - grand-canonical statistics example (x250 folder, composition x=0.25)
+
+- example5:         Sn/Zr substitution in the La2Zr2O7–La2Sn2O7 solid solution (pyrochlore,
+                    space group Fd-3m, 1×1×1 unit cell). 2 Sn substitutions in 16 Zr sites give
+                    5 inequivalent configurations. CASTEP input files (FILER=12) are generated
+                    using template_castep.cell; DFT calculation outputs are not included to save
+                    space. The example demonstrates canonical and grand-canonical averaging of
+                    NMR spectra across compositions n00–n16, with a stress-volume correction.
+                    See the INGC files in the x125 and x250 folders.
+
+- example6:         Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group P6_3mc).
+                    2 Mg substitutions in 8 Zn sites reduce to 3 inequivalent configurations
+                    under the hexagonal symmetry. Quantum ESPRESSO input files (FILER=13) are
+                    generated using template_pw.in. Replace Mg.upf, Zn.upf, O.upf with your
+                    own pseudopotential files before running.

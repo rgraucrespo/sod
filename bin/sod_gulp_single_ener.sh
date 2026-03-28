@@ -1,10 +1,9 @@
 #!/bin/bash
 
-rm -f ENERGIES 
+rm -f ENERGIES
 
-n_columns_ls=`ls -l |tail -1 |awk '{ FS = "|" } ; { print NF}'`
-ls -l *.gout |awk -v nc=$n_columns_ls '{print "singenergulp.sh ", $nc}' > rungetsingener
-chmod +x rungetsingener
-./rungetsingener
-rm rungetsingener
-
+for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
+  if [ -f "${dir}output.gout" ]; then
+    singenergulp.sh "${dir}output.gout"
+  fi
+done

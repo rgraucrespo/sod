@@ -11,7 +11,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 - Identification of all inequivalent configurations of site substitutions in an arbitrary supercell of an  initial target structure with any space group symmetry.
 - Calculation of the degeneracies of configurations.
-- Generation of input files for codes like GULP and VASP.
+- Generation of input files for GULP, LAMMPS, VASP, CASTEP and Quantum ESPRESSO.
 - Simple extrapolation of energies from low to high concentrations within a supercell.
 - Statistical mechanics processing of output using either canonical or grand-canonical ensembles.
 
@@ -25,17 +25,27 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 ## Examples
 
-- **example1**: Ca/Mg substitutions in a 2×2×2 supercell of rocksalt MgO. VASP input files created.
+The **example1_\*** series all use the same physical system — Ni/Mg substitutions in a 2×2×2 supercell of rocksalt MgO (space group Fm-3m) — and illustrate input generation for five different calculators using the same INSOD file (differing only in FILER):
 
-- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (cubic unit cell of the spinel structure). The substitution occurs in both tetrahedral and octahedral sites, allowing the study of the distribution of substitutions over the two different sites. VASP input files created.
+- **example1_gulp**: 4 Ni substitutions (nsubs=4). GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
 
-- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄. Starting from a generic MO₂ composition, M(IV) is replaced by equal parts of Fe(III) and Sb(V). VASP input files created. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
+- **example1_lammps**: 4 Ni substitutions (nsubs=4). LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
 
-- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite, using GULP. Also contains examples of energy extrapolation using SPBE0 and SPBE1 (see folders inside n04) and of grand-canonical statistics (x0.25 folder).
+- **example1_vasp**: 4 Ni substitutions. VASP (FILER=11). SOD generates `POSCAR` into each `cYY/` folder; the user must supply `INCAR`, `KPOINTS` and `POTCAR`.
 
-- **example5**: Averaging NMR spectra in the canonical or grand-canonical configurational space of the La₂Zr₂O₇–La₂Sn₂O₇ solid solution. CASTEP input files are generated (FILER=12). The DFT calculation files are excluded to save space; only the statistical analysis files (ENERGIES, PEAKS, SPECTRA, etc.) are included in the n00–n16 folders.
+- **example1_castep**: 4 Ni substitutions. CASTEP (FILER=12). Demonstrates `template_castep.cell`; the user must supply the `.param` file.
 
-- **example6**: Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group 186, P6₃mc). The 8 cation sites with 2 Mg substitutions (Mg₀.₂₅Zn₀.₇₅O) reduce to 3 inequivalent configurations under the hexagonal symmetry. Quantum ESPRESSO input files are generated (FILER=13). Includes `top.qe` and `bottom.qe` templates; replace `Mg.upf`, `Zn.upf`, `O.upf` with your pseudopotential files before running.
+- **example1_qe**: 4 Ni substitutions. Quantum ESPRESSO (FILER=13). Demonstrates `template_pw.in`; replace `Ni.upf`, `Mg.upf`, `O.upf` with your pseudopotential files before running.
+
+- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (1×1×1 cubic spinel unit cell, space group Fd-3m). 4 Al substitutions across 24 mixed Fe sites (8 tetrahedral + 16 octahedral) give 99 inequivalent configurations. VASP input files (FILER=11) pre-generated in `n04/`. The two structurally distinct Fe environments make this a non-trivial site-disorder problem.
+
+- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄ (space group P4₂/mnm). 8 M(IV) sites replaced by equal numbers of Fe(III) and Sb(V) give 182 inequivalent configurations out of 12870 total. VASP input files (FILER=11) pre-generated in `n08/`. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
+
+- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (space group Pnma). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
+
+- **example5**: Sn/Zr substitution in the La₂Zr₂O₇–La₂Sn₂O₇ solid solution (pyrochlore, space group Fd-3m). 2 Sn substitutions in 16 Zr sites give 5 inequivalent configurations. CASTEP input files (FILER=12) are generated via `template_castep.cell`; DFT outputs are not included to save space. Demonstrates canonical and grand-canonical averaging of ¹³⁹La NMR spectra across compositions n00–n16, with optional stress-volume correction (see `x125` and `x250`).
+
+- **example6**: Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group P6₃mc). 2 Mg substitutions in 8 Zn sites reduce to 3 inequivalent configurations under the hexagonal symmetry. Quantum ESPRESSO input files (FILER=13) generated via `template_pw.in`. Replace `Mg.upf`, `Zn.upf`, `O.upf` with your pseudopotential files before running.
 
 ## Compiling & installing SOD
 
@@ -72,13 +82,55 @@ cp ROOTSOD/sod(version)/sgo ./SGO
 
 otherwise you have to create the file using the International Tables of Crystallography, or from the website of the Bilbao Crystallographic Server <www.cryst.ehy.es>. The first three numbers in each line are one row of the operator matrix and the fourth number is the component of the operator translation vector.
 
-- If you want to generate GULP input files for all the independent configurations found by SOD, in addition to setting FILER=1 in the INSOD file, you must provide two files in the working directory:
+The FILER value in INSOD controls which type of calculation input files are generated:
 
-top.gulp contains the heading of the gulp input file (until the keyword cell).
+| FILER | Code | Template file needed |
+|------:|------|----------------------|
+| -1 | (none — no files generated) | — |
+| 0 | CIF (P1, one per config) | — |
+| 1 | GULP | `template_input.gin` |
+| 2 | LAMMPS | `template_in.lammps` |
+| 11 | VASP | — (no template; SOD generates `POSCAR` directly) |
+| 12 | CASTEP | `template_castep.cell` |
+| 13 | Quantum ESPRESSO | `template_pw.in` |
 
-bottom.gulp contains the tail of the gulp input file (everything after the list of coordinates, including species, potentials, etc).
+### Template file philosophy
 
-Optionally, you can request that GULP write output structure files by setting the `genxtl` and `genarc` flags in INSOD (see the GULP examples for the format). Setting `genxtl 1` adds an `output xtl` directive, and `genarc 1` adds an `output arc` directive to each GULP input file.
+For each supported calculator (FILER > 0, except for FILER = 11 - VASP), the user provides a single template file in the working directory. The template should look as much as possible like the real input file that will later be run, with two kinds of SOD-specific additions:
+
+- **`@configuration_structure@`** — a token on a line by itself, marking where SOD inserts the configuration-specific structure block (cell parameters and atomic positions). This token is mandatory and must appear exactly once.
+- **`@configuration_number@`** — an optional token that can appear anywhere (e.g. in titles or output file names) and is replaced by the zero-padded configuration index.
+
+All calculator-specific settings — force-field parameters, k-points, convergence thresholds, output directives — remain in the template unchanged. SOD only inserts the structure.
+
+For GULP, CASTEP and QE, template files follow the naming convention `template_<real_output_name>`, so the generated file name is immediately obvious:
+
+| Input file | Generated file in each `cYY/` |
+|------------|-------------------------------|
+| `template_input.gin` | `input.gin` |
+| `template_in.lammps` | `in.lammps` (+ `conf.data`) |
+| `template_castep.cell` | `castep.cell` |
+| `template_pw.in` | `pw.in` |
+
+### Calculator-specific notes
+
+**GULP** (`template_input.gin`): The template must contain `@configuration_structure@` on a line by itself; SOD replaces it with the `cell`, `frac` and atom-type block. If the template contains a `library` directive, SOD reads the library, extracts only the entries needed for the atom types in the problem, and writes a reduced copy of the library into each configuration folder so that each folder is self-contained. If the force field is defined inline in the template, no library file is copied. If any SOD species label differs from the corresponding GULP atom type, add mapping comment lines to the template of the form `# sod_type_map <SOD_species> <GULP_type>`.
+
+**LAMMPS** (`template_in.lammps`): The user provides `template_in.lammps`, a LAMMPS run script containing `read_data conf.data` and all force-field settings. SOD copies it into each `cYY/` folder with only two modifications: `# sod_type_map` lines are stripped (they are SOD directives, not valid LAMMPS syntax), and the optional token `@configuration_number@` is replaced if present. Everything else — force-field coefficients, masses, charges, run commands — is copied verbatim. SOD also generates a `conf.data` file in each folder containing the configuration-specific structural information.
+
+To generate `conf.data`, SOD needs to know which LAMMPS numeric type corresponds to each SOD species. **SOD cannot infer this automatically.** The user must provide explicit mapping comment lines in `in.lammps` of the form:
+
+```
+# sod_type_map <SOD_species> <role> type=<N> [bond_type=<M>]
+```
+
+where `<role>` is `core` or `shell`. One `core` line is required for every SOD species. A `shell` line (with `bond_type=<M>`) is additionally required for any species represented as a core–shell pair. SOD will stop with an error if any species has no mapping.
+
+**VASP**: No template is needed. SOD generates `POSCAR` into each `cYY/` folder. The user must supply `INCAR`, `KPOINTS` and `POTCAR` in each folder separately.
+
+**CASTEP** (`template_castep.cell`): The template is a normal `.cell` file. SOD replaces `@configuration_structure@` with the `%BLOCK LATTICE_CART` and `%BLOCK POSITIONS_FRAC` blocks. The user must supply the `.param` file separately (it is not managed by SOD).
+
+**Quantum ESPRESSO** (`template_pw.in`): The template is a normal `pw.x` input. SOD assumes `ibrav = 0` and replaces `@configuration_structure@` with `CELL_PARAMETERS` and `ATOMIC_POSITIONS` blocks. The user defines `ATOMIC_SPECIES` in the template; SOD does not modify it. Pseudopotential files are not copied by SOD.
 
 - To run the combinatorics program, just type:
 
@@ -95,7 +147,7 @@ sod_comb.sh
 
 - It also writes the file *EQMATRIX*, which gives information about  how each supercell operator transforms each atom position. 
 
-- A folder named *nXX* is generated (where XX is the zero-padded number of substitutions, e.g. *n04*), which contains the calculation input files, a copy of *OUTSOD*, and a script that sends the jobs. This naming convention is used by the other SOD scripts for statistics and energy extrapolation.
+- For all calculators, SOD creates a folder `nXX/` (where XX is the zero-padded number of substitutions, e.g. `n04`) and inside it one folder `cYY/` per configuration (e.g. `c1`, `c01`, `c001` depending on total count). Each `cYY/` folder contains the complete input for that configuration. For GULP, LAMMPS, CASTEP, QE, and VASP, a `job_sender` script is written in the working directory to run all configurations in sequence. For CIF (FILER=0), only the `configuration.cif` files are written; no `job_sender` is created. This naming convention is used by the other SOD scripts for statistics and energy extrapolation.
 
 
 ## Configurational averages and thermodynamics:
@@ -238,7 +290,7 @@ If these files are present within the n??/ folders when running the statistics c
 
 ## Extrapolating energies from low to high concentrations
 
-From version 0.44, we have implemented a simple pair-based extrapolation (SPBE) method, which uses the energies from *n*= 0, 1 and 2 substitutions to predict the energies for *n*>2 (equation 1 in [Arce-Molina et al. PCCP 2018, 20, 18047-18055](https://pubs.rsc.org/en/content/articlehtml/2018/cp/c8cp01369a)).   
+SOD has a simple pair-based extrapolation (SPBE) method, which uses the energies from *n*= 0, 1 and 2 substitutions to predict the energies for *n*>2 (equation 1 in [Arce-Molina et al. PCCP 2018, 20, 18047-18055](https://pubs.rsc.org/en/content/articlehtml/2018/cp/c8cp01369a)).   
 
 In order to run this program, you will need the following files:
 
@@ -253,7 +305,6 @@ If all the above files are present in a folder, you can run the spbe module by r
 
 However,  the easiest way to run the spbe module is like this:
 
-- Use the names n00 n01 n02 n03 etc for the folders containing the calculations for 0, 1, 2, 3... substitutions. 
 - Make sure that the folders n00, n01 and n02 contain an ENERGIES and an OUTSOD file each (OUTSOD is not necessary for n00)
 - If you want to use spbe, say, for n=3, first run ```sod_comb.sh``` for n=3 substitutions (this automatically creates the folder n03), and create a subfolder within it, say n03/spbe/
 - From the n03/spbe folder, just run the script ```sod_spbe0.sh```, which will copy the relevant input files into the current folder and will call ```spbesod```
