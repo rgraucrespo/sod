@@ -29,7 +29,8 @@ program genersod
   integer :: sp, nsp, sptarget, ssp
   integer :: at0, nat0, at, nat, att, filer, ndigits
   character :: outfilename*20, fmtstr*20
-  integer :: na, nb, nc, nsubs, atini, atfin, cumnatsp
+  integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, atini, atfin, cumnatsp, ierr_rd
+  character :: insod_line*256
   integer :: npos, nic, indcount
   integer, dimension(:), allocatable :: newconf, degen
   integer, dimension(nspmax) :: natsp0, natsp, snatsp
@@ -73,7 +74,6 @@ program genersod
 ! Input files
 
   open (unit=9, file="INSOD")
-  open (unit=30, file="OUTSOD")
   open (unit=31, file="supercell.cif")
 
 ! Output files
@@ -147,8 +147,13 @@ program genersod
   read (9, *) sptarget
   read (9, *)
   read (9, *)
-  read (9, *) nsubs
-  if (nsubs == 0) then
+  read (9, '(A)') insod_line
+  read (insod_line, *, IOSTAT=ierr_rd) nsubs_min, nsubs_max
+  if (ierr_rd /= 0) then
+    read (insod_line, *) nsubs_min
+    nsubs_max = nsubs_min
+  end if
+  if (nsubs_max == 0) then
     write (*, *) "Illegal number of substitutions"
     stop
   end if
@@ -161,29 +166,8 @@ program genersod
   read (9, *) filer
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Reading the OUTSOD file
+!      [OUTSOD is now read per level inside the main loop below]
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  read (30, *) nsubs, trashtext, trashtext, npos
-  read (30, *) nic
-
-  ndigits = max(1, int(log10(real(nic))) + 1)
-  write (fmtstr, '(a,i0,a,i0,a)') '(a,i', ndigits, '.', ndigits, ')'
-
-!!!!!!!!Allocating array sizes
-
-  allocate (degen(1:nic))
-  allocate (newconf(1:nsubs))
-  allocate (indconf(1:nic, 1:nsubs))
-
-  do indcount = 1, nic
-
-    read (30, *) m, degen(indcount), indconf(indcount, 1:nsubs)
-    if (m /= indcount) then
-      write (*, *) "Error in configuration numbering in OUTSOD. Aborting..."
-      stop
-    end if
-  end do
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Reading supercell.cif; builds natsp and spat from atom loop
@@ -248,69 +232,145 @@ program genersod
 
 !!!!!!! Write a temporary file with FILER, to be read later by the script
   write (43, *) filer
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Loop over substitution levels
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   select case (filer)
-
   case (-1)
     write (*, *) "Calculation files not created.&
                & Change filer value in INSOD if you want to create calculation files."
     write (*, *) ""
+  case (0)
+    write (*, *) " "
+    write (*, *) "Creating CIF files for each configuration..."
+    write (*, *) " "
+  case (1)
+    write (*, *) " "
+    write (*, *) "Creating input files for GULP in configuration directories..."
+    write (*, *) " "
+  case (2)
+    write (*, *) " "
+    write (*, *) "Creating input files for LAMMPS in configuration directories..."
+    write (*, *) " "
+  case (11)
+    write (*, *) " "
+    write (*, *) "Creating input files for VASP in configuration directories..."
+    write (*, *) " "
+  case (12)
+    write (*, *) " "
+    write (*, *) "Creating input files for CASTEP in configuration directories..."
+    write (*, *) " "
+  case (13)
+    write (*, *) " "
+    write (*, *) "Creating input files for Quantum ESPRESSO in configuration directories..."
+    write (*, *) " "
+  end select
+
+  do nsubs = nsubs_min, nsubs_max
+
+    write (ndir_gulp, '("n", i2.2)') nsubs
+    open (unit=30, file=trim(ndir_gulp) // '/OUTSOD', status='old', IOSTAT=ios)
+    if (ios /= 0) then
+      write (*, *) "Warning: ", trim(ndir_gulp), "/OUTSOD not found, skipping."
+      cycle
+    end if
+
+    read (30, *) m, trashtext, trashtext, npos
+    read (30, *) nic
+
+    ndigits = max(1, int(log10(real(nic))) + 1)
+    write (fmtstr, '(a,i0,a,i0,a)') '(a,i', ndigits, '.', ndigits, ')'
+
+    allocate (degen(1:nic))
+    allocate (newconf(1:nsubs))
+    allocate (indconf(1:nic, 1:nsubs))
+
+    do indcount = 1, nic
+      read (30, *) m, degen(indcount), indconf(indcount, 1:nsubs)
+      if (m /= indcount) then
+        write (*, *) "Error in configuration numbering in OUTSOD. Aborting..."
+        stop
+      end if
+    end do
+
+    close (30)
+
+    select case (filer)
+
+  case (-1)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!  CIF (P1, one file per config) !!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (0)
 
-    write (*, *) " "
-    write (*, *) "Creating CIF files for each configuration..."
-    write (*, *) " "
+    write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
+
+    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
+    call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
+    if (ios /= 0) then
+      write (*, *) "Error: could not create directory ", trim(ndir_gulp)
+      stop
+    end if
 
     do indcount = 1, nic
       newconf(1:nsubs) = indconf(indcount, 1:nsubs)
 
-      write (indcount + 100000, '(a, i0)') "data_c", indcount
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_a     ", a
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_b     ", b
-      write (indcount + 100000, '(a, f12.6)') "_cell_length_c     ", c
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_alpha  ", alpha
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_beta   ", beta
-      write (indcount + 100000, '(a, f12.6)') "_cell_angle_gamma  ", gamma
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
-      write (indcount + 100000, '(a)') "_symmetry_Int_Tables_number      1"
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "loop_"
-      write (indcount + 100000, '(a)') "_symmetry_equiv_pos_as_xyz"
-      write (indcount + 100000, '(a)') "'x, y, z'"
-      write (indcount + 100000, '(a)') " "
-      write (indcount + 100000, '(a)') "loop_"
-      write (indcount + 100000, '(a)') "_atom_site_label"
-      write (indcount + 100000, '(a)') "_atom_site_type_symbol"
-      write (indcount + 100000, '(a)') "_atom_site_fract_x"
-      write (indcount + 100000, '(a)') "_atom_site_fract_y"
-      write (indcount + 100000, '(a)') "_atom_site_fract_z"
+      write (numstr, numfmt) indcount
+      confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
+      call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
+      if (ios /= 0) then
+        write (*, *) "Error: could not create directory ", trim(confdir_gulp)
+        stop
+      end if
+
+      inpfile_gulp = trim(confdir_gulp) // '/configuration.cif'
+      open (unit=72, file=trim(inpfile_gulp), status='replace')
+
+      write (72, '(a, i0)') "data_c", indcount
+      write (72, '(a)') " "
+      write (72, '(a, f12.6)') "_cell_length_a     ", a
+      write (72, '(a, f12.6)') "_cell_length_b     ", b
+      write (72, '(a, f12.6)') "_cell_length_c     ", c
+      write (72, '(a, f12.6)') "_cell_angle_alpha  ", alpha
+      write (72, '(a, f12.6)') "_cell_angle_beta   ", beta
+      write (72, '(a, f12.6)') "_cell_angle_gamma  ", gamma
+      write (72, '(a)') " "
+      write (72, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
+      write (72, '(a)') "_symmetry_Int_Tables_number      1"
+      write (72, '(a)') " "
+      write (72, '(a)') "loop_"
+      write (72, '(a)') "_symmetry_equiv_pos_as_xyz"
+      write (72, '(a)') "'x, y, z'"
+      write (72, '(a)') " "
+      write (72, '(a)') "loop_"
+      write (72, '(a)') "_atom_site_label"
+      write (72, '(a)') "_atom_site_type_symbol"
+      write (72, '(a)') "_atom_site_fract_x"
+      write (72, '(a)') "_atom_site_fract_y"
+      write (72, '(a)') "_atom_site_fract_z"
 
       do at = 1, nat
         sp = spat(at)
         if (sp /= sptarget) then
-          write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+          write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                 trim(symbol(sp)), at, trim(symbol(sp)), coords(at, 1), coords(at, 2), coords(at, 3)
         else
           att = at - atini + 1
           call member(nsubs, newconf, att, ifound)
           if (ifound == 1) then
-            write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                   trim(newsymbol(1)), at, trim(newsymbol(1)), coords(at, 1), coords(at, 2), coords(at, 3)
           else
-            write (indcount + 100000, '(a, i0, 2x, a, 3(2x, f11.7))') &
+            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                   trim(newsymbol(2)), at, trim(newsymbol(2)), coords(at, 1), coords(at, 2), coords(at, 3)
           end if
         end if
       end do
 
-      close (unit=indcount + 100000)
+      close (unit=72)
 
     end do
 
@@ -318,10 +378,6 @@ program genersod
 !!!!!!  GULP !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (1)
-
-    write (*, *) " "
-    write (*, *) "Creating input files for GULP in configuration directories..."
-    write (*, *) " "
 
     ! --- Format statements used by structure block and by CASTEP/QE cases ---
 211 format(6(f10.4, 2x))
@@ -629,10 +685,6 @@ program genersod
 !!!!!!  LAMMPS !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (2)
-
-    write (*, *) " "
-    write (*, *) "Creating input files for LAMMPS in configuration directories..."
-    write (*, *) " "
 
     ! --- Read template_in.lammps into template buffer ---
     open (unit=70, file="template_in.lammps", status="old", iostat=ios)
@@ -942,10 +994,6 @@ program genersod
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (11)
 
-    write (*, *) " "
-    write (*, *) "Creating input files for VASP in configuration directories..."
-    write (*, *) " "
-
     title = 'vasp'
     call cell(cellvector, a, b, c, alpha, beta, gamma)
 
@@ -1025,10 +1073,6 @@ program genersod
 !!!!!!  CASTEP !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (12)
-
-    write (*, *) " "
-    write (*, *) "Creating input files for CASTEP in configuration directories..."
-    write (*, *) " "
 
     ! --- Read template_castep.cell into memory ---
     open (unit=70, file="template_castep.cell", status="old", iostat=ios)
@@ -1147,10 +1191,6 @@ program genersod
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   case (13)
 
-    write (*, *) " "
-    write (*, *) "Creating input files for Quantum ESPRESSO in configuration directories..."
-    write (*, *) " "
-
     ! --- Read template_pw.in into memory ---
     open (unit=70, file="template_pw.in", status="old", iostat=ios)
     if (ios /= 0) then
@@ -1259,12 +1299,13 @@ program genersod
 
     end do
 
-  end select
+    end select
 
-!!!!!!!Deallocating arrays
-  deallocate (newconf)
-  deallocate (degen)
-  deallocate (indconf)
+    deallocate (newconf)
+    deallocate (degen)
+    deallocate (indconf)
+
+  end do  ! nsubs
 
   close (43)
 

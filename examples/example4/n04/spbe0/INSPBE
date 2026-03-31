@@ -1,0 +1,5 @@
+# irescale case: 0 = no rescaling; 1 = enter mu1 and mu2 manually; 2= enter two reference energies (e.g. from DFT)
+2
+# If irescale=1, enter one line with mu1, mu2; if irescale=2, enter two lines (m1, E1), (m2, E2)
+1 -1136.95624311
+6 -1137.05175862

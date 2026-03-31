@@ -24,12 +24,12 @@ Fe O
 # sptarget: Species to be substituted
 1
 
-# nsubs: Number of substitutions in the supercell
-4
+# nsubs_min nsubs_max: Min and max substitutions (one value sets both equal)
+0 16
 
 # newsymbol(1:2): Symbol of atom to be inserted in the selected position, 
 #                 symbol to be inserted in the rest of the positions for the same species.
 Al Fe 
 
 # FILER: -1 (no calc files), 0 (CIF), 1 (GULP), 2 (LAMMPS), 11 (VASP), 12 (CASTEP), 13 (QE)
-11
+-1

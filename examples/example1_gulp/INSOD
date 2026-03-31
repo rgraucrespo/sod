@@ -23,8 +23,8 @@ Mg O
 # sptarget: Species to be substituted
 1
 
-# nsubs: Number of substitutions in the supercell
-1
+# nsubs_min nsubs_max: Min and max substitutions (one value sets both equal)
+4 4 
 
 # newsymbol(1:2): Symbol of atom to be inserted in the selected position,
 #                 symbol to be inserted in the rest of the positions for the same species.
