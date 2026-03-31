@@ -28,12 +28,28 @@ program combsod
   integer :: op1, nop1, op, nop, op1new, nop1new, opc
   integer :: sp, nsp, cumnatsp, sptarget
   integer :: at0, nat0, at1, nat1, nat1r, at, nat, at1r, at1i, attmp, att, atsp, filer
-  integer :: na, nb, nc, nsubs, atini, atfin
+  integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, nsubs_loop, atini, atfin
   integer :: pos, npos
   integer(kind=8):: ntc, count, nic, equivcount, indcount, combinations, r
   logical :: found, foundnoind, mores
   integer, dimension(:), allocatable:: newconf
   logical, dimension(:), allocatable:: visited
+  character(len=256) :: line_buffer
+  character(len=10) :: nxx_dir
+  integer(kind=8) :: t_start_total, t_start_level, t_now, clock_rate, clock_max
+  real(kind=8) :: elapsed_level, elapsed_total
+  real(kind=8), dimension(:), allocatable :: elapsed_per_level
+  integer, dimension(:), allocatable :: nsubs_level_list
+  integer(kind=8), allocatable :: binom(:,:)
+
+! Stage 2: recursive enumeration variables
+  integer :: nsubs_prev, ncand, ncand_max, ic, jpar, jj, k, j_remove, nic_prev, idummy, npos_check
+  integer(kind=8) :: cand
+  logical :: going_upward, use_recursive
+  character(len=20) :: prev_outsod, prev_dir
+  integer, dimension(:, :), allocatable :: indconf_prev
+  integer, dimension(:), allocatable :: degen_prev
+
 
   integer, dimension(nopmax)   :: op1good
   real, dimension(nopmax, 3, 3) :: mgroup1, mgroup, mgroup1new
@@ -58,14 +74,14 @@ program combsod
   open (unit=9, file="INSOD")
   open (unit=12, file="SGO")
 
-! Output files
+! Output files written once (not per substitution level)
 
   open (unit=26, file="EQMATRIX")
-  open (unit=30, file="OUTSOD")
   open (unit=31, file="supercell.cif")
   open (unit=43, file="filer")
   open (unit=46, file="OPERATORS")
-  open (unit=47, file="cSGO")
+
+! Note: OUTSOD (unit 30) and cSGO (unit 47) are opened per level inside the loop below
 
 !
 ! DEFINITION OF VARIABLES:
@@ -83,9 +99,14 @@ program combsod
 ! atini,atfin           Initial and final atom indexes of the species to be substituted
 ! pos                 Index for atomic positions of the target species
 ! npos                      Number of atoms of the target species
-! conf                      List of all configurations (each configuration is a list of the substituted positions)
-! count                     Index for the configurations (conf)
-! ntc                 Total number of configurations in conf (count=1,ntc)
+! nsubs               Current number of substitutions (loop variable)
+! nsubs_min           Minimum number of substitutions requested
+! nsubs_max           Maximum number of substitutions requested
+! conf                      List of all configurations (direct) or candidate list (recursive)
+! count                     Index for the configurations (conf), used in direct mode
+! cand                      Index for candidates, used in recursive mode
+! ntc                 Total number of configurations C(npos,nsubs), used in direct mode
+! ncand               Number of candidates generated from parent level (recursive mode)
 ! indconf             List of independent configurations
 ! indcount            Index for the independent configurations
 ! nic                 Total number of independent configurations in indconf (indcount=1,nic)
@@ -98,7 +119,7 @@ program combsod
 !
 
   write (*, *) "**************************************************************************** "
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.61  "
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.62  "
   write (*, *) " "
   write (*, *) "         Authors: R. Grau-Crespo and S. Hamad                                   "
   write (*, *) " "
@@ -107,6 +128,8 @@ program combsod
   write (*, *) " "
   write (*, *) " "
   write (*, *) " "
+  call system_clock(t_start_total, clock_rate, clock_max)
+
   write (*, *) "Reading input files..."
   write (*, *) " "
 
@@ -162,9 +185,20 @@ program combsod
   read (9, *) sptarget
   read (9, *)
   read (9, *)
-  read (9, *) nsubs
-  if (nsubs < 0) then
+! Read nsubs_min and nsubs_max from the same line.
+! If only one value is present (old-style INSOD), both are set equal to it.
+  read (9, '(A)') line_buffer
+  read (line_buffer, *, IOSTAT=ierr) nsubs_min, nsubs_max
+  if (ierr /= 0) then
+    read (line_buffer, *) nsubs_min
+    nsubs_max = nsubs_min
+  end if
+  if (nsubs_min < 0) then
     write (*, *) "Error: number of substitutions must be >= 0"
+    stop
+  end if
+  if (nsubs_max < nsubs_min) then
+    write (*, *) "Error: nsubs_max must be >= nsubs_min"
     stop
   end if
   read (9, *)
@@ -425,20 +459,6 @@ program combsod
   write (*, *) " "
   write (*, *) "       Number of symmetry operators in the supercell:       ", nop
   write (*, *) " "
-  write (*, *) "       Composition of the substituted supercell:"
-  do sp = 1, nsp
-    if (sp == sptarget) then
-      write (*, *) "                                                         ", newsymbol(1), nsubs
-      write (*, *) "                                                         ", newsymbol(2), natsp(sp) - nsubs
-    else
-      write (*, *) "                                                         ", symbol(sp), natsp(sp)
-    end if
-  end do
-
-  write (*, *) ""
-  write (*, *) ""
-  write (*, *) "Generating the complete configurational space..."
-  write (*, *) " "
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Create Full Equivalence Matrix
@@ -513,192 +533,398 @@ program combsod
     write (26, *) (eqmatrixtarget(op, pos), pos=1, npos)
   end do
 
-  if (nsubs > npos) then
-    write (*, *) "Error: number of substitutions (", nsubs, ") exceeds number of available sites (", npos, ")"
+  if (nsubs_max > npos) then
+    write (*, *) "Error: nsubs_max (", nsubs_max, ") exceeds number of available sites (", npos, ")"
     stop
   end if
+
+! Direction selection: choose the end that minimises the starting candidate count
+  going_upward = (nsubs_min <= npos - nsubs_max)
+  if (going_upward) then
+    write (*, *) "Direction: UPWARD (direct start at nsubs =", nsubs_min, ")"
+  else
+    write (*, *) "Direction: DOWNWARD (direct start at nsubs =", nsubs_max, ")"
+  end if
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!         Loop over substitution levels
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+  allocate (elapsed_per_level(0:nsubs_max - nsubs_min))
+  allocate (nsubs_level_list(0:nsubs_max - nsubs_min))
+  elapsed_per_level(:) = 0.0d0
+  nsubs_level_list(:) = 0
+
+  do nsubs_loop = 0, nsubs_max - nsubs_min
+    if (going_upward) then
+      nsubs = nsubs_min + nsubs_loop
+    else
+      nsubs = nsubs_max - nsubs_loop
+    end if
+
+! Create output directory nXX/ and open per-level output files
+
+    call system_clock(t_start_level)
+    write (nxx_dir, '("n", i2.2)') nsubs
+    call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
+    open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
+    open (unit=47, file=trim(nxx_dir) // "/cSGO")
+
+    write (*, *) " "
+    write (*, *) "=== Substitution level: nsubs =", nsubs, " ==="
+    write (*, *) " "
+    write (*, *) "       Composition of the substituted supercell:"
+    do sp = 1, nsp
+      if (sp == sptarget) then
+        write (*, *) "                                                         ", newsymbol(1), nsubs
+        write (*, *) "                                                         ", newsymbol(2), natsp(sp) - nsubs
+      else
+        write (*, *) "                                                         ", symbol(sp), natsp(sp)
+      end if
+    end do
+    write (*, *) ""
+    write (*, *) ""
 
 ! Handle trivial cases: 0 substitutions or all sites substituted (1 configuration each)
-  if (nsubs == 0 .or. nsubs == npos) then
-    write (*, *) " "
-    write (*, *) "       Number of inequivalent configurations:                1"
-    write (*, *) " "
-    write (30, *) nsubs, " substitutions in ", npos, "sites"
-    write (30, *) 1, " configurations"
-    if (nsubs == 0) then
-      write (30, '(i6, 1x, i6)') 1, 1
-    else
-      write (30, '(i6, 1x, i6, 30(1x, i4))') 1, 1, (pos, pos=1, npos)
+
+    if (nsubs == 0 .or. nsubs == npos) then
+      write (*, *) " "
+      write (*, *) "       Number of inequivalent configurations:                1"
+      write (*, *) " "
+      write (30, *) nsubs, " substitutions in ", npos, "sites"
+      write (30, *) 1, " configurations"
+      if (nsubs == 0) then
+        write (30, '(i6, 1x, i6)') 1, 1
+      else
+        write (30, '(i6, 1x, i6, *(1x, i4))') 1, 1, (pos, pos=1, npos)
+      end if
+      close (30)
+      close (47)
+      cycle
     end if
-    write (43, *) filer
-    deallocate (eqmatrixtarget)
-    write (*, *) "Done!!!"
-    write (*, *) ""
-    stop
-  end if
+
+! Precompute binomial coefficient table: binom(k,n) = C(n,k), k=0..nsubs, n=0..npos
+    allocate (binom(0:nsubs, 0:npos))
+    binom(0, :) = 1_8
+    do k = 1, nsubs
+      binom(k, 0:k - 1) = 0_8
+      do j = k, npos
+        binom(k, j) = binom(k - 1, j - 1) + binom(k, j - 1)
+      end do
+    end do
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!         Generate the list of configurations
+!         Check for adjacent OUTSOD to decide direct vs recursive path
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  ntc = combinations(nsubs, npos)
-  if (ntc <= 0) then
-    write (*, *) "Error: the total number of configurations exceeds the integer range."
-    write (*, *) "       The problem is too large for SOD. Reduce supercell or substitutions."
-    stop
-  end if
-  maxentropy = kb*log(real(ntc))
-  write (*, *) " "
-  write (*, *) "       Total number of configurations in the supercell:     ", ntc
-  write (*, *) " "
-  write (*, *) "       Maximum entropy for this composition and supercell:", maxentropy, " eV/K"
-  write (*, *) " "
+    if (going_upward) then
+      write (prev_dir, '("n", i2.2)') nsubs - 1
+    else
+      write (prev_dir, '("n", i2.2)') nsubs + 1
+    end if
+    prev_outsod = trim(prev_dir) // "/OUTSOD"
 
-  x = real(nsubs)/real(npos)
-  write (*, *) "       Fraction of substituted sites:                 x = ", x
-  write (*, *) " "
-  if (x == 0.0 .or. x == 1.0) then
-    ientropy = 0.0
-  else
-    ientropy = -npos*kb*(x*log(x) + (1 - x)*log(1 - x))
-  end if
-  write (*, *) "       Ideal entropy (per cell) for this composition:     ", ientropy, " eV/K"
-  write (*, *) " "
-!        ntcmax=exp(ientropy/kB)
+    open (unit=50, file=trim(prev_outsod), status='old', IOSTAT=ierr)
+    use_recursive = (ierr == 0)
+
+    if (use_recursive) then
+! Read header line 1: "N substitutions in M sites"
+      read (50, '(A)') line_buffer
+      read (line_buffer, *) nsubs_prev
+      k = index(line_buffer, ' in ')
+      read (line_buffer(k + 4:), *) npos_check
+      if (npos_check /= npos) then
+        write (*, *) "Warning: npos in adjacent OUTSOD (", npos_check, &
+                     ") does not match current npos (", npos, "). Falling back to direct."
+        use_recursive = .false.
+        close (50)
+      end if
+    end if
+
+    if (use_recursive) then
+! Read header line 2: "K configurations"
+      read (50, '(A)') line_buffer
+      read (line_buffer, *) nic_prev
+      allocate (indconf_prev(1:nic_prev, 1:nsubs_prev))
+      allocate (degen_prev(1:nic_prev))
+      if (nsubs_prev == 0) then
+        do ic = 1, nic_prev
+          read (50, *) idummy, degen_prev(ic)
+        end do
+      else
+        do ic = 1, nic_prev
+          read (50, *) idummy, degen_prev(ic), (indconf_prev(ic, j), j=1, nsubs_prev)
+        end do
+      end if
+      close (50)
+      write (*, *) "Using recursive generation from ", trim(prev_outsod), &
+                   " (", nic_prev, " parents)"
+    else
+      write (*, *) "Generating the complete configurational space..."
+    end if
+    write (*, *) " "
+
+    if (use_recursive) then
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!         Recursive path: generate candidate list from parent level
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+      if (going_upward) then
+! Upward: add one substitution to each parent config
+! Each parent (nsubs-1 sites) generates npos-(nsubs-1) children
+        ncand_max = nic_prev * (npos - nsubs_prev)
+        allocate (conf(1:ncand_max, 1:nsubs), stat=ierr)
+        if (ierr /= 0) then
+          write (*, *) "Error: insufficient memory for candidate list"
+          stop
+        end if
+        ncand = 0
+        do ic = 1, nic_prev
+          jpar = 1
+          do pos = 1, npos
+            if (jpar <= nsubs_prev .and. indconf_prev(ic, jpar) == pos) then
+              jpar = jpar + 1  ! pos is in the parent; skip it
+            else
+! pos is not in the parent; create child by inserting pos into the sorted parent
+! Sites indconf_prev(ic,1:jpar-1) are < pos; sites indconf_prev(ic,jpar:nsubs_prev) are > pos
+              ncand = ncand + 1
+              conf(ncand, 1:jpar - 1) = indconf_prev(ic, 1:jpar - 1)
+              conf(ncand, jpar) = pos
+              conf(ncand, jpar + 1:nsubs) = indconf_prev(ic, jpar:nsubs_prev)
+            end if
+          end do
+        end do
+
+      else
+! Downward: remove one substitution from each parent config
+! Each parent (nsubs+1 sites) generates nsubs+1 children
+        ncand_max = nic_prev * nsubs_prev
+        allocate (conf(1:ncand_max, 1:nsubs), stat=ierr)
+        if (ierr /= 0) then
+          write (*, *) "Error: insufficient memory for candidate list"
+          stop
+        end if
+        ncand = 0
+        do ic = 1, nic_prev
+          do j_remove = 1, nsubs_prev
+            ncand = ncand + 1
+! Child = parent with site at position j_remove removed; result is already sorted
+            k = 0
+            do jj = 1, nsubs_prev
+              if (jj /= j_remove) then
+                k = k + 1
+                conf(ncand, k) = indconf_prev(ic, jj)
+              end if
+            end do
+          end do
+        end do
+
+      end if
+
+      deallocate (indconf_prev, degen_prev)
+
+      write (*, *) "       Number of candidate configurations:            ", ncand
+      write (*, *) " "
+
+! Allocate arrays for symmetry reduction of candidate list
+! visited is still indexed by combinatorial rank in C(npos,nsubs) space
+      ntc = binom(nsubs, npos)
+      if (ntc <= 0) then
+        write (*, *) "Error: total configuration count overflows integer range."
+        write (*, *) "       The problem is too large for SOD. Reduce supercell or substitutions."
+        stop
+      end if
+      allocate (visited(1:ntc), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: insufficient memory for visited array (size", ntc, ")"
+        write (*, *) "       Try reducing supercell or substitutions."
+        stop
+      end if
+      visited(:) = .false.
+      allocate (newconf(1:nsubs), stat=ierr)
+      allocate (indconf(1:ncand, 1:nsubs), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: insufficient memory for indconf"
+        stop
+      end if
+      allocate (degen(1:ncand), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: insufficient memory for degen"
+        stop
+      end if
+      indconf(:, :) = 0
+      newconf(:) = 0
+      degen(:) = 1
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!         Symmetry reduction of candidate list
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+      write (*, *) "Finding the inequivalent configurations (recursive)..."
+      write (*, *) " "
+      write (*, *) "       Found    Completion "
+      write (*, *) "       =====    ========== "
+
+      indcount = 0
+      perc = 0.0d0
+      do cand = 1, int(ncand, kind=8)
+! Compute combinatorial rank of this candidate
+        r = binom(nsubs, npos)
+        do i = 1, nsubs
+          if (npos - conf(cand, i) >= nsubs - i + 1) &
+            r = r - binom(nsubs - i + 1, npos - conf(cand, i))
+        end do
+        if (visited(r)) cycle  ! already accounted for as equivalent of a known config
+
+! New independent configuration found
+        indcount = indcount + 1
+        indconf(indcount, 1:nsubs) = conf(cand, 1:nsubs)
+        visited(r) = .true.
+        write (47, *) "List of operators for configuration: ", indcount
+        opc = 1
+        write (47, *) opc
+        do i = 1, 3
+          write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
+        end do
+
+! Apply all symmetry operators to find equivalents and count degeneracy
+        do op = 2, nop
+          do i = 1, nsubs
+            elei = conf(cand, i)
+            newconf(i) = eqmatrixtarget(op, elei)
+          end do
+          call bubble(newconf, nsubs)
+          r = binom(nsubs, npos)
+          do i = 1, nsubs
+            if (npos - newconf(i) >= nsubs - i + 1) &
+              r = r - binom(nsubs - i + 1, npos - newconf(i))
+          end do
+          found = .false.
+          if (all(newconf(1:nsubs) == conf(cand, 1:nsubs))) then
+            found = .true.
+            opc = opc + 1
+            write (47, *) opc
+            do i = 1, 3
+              write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
+            end do
+          else
+            if (visited(r)) found = .true.
+          end if
+          if (.not. found) then
+            visited(r) = .true.
+            degen(indcount) = degen(indcount) + 1
+          end if
+        end do
+        write (47, *) 0
+        if ((100.0d0*cand/ncand - perc > 5.0d0) .or. (cand == ncand)) then
+          perc = 100.0d0*cand/ncand
+          write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
+        end if
+      end do
+      nic = indcount
+      deallocate (conf)
+      deallocate (visited)
+
+    else
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!         Direct path: enumerate C(npos,nsubs) configurations on-the-fly
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+      ntc = binom(nsubs, npos)
+      if (ntc <= 0) then
+        write (*, *) "Error: the total number of configurations exceeds the integer range."
+        write (*, *) "       The problem is too large for SOD. Reduce supercell or substitutions."
+        stop
+      end if
+      maxentropy = kb*log(real(ntc))
+      write (*, *) " "
+      write (*, *) "       Total number of configurations in the supercell:     ", ntc
+      write (*, *) " "
+      write (*, *) "       Maximum entropy for this composition and supercell:", maxentropy, " eV/K"
+      write (*, *) " "
+
+      x = real(nsubs)/real(npos)
+      write (*, *) "       Fraction of substituted sites:                 x = ", x
+      write (*, *) " "
+      if (x == 0.0 .or. x == 1.0) then
+        ientropy = 0.0
+      else
+        ientropy = -npos*kb*(x*log(x) + (1 - x)*log(1 - x))
+      end if
+      write (*, *) "       Ideal entropy (per cell) for this composition:     ", ientropy, " eV/K"
+      write (*, *) " "
 
 !!!!!!!!Allocating array sizes
+! conf(ntc, nsubs) is NOT allocated; configurations are generated one at a time via ksubset.
+! indconf is allocated at ntc (safe upper bound on the number of independent configs).
 
-  allocate (degen(1:ntc), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory"
-    write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
-    stop
-  end if
-  allocate (newconf(1:nsubs), stat=ierr)
-  allocate (conf(1:ntc, 1:nsubs), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory"
-    write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
-    stop
-  end if
-  allocate (indconf(1:ntc, 1:nsubs), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory"
-    write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
-    stop
-  end if
-  allocate (visited(1:ntc), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory"
-    write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
-    stop
-  end if
-  visited(:) = .false.
+      allocate (degen(1:ntc), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: problem too large for SOD - insufficient memory"
+        write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
+        stop
+      end if
+      allocate (newconf(1:nsubs), stat=ierr)
+      allocate (indconf(1:ntc, 1:nsubs), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: problem too large for SOD - insufficient memory"
+        write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
+        stop
+      end if
+      allocate (visited(1:ntc), stat=ierr)
+      if (ierr /= 0) then
+        write (*, *) "Error: problem too large for SOD - insufficient memory"
+        write (*, *) "       Total configurations: ", ntc, " - reduce supercell size or number of substitutions"
+        stop
+      end if
+      visited(:) = .false.
 
-  mores = .false.
-  as(:) = 1
-  count = 1
-  call ksubset(npos, nsubs, as, mores)
-  conf(1, 1:nsubs) = as(1:nsubs)
-  do while (mores)
-    call ksubset(npos, nsubs, as, mores)
-    count = count + 1
-    conf(count, 1:nsubs) = as(1:nsubs)
-  end do
-
-  if (count /= ntc) then
-    write (*, *) "Error in KSUBSET subroutine"
-    stop
-  end if
+! Initialise ksubset: first call (mores=.false.) sets as to the first configuration.
+      mores = .false.
+      call ksubset(npos, nsubs, as, mores)
+      ! as(1:nsubs) now holds configuration rank 1
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         Generate the list of independent configurations
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  write (*, *) " "
-  write (*, *) "Finding the inequivalent configurations..."
-  write (*, *) " "
-  write (*, *) "       Found    Completion "
-  write (*, *) "       =====    ========== "
+      write (*, *) " "
+      write (*, *) "Finding the inequivalent configurations..."
+      write (*, *) " "
+      write (*, *) "       Found    Completion "
+      write (*, *) "       =====    ========== "
 
-! With this loop we get a function that returns the configuration equivalent, by the operator op,
-! to the configuration count.
+      indconf(:, :) = 0
+      newconf(:) = 0
+      degen(:) = 1
 
-! For the first configuration (count=1)
-  indconf(:, :) = 0
-  newconf(:) = 0
-  degen(:) = 1
-
-  count = 1
-  equivcount = 1
-  indcount = 1
-  write (47, *) "List of operators for configuration: ", indcount
-
-  indconf(indcount, 1:nsubs) = conf(count, 1:nsubs)
-  opc = 1
-  write (47, *) opc
-  do i = 1, 3
-    write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
-  end do
-  visited(count) = .true.
-  do op = 2, nop
-    do i = 1, nsubs
-      elei = conf(count, i)                 ! elei is the element i of the configuration number count
-      newconf(i) = eqmatrixtarget(op, elei) ! newconf is the configuration obtained by applying the
-      ! operator op to the configuration number conf(count,i)
-    end do
-    call bubble(newconf, nsubs)
-    r = combinations(nsubs, npos)
-    do i = 1, nsubs
-      if (npos - newconf(i) >= nsubs - i + 1) r = r - combinations(nsubs - i + 1, npos - newconf(i))
-    end do
-    found = .false.
-    if (all(newconf(1:nsubs) == conf(count, 1:nsubs))) then
-      found = .true.
-      opc = opc + 1
-      write (47, *) opc
-      do i = 1, 3
-        write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
-      end do
-    else
-      if (visited(r)) found = .true.
-    end if
-    if (.not. found) then
-      equivcount = equivcount + 1
-      visited(r) = .true.
-      degen(indcount) = degen(indcount) + 1
-    end if
-  end do
-  write (47, *) 0
-
-! For the rest of configurations (count>1)
-  perc = 0.0
-  do while (equivcount < ntc)
-    count = count + 1
-    foundnoind = visited(count)
-    if (.not. foundnoind) then
-      indcount = indcount + 1
+! First configuration (count=1, always new — visited(1) is false)
+      count = 1
+      equivcount = 1
+      indcount = 1
       write (47, *) "List of operators for configuration: ", indcount
-      indconf(indcount, 1:nsubs) = conf(count, 1:nsubs)
-      equivcount = equivcount + 1
-      visited(count) = .true.
+
+      indconf(indcount, 1:nsubs) = as(1:nsubs)
       opc = 1
       write (47, *) opc
       do i = 1, 3
         write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
       end do
-      op_loop: do op = 2, nop
+      visited(count) = .true.
+      do op = 2, nop
         do i = 1, nsubs
-          elei = conf(count, i)
+          elei = as(i)
           newconf(i) = eqmatrixtarget(op, elei)
         end do
         call bubble(newconf, nsubs)
-        r = combinations(nsubs, npos)
+        r = binom(nsubs, npos)
         do i = 1, nsubs
-          if (npos - newconf(i) >= nsubs - i + 1) r = r - combinations(nsubs - i + 1, npos - newconf(i))
+          if (npos - newconf(i) >= nsubs - i + 1) r = r - binom(nsubs - i + 1, npos - newconf(i))
         end do
         found = .false.
-        if (all(newconf(1:nsubs) == conf(count, 1:nsubs))) then
+        if (all(newconf(1:nsubs) == as(1:nsubs))) then
           found = .true.
           opc = opc + 1
           write (47, *) opc
@@ -706,67 +932,141 @@ program combsod
             write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
           end do
         else
-          if (visited(r)) cycle op_loop
+          if (visited(r)) found = .true.
         end if
         if (.not. found) then
           equivcount = equivcount + 1
           visited(r) = .true.
           degen(indcount) = degen(indcount) + 1
         end if
-      end do op_loop
+      end do
       write (47, *) 0
-      if ((100.0d0*equivcount/ntc - perc > 5.0d0) .or. (equivcount == ntc)) then
-        perc = 100.0d0*equivcount/ntc
-        write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
-      end if
-    end if
-  end do
 
-  nic = indcount
-  deallocate (eqmatrixtarget)
-  deallocate (conf)
-  deallocate (visited)
+! Advance ksubset to next configuration
+      call ksubset(npos, nsubs, as, mores)
 
-! Trim indconf and degen to the actual number of independent configurations
-  block
-    integer, dimension(:, :), allocatable :: tmp2d
-    integer, dimension(:), allocatable :: tmp1d
-    allocate (tmp2d(1:nic, 1:nsubs))
-    tmp2d = indconf(1:nic, 1:nsubs)
-    call move_alloc(tmp2d, indconf)
-    allocate (tmp1d(1:nic))
-    tmp1d = degen(1:nic)
-    call move_alloc(tmp1d, degen)
-  end block
+! Remaining configurations (count > 1): advance ksubset one step per iteration
+      perc = 0.0
+      do while (equivcount < ntc)
+        count = count + 1
+        foundnoind = visited(count)
+        if (.not. foundnoind) then
+          indcount = indcount + 1
+          write (47, *) "List of operators for configuration: ", indcount
+          indconf(indcount, 1:nsubs) = as(1:nsubs)
+          equivcount = equivcount + 1
+          visited(count) = .true.
+          opc = 1
+          write (47, *) opc
+          do i = 1, 3
+            write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
+          end do
+          op_loop: do op = 2, nop
+            do i = 1, nsubs
+              elei = as(i)
+              newconf(i) = eqmatrixtarget(op, elei)
+            end do
+            call bubble(newconf, nsubs)
+            r = binom(nsubs, npos)
+            do i = 1, nsubs
+              if (npos - newconf(i) >= nsubs - i + 1) r = r - binom(nsubs - i + 1, npos - newconf(i))
+            end do
+            found = .false.
+            if (all(newconf(1:nsubs) == as(1:nsubs))) then
+              found = .true.
+              opc = opc + 1
+              write (47, *) opc
+              do i = 1, 3
+                write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
+              end do
+            else
+              if (visited(r)) cycle op_loop
+            end if
+            if (.not. found) then
+              equivcount = equivcount + 1
+              visited(r) = .true.
+              degen(indcount) = degen(indcount) + 1
+            end if
+          end do op_loop
+          write (47, *) 0
+          if ((100.0d0*equivcount/ntc - perc > 5.0d0) .or. (equivcount == ntc)) then
+            perc = 100.0d0*equivcount/ntc
+            write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
+          end if
+        end if
+        call ksubset(npos, nsubs, as, mores)
+      end do
 
-  write (*, *) " "
-  write (*, *) "       Number of inequivalent configurations:               ", nic
-  write (*, *) " "
+      nic = indcount
+      deallocate (visited)
 
-  write (30, *) nsubs, " substitutions in ", npos, "sites"
-  write (30, *) nic, " configurations"
-  do indcount = 1, nic
-    write (30, 330) indcount, degen(indcount), indconf(indcount, 1:nsubs)
-330 format(i6, 1x, i6, 30(1x, i4))
-  end do
+    end if  ! use_recursive / direct
 
 !!!!!!!!End of search for independent configurations
 
+! Trim indconf and degen to the actual number of independent configurations
+    block
+      integer, dimension(:, :), allocatable :: tmp2d
+      integer, dimension(:), allocatable :: tmp1d
+      allocate (tmp2d(1:nic, 1:nsubs))
+      tmp2d = indconf(1:nic, 1:nsubs)
+      call move_alloc(tmp2d, indconf)
+      allocate (tmp1d(1:nic))
+      tmp1d = degen(1:nic)
+      call move_alloc(tmp1d, degen)
+    end block
+
+    write (*, *) " "
+    write (*, *) "       Number of inequivalent configurations:               ", nic
+    write (*, *) " "
+
+    write (30, *) nsubs, " substitutions in ", npos, "sites"
+    write (30, *) nic, " configurations"
+    do indcount = 1, nic
+      write (30, 330) indcount, degen(indcount), indconf(indcount, 1:nsubs)
+    end do
+330 format(i6, 1x, i6, *(1x, i4))
+
+!!!!!!!Deallocating arrays
+    deallocate (newconf)
+    deallocate (degen)
+    deallocate (indconf)
+
+    deallocate (binom)
+
+    call system_clock(t_now)
+    elapsed_level = real(t_now - t_start_level, kind=8) / real(clock_rate, kind=8)
+    elapsed_per_level(nsubs_loop) = elapsed_level
+    nsubs_level_list(nsubs_loop) = nsubs
+
+    close (30)
+    close (47)
+
+  end do  ! nsubs_loop
 
 !!!!!!! Write FILER to file, to be read by the shell script
   write (43, *) filer
 ! Calculation input file generation is handled by genersod,
 ! called automatically by sod_comb.sh when FILER is not -1.
 
-!!!!!!!Deallocating arrays
-  deallocate (newconf)
-  deallocate (degen)
-  deallocate (indconf)
+  deallocate (eqmatrixtarget)
 
 !!!!!!!Reporting the end
+  call system_clock(t_now)
+  elapsed_total = real(t_now - t_start_total, kind=8) / real(clock_rate, kind=8)
+  write (*, *) " "
+  write (*, *) "Timing summary:"
+  write (*, *) "       nsubs    Wall time (s)"
+  write (*, *) "       -----    -------------"
+  do nsubs_loop = 0, nsubs_max - nsubs_min
+    write (*, '(7x, i5, 4x, f12.2)') nsubs_level_list(nsubs_loop), elapsed_per_level(nsubs_loop)
+  end do
+  write (*, *) "       -----    -------------"
+  write (*, '(a, f12.2)') "       Total         ", elapsed_total
+  write (*, *) " "
+  deallocate (elapsed_per_level, nsubs_level_list)
   write (*, *) "Done!!!"
   write (*, *) ""
   write (*, *) ""
 
 end program combsod
-

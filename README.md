@@ -1,4 +1,4 @@
-# SOD 0.61 - Notes for users
+# SOD 0.62 - Notes for users
 
 SOD (standing for Site-Occupation Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -27,21 +27,21 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 The **example1_\*** series all use the same physical system — Ni/Mg substitutions in a 2×2×2 supercell of rocksalt MgO (space group Fm-3m) — and illustrate input generation for five different calculators using the same INSOD file (differing only in FILER):
 
-- **example1_gulp**: 4 Ni substitutions (nsubs=4). GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
+- **example1_gulp**: Ni/Mg substitutions in a 2×2×2 MgO rocksalt supercell (32 Mg sites), nsubs=4. GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
 
-- **example1_lammps**: 4 Ni substitutions (nsubs=4). LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
+- **example1_lammps**: Same system, nsubs=4. LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
 
-- **example1_vasp**: 4 Ni substitutions. VASP (FILER=11). SOD generates `POSCAR` into each `cYY/` folder; the user must supply `INCAR`, `KPOINTS` and `POTCAR`.
+- **example1_vasp**: Same system, nsubs=4. VASP (FILER=11). SOD generates `POSCAR` into each `cYY/` folder; the user must supply `INCAR`, `KPOINTS` and `POTCAR`.
 
-- **example1_castep**: 4 Ni substitutions. CASTEP (FILER=12). Demonstrates `template_castep.cell`; the user must supply the `.param` file.
+- **example1_castep**: Same system, nsubs=4. CASTEP (FILER=12). Demonstrates `template_castep.cell`; the user must supply the `.param` file.
 
-- **example1_qe**: 4 Ni substitutions. Quantum ESPRESSO (FILER=13). Demonstrates `template_pw.in`; replace `Ni.upf`, `Mg.upf`, `O.upf` with your pseudopotential files before running.
+- **example1_qe**: Same system, nsubs=4. Quantum ESPRESSO (FILER=13). Demonstrates `template_pw.in`; replace `Ni.upf`, `Mg.upf`, `O.upf` with your pseudopotential files before running.
 
-- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (1×1×1 cubic spinel unit cell, space group Fd-3m). 4 Al substitutions across 24 mixed Fe sites (8 tetrahedral + 16 octahedral) give 99 inequivalent configurations. VASP input files (FILER=11) pre-generated in `n04/`. The two structurally distinct Fe environments make this a non-trivial site-disorder problem.
+- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (1×1×1 cubic spinel unit cell, space group Fd-3m). Al substitutions from 0 to 16 across 24 mixed Fe sites (8 tetrahedral + 16 octahedral) are enumerated (FILER=-1); the `n04/` folder contains the OUTSOD for the 4-substitution case (99 inequivalent configurations). The two structurally distinct Fe environments make this a non-trivial site-disorder problem.
 
-- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄ (space group P4₂/mnm). 8 M(IV) sites replaced by equal numbers of Fe(III) and Sb(V) give 182 inequivalent configurations out of 12870 total. VASP input files (FILER=11) pre-generated in `n08/`. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
+- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄ (space group P4₂/mnm). 8 M(IV) sites replaced by equal numbers of Fe(III) and Sb(V) give 182 inequivalent configurations out of 12870 total (FILER=-1; no calculation input files generated). The OUTSOD is pre-computed in `n08/`. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
 
-- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (space group Pnma). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
+- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (cubic approximation, space group Pm-3m). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
 
 - **example5**: Sn/Zr substitution in the La₂Zr₂O₇–La₂Sn₂O₇ solid solution (pyrochlore, space group Fd-3m). 2 Sn substitutions in 16 Zr sites give 5 inequivalent configurations. CASTEP input files (FILER=12) are generated via `template_castep.cell`; DFT outputs are not included to save space. Demonstrates canonical and grand-canonical averaging of ¹³⁹La NMR spectra across compositions n00–n16, with optional stress-volume correction (see `x125` and `x250`).
 
@@ -49,7 +49,7 @@ The **example1_\*** series all use the same physical system — Ni/Mg substituti
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.61.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.62.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -73,6 +73,8 @@ export PATH=$PATH:ROOTSOD/sod(version)/bin
 - We recommend to create a new folder (say FOLDER_NAME) for each sod project. This will be referred to as the working directory.
 
 - In FOLDER_NAME, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
+
+- The `nsubs_min nsubs_max` field in INSOD controls the range of substitution concentrations to enumerate in a single run. If both values are equal (e.g. `4 4`), only that one concentration is processed. If they differ (e.g. `1 8`), SOD loops over all integer values from `nsubs_min` to `nsubs_max` in sequence, creating one `nXX/` folder per concentration. This is equivalent to running `sod_comb.sh` separately for each value, but more convenient when a range of concentrations is needed (e.g. for a grand-canonical analysis).
 
 - In FOLDER_NAME, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
 

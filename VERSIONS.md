@@ -61,3 +61,11 @@
 - Quantum ESPRESSO support (FILER=13): `genersod` reads `template_pw.in` and replaces `@configuration_structure@` with `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}` blocks.
 - Five parallel `example1_*` examples (GULP, LAMMPS, VASP, CASTEP, QE) all using Ni/Mg substitutions in MgO rocksalt.
 
+## Version 0.62 (March 2026)
+- Recursive enumeration algorithm added: enumeration is done from nsubs_min to nsubs_max. Enumeration at a given number of substitutions nsubs uses OUTSOD from nsubs-1.
+- Bug fix: `example1_lammps/INSOD` had `sptarget=2` (oxygen) instead of `sptarget=1` (magnesium); would have substituted O instead of Ni.
+- All `example1_*` examples now use nsubs=4 consistently (example1_gulp was previously inconsistent).
+- `genersod`: "Creating input files for..." status message is now printed once per run, not once per substitution level, when `nsubs_min < nsubs_max`.
+- `example4/n04/spbe0` and `spbe1` SPBE energy-extrapolation subfolders restored.
+- README: `nsubs_min`/`nsubs_max` range behaviour documented; example descriptions corrected.
+

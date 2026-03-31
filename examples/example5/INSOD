@@ -25,8 +25,8 @@ La Zr O
 # sptarget: Species to be substituted
 2
 
-# nsubs: Number of substitutions in the supercell
-2
+# nsubs_min nsubs_max: Min and max substitutions (one value sets both equal)
+2 2
 
 # newsymbol(1:2): Symbol of atom to be inserted in the selected position,
 #                 symbol to be inserted in the rest of the positions for the same species.
