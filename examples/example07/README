@@ -1,0 +1,48 @@
+Example 7: Fe vacancies in maghemite (gamma-Fe2O3)
+===================================================
+
+Physical system
+---------------
+Maghemite (gamma-Fe2O3) can be modelled as a spinel structure with 1/9
+of the iron sites vacant. This example starts from the P4(3)32 cubic
+structure (space group 212, a=8.344 A) as the ordered reference for the
+1x1x3 supercell (168 sites: 12 vacant %Fe + 60 Fe + 96 O). SOD enumerates
+all inequivalent ways to fill 4 of the 12 vacant sites with Fe, leaving 8
+vacancies and giving the gamma-Fe2O3 stoichiometry (64 Fe + 8 vacancies
++ 96 O). 29 inequivalent configurations are found out of C(12,4) = 495
+total arrangements.
+
+The GULP force field uses Fe(III)-O(II) Buckingham potentials and the
+oxygen shell model from the Catlow library (catlow.lib).
+
+Species convention in this example
+-----------------------------------
+  %Fe  = vacant iron site (absent from GULP output)  -- target site
+  Fe   = occupied iron site                           -- NOT substituted
+  O    = oxygen                                       -- NOT substituted
+
+  newsymbol(1) = Fe   => vacancy filled with Fe
+  newsymbol(2) = %Fe  => site remains vacant
+
+Files provided
+--------------
+  INSOD              SOD input (cell, species, substitution parameters)
+  SGO                Symmetry operations for P4(3)32 (space group 212)
+  supercell.cif      P1 CIF of the 1x1x3 supercell (168 sites)
+  template_input.gin GULP template with catlow.lib
+  catlow.lib         Lewis-Catlow force-field library
+  n04/               Pre-computed output: OUTSOD, ENERGIES, and
+                     GULP input/output files for all 29 configurations
+
+How to run
+----------
+1. Run combsod:   ../../bin/combsod
+2. Run genersod:  ../../bin/genersod
+3. GULP input files appear in n04/cXX/input.gin
+
+Notes
+-----
+- The template_input.gin uses the shell model for oxygen via catlow.lib.
+  SOD automatically writes both "O2 core" and "O2 shel" lines.
+- Vacancy sites are simply absent from the GULP input -- no special
+  keyword is needed in GULP.

@@ -1,0 +1,21 @@
+ Configuration with minimum energy:            1
+ Configuration with maximum energy:            1
+
+Temperature=      0.0000
+         m  omega(m)   Erel(m)/eV       p(m)        p(m)/omega(m)
+         1         8  0.000000E+00      1.0000    0.1250E+00
+
+
+Temperature=    300.0000
+         m  omega(m)   Erel(m)/eV       p(m)        p(m)/omega(m)
+         1         8  0.000000E+00      1.0000    0.1250E+00
+
+
+Temperature=   1000.0000
+         m  omega(m)   Erel(m)/eV       p(m)        p(m)/omega(m)
+         1         8  0.000000E+00      1.0000    0.1250E+00
+
+
+ Infinite Temperature Limit
+         m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)
+         1         8  0.000000E+00      1.0000    0.1250E+00

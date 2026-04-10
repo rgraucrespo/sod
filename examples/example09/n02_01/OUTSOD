@@ -1,0 +1,10 @@
+# SOD OUTSOD format version 2
+           2           1  substitutions in            8          24 sites
+                    7  configurations
+     1     96    1    2   17
+     2     96    1    2   25
+     3     96    1    2   29
+     4    192    1    4   17
+     5     48    1    4   25
+     6     48    1    4   29
+     7     96    1    8   17

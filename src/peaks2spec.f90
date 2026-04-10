@@ -20,13 +20,14 @@
 
 program peaks2spec
 
+  use iso_fortran_env, only: real64
   implicit none
 
-  real(kind=8), parameter :: pi = acos(-1.0d0)
+  real(real64), parameter :: pi = acos(-1.0d0)
   integer :: iconf, ipeak, nconfs, npeaks, npoints
-  real(kind=8)  :: x, xmin, xmax, sigma, range, step, gaussian, spectrum
+  real(real64)  :: x, xmin, xmax, sigma, range, step, gaussian, spectrum
   integer :: i
-  real(kind=8), dimension(:, :), allocatable :: peaks, spectra
+  real(real64), dimension(:, :), allocatable :: peaks, spectra
   open (10, file='INP2S', status='OLD')
   open (11, file='PEAKS', status='OLD')
   open (12, file='SPECTRA')

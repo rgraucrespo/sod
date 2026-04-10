@@ -1,0 +1,46 @@
+Example 8: Methylammonium (MA) substitution in CsPbI3 perovskite
+=================================================================
+
+Physical system
+---------------
+The cubic alpha-phase CsPbI3 (Pm-3m, a=6.3225 A) is a lead-iodide
+perovskite where Cs occupies the A-site. Replacing some Cs with
+methylammonium (MA = CH3NH3+) gives the mixed MA_x Cs_{1-x} PbI3
+solid solution, relevant for hybrid perovskite solar cells.
+
+This example uses a 4x4x4 supercell (320 atoms: 64 Cs, 64 Pb, 192 I)
+and substitutes 2 of the 64 Cs sites with MA molecules (x=0.03125),
+enumerating all inequivalent configurations under Pm-3m symmetry.
+Output is LAMMPS data files (conf.data) for classical force-field
+calculations.
+
+The MA molecule is read from MA.xyz (8 atoms: C, N, 6H). SOD places
+it with the centre of mass at the Cs site and a random orientation
+(Shoemake uniform quaternion sampling).
+
+Files
+-----
+  INSOD                SOD input (FILER=2, LAMMPS)
+  SGO                  Symmetry operations for Pm-3m (space group 221)
+  supercell.cif        4x4x4 CsPbI3 supercell in P1 (320 atoms)
+  MA.xyz               Methylammonium geometry (DFT-PBE optimised, Angstrom)
+  template_in.lammps   LAMMPS input template with # sod_type_map entries
+
+How to run
+----------
+1. Run combsod:   ../../bin/combsod
+2. Run genersod:  ../../bin/genersod
+3. LAMMPS data files appear in n02/cXX/conf.data
+
+Replace pair_coeff and charge values in template_in.lammps with your
+chosen force field before running LAMMPS. Bond and angle terms within
+the MA molecule are not written by SOD and must be added separately.
+
+Expected output
+---------------
+9 inequivalent configurations out of C(64,2) = 2016 total arrangements.
+
+Each conf.data will contain 334 atoms:
+  62 Cs + 64 Pb + 192 I + 2 C + 2 N + 12 H
+(replacing 2 Cs sites with 2 MA molecules of 8 atoms each).
+MA orientations are random and differ between genersod runs.

@@ -2,7 +2,7 @@
 # This script runs the spbe code (simple pair-based extrapolation) programe of the SOD package, starting from x=1.
 # It requires the following input files: EQMATRIX, OUTSOD, OUTSOD1, OUTSOD2, ENERGIES0, ENERGIES1, ENERGIES2
 # The following commands might be useful to collect the input files - comment out if you already have them.
-nsites=`head -1 ../OUTSOD | awk '{print $4}'`
+nsites=`grep -v "^#" ../OUTSOD | head -1 | awk '{print $4}'`
 nsitesm1=$(($nsites - 1))
 nsitesm2=$(($nsites - 2))
 

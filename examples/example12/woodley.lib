@@ -1,0 +1,58 @@
+#
+#  WOODLEY -library of potentials for GULP
+#
+#  from S.M.Woodley, P.D.Battle, J.D.Gale and C.R.A.Catlow
+#  Phys. Chem. Chem. Phys., 1, 2535-2542 (1999).
+#
+#  The O-O potential parameters are identical to those given
+#  by Bush. Hence they can be used with the bush set Xi-O 
+#  where Xi = Li+, Na+, K+, Mg2+, Ca2+, Sr2+, Ba2+, Fe3+, Ti4+, 
+#  Al3+, Ga3+, Y3+, Pr3+, Nd3+, Gd3+, Eu3+, Tb3+, Yb3+, La3+ 
+#  and i refers to the oxidation or charge on the cation core.
+#  These values can be obtained by returning to the periodic
+#  table and clicking on "O" then "Bush 1994".
+#
+buck
+Ag1 core O core   962.197 0.3000  0.00 0.0 10.0
+Ag3 core O core  4534.200 0.2649  0.00 0.0 10.0
+Ce4 core O core  2409.505 0.3260  0.00 0.0 10.0
+Cu1 core O core   585.747 0.3000  0.00 0.0 10.0
+Fe2 core O core  2763.945 0.2641  0.00 0.0 10.0
+Ge4 core O core  3703.725 0.2610  0.00 0.0 10.0
+Mn4 core O core  3329.388 0.2642  0.00 0.0 10.0
+Nb5 core O core  3023.184 0.3000  0.00 0.0 10.0
+Pb1 core O core  5564.374 0.2610  0.00 0.0 10.0
+Po4 core O core 10984.535 0.3260  0.00 0.0 10.0
+Rb1 core O core  2565.507 0.3260  0.00 0.0 10.0
+Sn4 core O core  6327.497 0.2610  0.00 0.0 10.0
+Ta2 core O core  2608.581 0.2610  0.00 0.0 10.0
+Tl3 core O core  1753.153 0.3247  0.00 0.0 10.0
+Ti4 core O core  4545.823 0.2610  0.00 0.0 10.0
+U2  core O core  7784.072 0.2610  0.00 0.0 10.0
+V2  core O core  1946.254 0.2610  0.00 0.0 10.0
+V4  core O core  3228.972 0.2610  0.00 0.0 10.0
+Zr2 core O core  4796.164 0.2610  0.00 0.0 10.0
+Zr4 core O core  7290.347 0.2610  0.00 0.0 10.0
+O   core O core    25.410 0.6937 32.32 0.0 12.0
+species
+Ag1 core  1.000
+Ag3 core  3.000
+Ce4 core  4.000
+Cu1 core  1.000
+Fe2 core  2.000
+Ge4 core  4.000
+Mn4 core  4.000
+Nb5 core  5.000
+Pb1 core  1.000
+Po4 core  4.000
+Rb1 core  1.000
+Sn4 core  4.000
+Ta2 core  2.000
+Tl3 core  3.000
+Ti4 core  4.000
+U2  core  2.000
+V2  core  2.000
+V4  core  4.000
+Zr2 core  2.000
+Zr4 core  4.000
+O   core -2.000

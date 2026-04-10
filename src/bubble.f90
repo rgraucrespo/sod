@@ -21,7 +21,7 @@
 subroutine bubble(a, n)
 
   implicit none
-  integer, parameter :: natmax = 1000
+  integer, parameter :: natmax = 10000
   integer :: i, j, n
   integer, dimension(1:natmax)   :: a
 

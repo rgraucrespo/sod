@@ -20,7 +20,7 @@
 
 subroutine member(vlength, ivector, iele, f)
   implicit none
-  integer, parameter :: nsubsmax = 20
+  integer, parameter :: nsubsmax = 1000
   integer, dimension(1:nsubsmax), intent(in)   :: ivector
   integer, intent(in) :: iele, vlength
   integer, intent(out) :: f

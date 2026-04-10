@@ -23,9 +23,20 @@ program invertoutsod
 
   integer :: m, mm, npos, pos, nsubs, trash
   integer :: posinverted
-  character*20 :: trashstr
+  character(len=20) :: trashstr
+  character(len=200) :: outsod_line
   integer, dimension(:), allocatable:: omega
   integer, dimension(:, :), allocatable:: conf, confinverted
+
+  write (*, *) "============================================================================"
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.70"
+  write (*, *) ""
+  write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
+  write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
+  write (*, *) "============================================================================"
+  write (*, *) ""
+  write (*, *) " > Inverting OUTSOD configurations (n -> npos-n)..."
+  write (*, *) ""
 
 !!!!!! Input files
 
@@ -63,7 +74,18 @@ program invertoutsod
 !     3      6    1    2    3    4    5    7    8    9   10   11
 !     4      6    1    2    3    4    5    7    8    9   10   12
 
-  read (10, *) nsubs, trashstr, trashstr, npos
+  do
+    read (10, '(a)') outsod_line
+    if (outsod_line(1:1) /= '#') exit
+  end do
+  read (outsod_line, *) nsubs, trashstr
+  if (trim(trashstr) /= 'substitutions') then
+    write (*, *) 'ERROR: invertOUTSOD only supports single-site binary substitutions.'
+    write (*, *) '       Multi-species or multi-nary OUTSOD detected. Aborting.'
+    stop 1
+  end if
+  read (outsod_line, *) nsubs, trashstr, trashstr, npos
+  write (11, '(a)') "# SOD OUTSOD format version 2"
   write (11, *) npos - nsubs, "substitutions in", npos, "sites"
   read (10, *) mm
   write (11, *) mm, "configurations"
@@ -88,13 +110,16 @@ program invertoutsod
 
   do m = 1, mm
     write (11, 10) m, omega(m), confinverted(m, 1:npos - nsubs)
-10  format(i6, 1x, i6, 30(1x, i4))
+10  format(i6, 1x, i6, *(1x, i4))
   end do
 
 !!!!!!Deallocating arrays
   deallocate (conf)
   deallocate (confinverted)
   deallocate (omega)
+
+  write (*, *) " > Inversion completed."
+  write (*, *) ""
 
 end program invertoutsod
 

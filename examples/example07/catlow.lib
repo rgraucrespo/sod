@@ -1,0 +1,75 @@
+#
+#  CATLOW library - collection of potentials based
+#  around the Catlow oxygen-oxygen potential
+#
+#  O2    general O2- species
+#  O1    oxygen in hydroxyl group, OH-
+#  H1    hydrogn in hydroxyl group, OH-
+#
+#  References:
+#  (0) M.J.Sanders, M.J.Leslie and C.R.A.Catlow J.Chem.Soc.Chem.Com 1271 1984
+#  (1) R.A.Jackson and C.R.A.Catlow Mole. Sim. 1 207-224 1988.
+#  (2) K.P.Schroder, J.Sauer, M.Leslie, C.R.A.Catlow and
+#      J.M.Thomas, Chem. Phys. Lett., 188 (1992) 320.
+#  (3) J.D.Gale and N.J.Henson, JCS Faraday Trans., 90
+#      (1994) 3175.
+#  (4) J.D.Gale, unpublished results - non-zeolite potentials
+#      are relax fitted to structure and any available properties
+#      for the relevant binary oxide
+#  (5) A.Jentys and C.R.A.Catlow Catalysis Lett. 22 251-257 1993.
+#      for Ti(IV)-O(II)
+#  (6) D.W.Lewis,C.R.A.Catlow,G.Sankar and S.W.Carr 1995
+#      J.Phys.Chem 99 2377-2383 1995  for Fe(III)-O(II) and OH
+#  (7) C.J.J.den Ouden,R.A.Jackson,C.R.A.Catlow and M.F.M.Post 
+#      J.Phys.Chem. 94 5286-5290 1990   for Ni(II)-O(II)
+#
+#  NB no potential parameters have been derived for X-O_OH 
+#     and X-H_OH where X=K,Sr,Ti etc.
+#
+species
+K     core  1.00000
+Na    core  1.00000
+Mg    core  2.00000
+Sr    core  2.00000
+Ni    core -1.34400
+Ni    shel  3.34400
+Al    core  3.00000
+Fe    core  3.00000
+Si    core  4.00000
+Ti    core  4.00000
+P     core  5.00000
+O2    core  0.86902
+O2    shel -2.86902
+O1    core -1.42600
+H1    core  0.42600
+
+buckingham
+Na core    O2    shel  1226.840 0.30650  0.00000 0.0 10.0
+Na core    Na    core  7895.400 0.17090  0.00000 0.0 10.0
+K  core    O2    shel  1000.300 0.36198 10.56900 0.0 10.0
+Mg core    O2    shel   946.627 0.31813  0.00000 0.0 10.0
+Sr core    O2    shel  1952.390 0.33685 19.22000 0.0 10.0
+Ni shel    O2    shel  1582.500 0.28820  0.00000 0.0 10.0
+Al core    O2    shel  1460.300 0.29912  0.00000 0.0 10.0
+Al core    O1    core  1142.678 0.29912  0.00000 0.0 10.0
+Fe core    O2    shel  1102.400 0.32990  0.00000 0.0 10.0
+Fe core    O1    core   862.080 0.32990  0.00000 0.0 10.0
+Si core    O2    shel  1283.907 0.32052 10.66158 0.0 10.0
+Si core    O1    core   983.557 0.32052 10.66158 0.0 10.0
+Ti core    O2    shel   760.470 0.38790  0.00000 0.0 10.0
+P  core    O2    shel   877.340 0.35940  0.00000 0.0 10.0
+O2 shel    O2    shel 22764.000 0.14900 27.87900 0.0 12.0
+O2 shel    O1    core 22764.000 0.14900 27.87900 0.0 12.0
+O1 core    O1    core 22764.000 0.14900 27.87900 0.0 12.0
+
+morse
+O1 core    H1    core 7.0525 2.1986 0.9485 1.0 1.4
+
+spring
+O2  74.92
+
+three
+Si core O2 shel O2 shel 2.09724 109.47 1.8 1.8 3.2
+Si core O1 core O2 shel 2.09724 109.47 1.8 1.8 3.2
+Al core O2 shel O2 shel 2.09724 109.47 1.8 1.8 3.2
+Al core O1 core O2 shel 2.09724 109.47 1.8 1.8 3.2

@@ -1,0 +1,9 @@
+opti conp
+title
+ Cantor subsystem alloy  @configuration_number@
+end
+
+@configuration_structure@
+
+kim_model
+EAM_Dynamo_FarkasCaro_2020_FeNiCrCoAl__MO_820335782779_000

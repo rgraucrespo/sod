@@ -1,0 +1,38 @@
+# Title
+Al/Fe substitutions in magnetite
+
+# a, b, c, alpha, beta, gamma
+8.4  8.4  8.4  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+2
+
+# symbol(1:nsp): Atom symbols
+Fe O
+
+# natsp0(1:nsp): Number of atoms per species (asymmetric unit is sufficient, full cell ok too)
+2 1
+
+# coords0: Fractional coordinates (one line with x_frac y_frac z_frac per atom)
+0.125 0.125 0.125
+0.5   0.5   0.5
+0.254 0.254 0.254
+
+# na, nb, nc: Supercell multipliers along a, b, c
+1 1 1
+
+# sptarget: Index or indices of species to substitute (one entry per target site; up to 5 sites)
+1
+
+# nsubs: Substitution counts. One line per target site.
+#        One integer per new species (multiple for multi-nary, space-separated).
+#        Single site only: use X:Y to enumerate all levels from X to Y recursively.
+0:16
+
+# newsymbol: One line per target site. Each line lists k new-species symbols
+#            followed by the remaining-species symbol (k+1 symbols total).
+#            Prefix @NAME for a molecule (reads NAME.xyz); % for a vacancy (site omitted).
+Al Fe
+
+# FILER: -1 none | 0 CIF | 1 GULP | 2 LAMMPS | 11 VASP | 12 CASTEP | 13 QE
+-1

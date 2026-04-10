@@ -1,0 +1,11 @@
+@configuration_structure@
+
+%BLOCK kpoints_mp_grid
+4 4 4
+%ENDBLOCK kpoints_mp_grid
+
+%BLOCK species_pot
+Ni Ni_00.recpsp
+Mg Mg_00.recpsp
+O  O_00.recpsp
+%ENDBLOCK species_pot

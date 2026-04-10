@@ -1,0 +1,10 @@
+# nsubsmin nsubsmax
+0   16
+# Specify x or mu, and provide its value
+x 0.250
+# Stress corrections flag (lambda=0: no correction; lambda=1: bulk moduli-based correction)
+0
+# Parameters for volume variation with x: v0, v1, bv (Angstrom^3)
+1302.567820  1286.687504  0
+# Parameters for bulk modulus variation with x: bm0, bm1, bb (GPa)
+150 150 0

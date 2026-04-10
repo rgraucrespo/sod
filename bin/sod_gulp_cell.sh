@@ -14,11 +14,24 @@
 #mon  a b c beta V
 #tri  a b c alpha beta gamma V
 
-for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
-  if [ -f "${dir}output.gout" ]; then
-    cellgulp.sh "${dir}output.gout"
-  fi
-done
+if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+  # Called from MAIN/: loop over all nXX/cYY/
+  for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
+    if [ -f "${dir}output.gout" ]; then
+      cellgulp.sh "${dir}output.gout"
+    fi
+  done
+elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+  # Called from nXX/: loop over cYY/ in current folder
+  for dir in $(ls -d c*/ 2>/dev/null | sort); do
+    if [ -f "${dir}output.gout" ]; then
+      cellgulp.sh "${dir}output.gout"
+    fi
+  done
+else
+  echo "Error: run sod_gulp_cell.sh from MAIN/ or from an nXX/ folder."
+  exit 1
+fi
 
 paste  a.dat b.dat c.dat alpha.dat beta.dat gamma.dat volume.dat > cell.dat
 rm a.dat b.dat c.dat alpha.dat beta.dat gamma.dat volume.dat

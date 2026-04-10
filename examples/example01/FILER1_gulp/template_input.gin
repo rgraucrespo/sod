@@ -1,0 +1,11 @@
+opti conp
+title
+ Ni/Mg substitutions in MgO rocksalt - configuration @configuration_number@
+end
+
+@configuration_structure@
+
+# sod_type_map O O2
+
+library catlow.lib
+gmax 0.01

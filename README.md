@@ -1,4 +1,4 @@
-# SOD 0.62 - Notes for users
+# SOD 0.70 - Notes for users
 
 SOD (standing for Site-Occupation Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -21,35 +21,59 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - sod(version)/src contains the source files.
 - sod(version)/sgo is a library of space group operators (e.g. 131.sgo contains the operators of the space group 131).
 - sod(version)/bin contains the executables. Compile for your platform using `make all`.
-- sod(version)/examples contains six examples, covering rocksalt (MgO), inverse spinel (magnetite), rutile, perovskite (LaFeO3), pyrochlore (La2Zr2O7) and wurtzite (ZnO) structures.
+- sod(version)/examples contains twelve examples, covering a range of structure types and substitution modes: binary, multi-nary, multi-species, vacancies and molecules.
 
 ## Examples
 
-The **example1_\*** series all use the same physical system — Ni/Mg substitutions in a 2×2×2 supercell of rocksalt MgO (space group Fm-3m) — and illustrate input generation for five different calculators using the same INSOD file (differing only in FILER):
+The **example01/\*** series all use the same physical system — Ni/Mg substitutions in a 2×2×2 supercell of rocksalt MgO (space group Fm-3m) — and illustrate input generation for five different calculators using the same INSOD file (differing only in FILER):
 
-- **example1_gulp**: Ni/Mg substitutions in a 2×2×2 MgO rocksalt supercell (32 Mg sites), nsubs=4. GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
+- **example01/FILER1_gulp**: Ni/Mg substitutions in a 2×2×2 MgO rocksalt supercell (32 Mg sites), nsubs=4. GULP (FILER=1) with `catlow.lib` (Buckingham potentials, core-shell model for Ni and O). Demonstrates the `library` directive and `sod_type_map` (SOD species `O` maps to GULP type `O2`).
 
-- **example1_lammps**: Same system, nsubs=4. LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
+- **example01/FILER2_lammps**: Same system, nsubs=4. LAMMPS (FILER=2). Demonstrates `template_in.lammps` with `sod_type_map` lines and core-shell representation in the generated `conf.data`.
 
-- **example1_vasp**: Same system, nsubs=4. VASP (FILER=11). SOD generates `POSCAR` into each `cYY/` folder; the user must supply `INCAR`, `KPOINTS` and `POTCAR`.
+- **example01/FILER11_vasp**: Same system, nsubs=4. VASP (FILER=11). SOD generates `POSCAR` into each `cYY/` folder; the user must supply `INCAR`, `KPOINTS` and `POTCAR`.
 
-- **example1_castep**: Same system, nsubs=4. CASTEP (FILER=12). Demonstrates `template_castep.cell`; the user must supply the `.param` file.
+- **example01/FILER12_castep**: Same system, nsubs=4. CASTEP (FILER=12). Demonstrates `template_castep.cell`; the user must supply the `.param` file.
 
-- **example1_qe**: Same system, nsubs=4. Quantum ESPRESSO (FILER=13). Demonstrates `template_pw.in`; replace `Ni.upf`, `Mg.upf`, `O.upf` with your pseudopotential files before running.
+- **example01/FILER13_qe**: Same system, nsubs=4. Quantum ESPRESSO (FILER=13). Demonstrates `template_pw.in`; replace `Ni.upf`, `Mg.upf`, `O.upf` with your pseudopotential files before running.
 
-- **example2**: Al/Fe substitution in magnetite Fe₃O₄ (1×1×1 cubic spinel unit cell, space group Fd-3m). Al substitutions from 0 to 16 across 24 mixed Fe sites (8 tetrahedral + 16 octahedral) are enumerated (FILER=-1); the `n04/` folder contains the OUTSOD for the 4-substitution case (99 inequivalent configurations). The two structurally distinct Fe environments make this a non-trivial site-disorder problem.
+- **example02**: Al/Fe substitution in magnetite Fe₃O₄ (1×1×1 cubic spinel unit cell, space group Fd-3m). Al substitutions from 0 to 16 across 24 mixed Fe sites (8 tetrahedral + 16 octahedral) are enumerated (FILER=-1); the `n04/` folder contains the OUTSOD for the 4-substitution case (99 inequivalent configurations). The two structurally distinct Fe environments make this a non-trivial site-disorder problem.
 
-- **example3**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄ (space group P4₂/mnm). 8 M(IV) sites replaced by equal numbers of Fe(III) and Sb(V) give 182 inequivalent configurations out of 12870 total (FILER=-1; no calculation input files generated). The OUTSOD is pre-computed in `n08/`. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
+- **example03**: Fe/Sb disorder in a 2×2×2 supercell of rutile FeSbO₄ (space group P4₂/mnm). 8 M(IV) sites replaced by equal numbers of Fe(III) and Sb(V) give 180 inequivalent configurations out of 12870 total (FILER=-1; no calculation input files generated). The OUTSOD is pre-computed in `n08/`. See [Grau-Crespo et al., Chemistry of Materials (2004)](https://pubs.acs.org/doi/abs/10.1021/cm035271y).
 
-- **example4**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (cubic approximation, space group Pm-3m). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
+- **example04**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (cubic approximation, space group Pm-3m). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
 
-- **example5**: Sn/Zr substitution in the La₂Zr₂O₇–La₂Sn₂O₇ solid solution (pyrochlore, space group Fd-3m). 2 Sn substitutions in 16 Zr sites give 5 inequivalent configurations. CASTEP input files (FILER=12) are generated via `template_castep.cell`; DFT outputs are not included to save space. Demonstrates canonical and grand-canonical averaging of ¹³⁹La NMR spectra across compositions n00–n16, with optional stress-volume correction (see `x125` and `x250`).
+- **example05**: Sn/Zr substitution in the La₂Zr₂O₇–La₂Sn₂O₇ solid solution (pyrochlore, space group Fd-3m). 2 Sn substitutions in 16 Zr sites give 5 inequivalent configurations. CASTEP input files (FILER=12) are generated via `template_castep.cell`; DFT outputs are not included to save space. Demonstrates canonical and grand-canonical averaging of ¹³⁹La NMR spectra across compositions n00–n16, with optional stress-volume correction (see `x125` and `x250`).
 
-- **example6**: Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group P6₃mc). 2 Mg substitutions in 8 Zn sites reduce to 3 inequivalent configurations under the hexagonal symmetry. Quantum ESPRESSO input files (FILER=13) generated via `template_pw.in`. Replace `Mg.upf`, `Zn.upf`, `O.upf` with your pseudopotential files before running.
+- **example06**: Li/Mg substitution coupled with an H vacancy in a 2×2×2 supercell of rutile MgH₂ (space group P4₂/mnm, #136). The charge-neutral defect pair — Li⁺ on an Mg²⁺ site plus one H⁻ vacancy — is enumerated as a **multi-species** substitution: `sptarget: 1 2` with `nsubs` = 1 (Li) on line 1 and 1 (%H vacancy) on line 2. The 2×2×2 supercell contains 16 Mg and 32 H sites, giving 512 total Li–vacancy arrangements of which **9 are inequivalent** under the full tetragonal symmetry. VASP input files (FILER=11) are generated; the user must supply `INCAR`, `KPOINTS` and `POTCAR`. See: Smith, K.C., Fisher, T.S., Waghmare, U.V., Grau-Crespo, R., *Dopant-vacancy binding effects in Li-doped magnesium hydride*, Phys. Rev. B **82**, 134109 (2010).
+
+- **example07**: Fe vacancies in maghemite (γ-Fe₂O₃) derived from magnetite (Fe₃O₄). A 1×1×3 supercell of the conventional spinel cell (Fd-3m) has 8 octahedral FeB sites removed to reach the γ-Fe₂O₃ stoichiometry. Demonstrates the `%NAME` vacancy syntax (`%FeB` in `newsymbol`). GULP input files (FILER=1) generated using the Catlow library (`catlow.lib`).
+
+- **example08**: Methylammonium (MA = CH₃NH₃⁺) substitution in a 4×4×4 supercell of cubic CsPbI₃ perovskite (Pm-3m, 320 atoms). 2 of the 64 Cs A-sites are replaced by MA molecules, yielding 9 inequivalent configurations. Demonstrates the `@NAME` molecule syntax (`@MA` in `newsymbol`) with `MA.xyz` geometry. LAMMPS data files (FILER=2) are generated; each `conf.data` has 334 atoms (62 Cs + 64 Pb + 192 I + 2 C + 2 N + 12 H).
+
+- **example09**: Simultaneous Mg/La substitution (2 sites) and O vacancy (1 site) in a 2×2×2 supercell of LaFeO₃ perovskite — a **multi-species** example. Two target sites are specified (`sptarget: 1 3`), with `nsubs` given as `2` (line 1) and `1` (line 2). Configurations are enumerated jointly under the full crystal symmetry and written to `n02_01/`. FILER=-1.
+
+- **example10**: $Ti_{50}Zr_{25}Nb_{25}$ ($Ti_2ZrNb$) alloy with biomedical interest — a **multi-nary** example. Two species, Zr (4 atoms) and Nb (4 atoms), substitute Ti in a 2×2×2 supercell of the BCC structure (16 atoms total). No output files are requested (FILER=-1).
+
+- **example11**: Equimolar NiCoFeCr Cantor subsystem alloy in a 2×2×2 supercell of the FCC primitive cell (8 atoms total, 2 of each species) — a **multi-nary** example with three new species. The FCC primitive cell (a=b=c=2.491 Å, α=β=γ=60°) is used with operators from `225_primitive.sgo`. `nsubs: 2 2 2` places 2 Co, 2 Fe and 2 Cr on Ni sites, leaving 2 Ni. Out of 2520 total arrangements (8!/(2!2!2!2!)), 23 are inequivalent under the full FCC symmetry. CIF files are generated (FILER=0).
+
+- **example12**: Complex perovskite La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃ in a 2×2×2 supercell (space group Pm-3m) — a **multi-species** example. Two target sites are substituted simultaneously: 2 Sr replace La on 8 La-sites (binary, site 1) and 2 Mn replace Fe on 8 Fe-sites (binary, site 2). `nsubs` given as `2` (line 1) and `2` (line 2). Out of 784 total joint arrangements, 13 are inequivalent under the full cubic symmetry. GULP input files (FILER=1) are generated.
+
+> **Note:** Simultaneous multi-species (multiple target sites) and multi-nary (multiple new species per site) substitutions are not yet supported. Each target site is restricted to a binary substitution in the multi-species code path.
+
+## Molecules (@NAME) and vacancies (%NAME)
+
+Two special prefixes extend the `newsymbol` field in INSOD beyond simple atomic substitution:
+
+- **`@NAME`** — molecule: SOD reads `NAME.xyz` from the working directory (standard XYZ format: natoms, comment, then symbol x y z per line in Ångström), computes the centre of mass, and places the molecule at the substituted site with a uniformly random orientation. Each site gets an independent rotation. All output formats (CIF, GULP, VASP, CASTEP, QE) expand the molecule into its individual atoms; LAMMPS is not supported for molecular species.
+
+- **`%NAME`** — vacancy: the atom at the substituted site is simply omitted from all output files. `NAME` is informational only (e.g. `%Fe` or `%FeB`). All output formats including LAMMPS support vacancies.
+
+Both can appear simultaneously in `newsymbol(1:2)`, and multiple molecule types can be used (up to 10 types). The `newsymbol` field accepts up to 5 characters (prefix + 4-character name), e.g. `@MA`, `@FA`, `@CO2`, `%FeB`.
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.62.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.70.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -70,13 +94,17 @@ export PATH=$PATH:ROOTSOD/sod(version)/bin
 
 ## Running SOD
 
-- We recommend to create a new folder (say FOLDER_NAME) for each sod project. This will be referred to as the working directory.
+- We recommend to create a new folder (say MAINFOLDER) for each sod project. This will be referred to as the working directory.
 
-- In FOLDER_NAME, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
+- In MAINFOLDER, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
 
-- The `nsubs_min nsubs_max` field in INSOD controls the range of substitution concentrations to enumerate in a single run. If both values are equal (e.g. `4 4`), only that one concentration is processed. If they differ (e.g. `1 8`), SOD loops over all integer values from `nsubs_min` to `nsubs_max` in sequence, creating one `nXX/` folder per concentration. This is equivalent to running `sod_comb.sh` separately for each value, but more convenient when a range of concentrations is needed (e.g. for a grand-canonical analysis).
+- The `nsubs` field in INSOD controls how many atoms of each new species are placed at the target site(s). Several formats are supported:
+  - **Fixed count** (e.g. `4`): enumerate configurations with exactly 4 substitutions.
+  - **Range** (e.g. `1:8`): SOD loops over all integer values from 1 to 8 in sequence, creating one `nXX/` folder per concentration. Only valid when a single target site and a single new species are specified.
+  - **Multi-nary** (e.g. `1 2` or `2 2 2`): place the specified numbers of each new species simultaneously on a single target site. Up to 3 new species are supported (quaternary disorder, e.g. `nsubs: 2 2 2` for NiCoFeCr). Extension to higher orders (quinary and beyond) is planned but not yet implemented.
+  - **Multi-species** (e.g. two lines `2` then `1`): one line per target site, in the order listed in `sptarget`. The example places 2 substitutions on the first target site and 1 on the second, enumerating all joint configurations simultaneously under the full crystal symmetry.
 
-- In FOLDER_NAME, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
+- In MAINFOLDER, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
 
 ```bash
 cp ROOTSOD/sod(version)/sgo ./SGO
@@ -134,6 +162,42 @@ where `<role>` is `core` or `shell`. One `core` line is required for every SOD s
 
 **Quantum ESPRESSO** (`template_pw.in`): The template is a normal `pw.x` input. SOD assumes `ibrav = 0` and replaces `@configuration_structure@` with `CELL_PARAMETERS` and `ATOMIC_POSITIONS` blocks. The user defines `ATOMIC_SPECIES` in the template; SOD does not modify it. Pseudopotential files are not copied by SOD.
 
+## Directory structure and script calling levels
+
+SOD uses the following directory hierarchy:
+
+```
+MAINFOLDER/               ← working directory: INSOD, SGO, template files, OUTSOD, EQMATRIX
+  n01/              ← one folder per substitution level (zero-padded)
+    OUTSOD
+    ENERGIES
+    c01/  c02/ ...  ← one folder per inequivalent configuration
+  n02/  n04/ ...
+  x250/             ← grand-canonical working folder (user-created, one per composition)
+    INGC
+  n04/spbe0/        ← SPBE subfolder (user-created)
+  n04/spbe1/        ← SPBE subfolder (user-created)
+```
+
+The table below specifies from which directory each post-processing script should be called. Scripts marked **MAINFOLDER/ or nXX/** detect their calling level automatically: run from MAINFOLDER/ to process all substitution levels at once, or from a specific `nXX/` folder to process only that level.
+
+| Script | Call from | What it does |
+|---|---|---|
+| `sod_comb.sh` | MAINFOLDER/ | Runs combinatorics and generates calculator input files |
+| `sod_gulp_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from GULP `output.gout` files |
+| `sod_vasp_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from VASP `OUTCAR` files |
+| `sod_castep_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from CASTEP `castep.castep` files |
+| `sod_qe_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from QE `pw.out` files (converts Ry→eV) |
+| `sod_gulp_free.sh` | MAINFOLDER/ or nXX/ | Extracts vibrational free energies from GULP output |
+| `sod_gulp_single_ener.sh` | MAINFOLDER/ or nXX/ | Extracts single-point energies from GULP output |
+| `sod_gulp_cell.sh` | MAINFOLDER/ or nXX/ | Extracts cell parameters from GULP output → `CELL` file |
+| `sod_vasp_cell.sh` | MAINFOLDER/ or nXX/ | Extracts cell parameters from VASP `CONTCAR` files → `CELL` file |
+| `sod_vasp_mag.sh` | MAINFOLDER/ or nXX/ | Extracts magnetic moments from VASP `OUTCAR` files |
+| `sod_stat.sh` | MAINFOLDER/ or nXX/ | Runs canonical statistical mechanics (`statsod`) |
+| `sod_gcstat.sh` | x???/ | Runs grand-canonical statistical mechanics (`gcstatsod`) |
+| `sod_spbe0.sh` | nXX/spbe0/ | SPBE energy extrapolation from the x=0 end |
+| `sod_spbe1.sh` | nXX/spbe1/ | SPBE energy extrapolation from the x=1 end |
+
 - To run the combinatorics program, just type:
 
 
@@ -180,9 +244,13 @@ which requires 4 input files:
 
 - *ENERGIES*, which contains (in one column) the energies of all the configurations, in the same order that they were generated by SOD (like in the OUTSOD file). There are some scripts in ROOTSOD/sod(version)/bin/  to help you do this:
 
-   1. If you are using GULP, the script  ```sod_gulp_ener.sh``` will extract all the energies, assuming all output files,  with extension .gout, are in the same folder. If you have calculated vibrational free energies for each configuration, ```sod_gulp_free.sh``` will extract these. 
+   1. If you are using GULP, the script  ```sod_gulp_ener.sh``` will extract all the energies, assuming the output file is named `output.gout` in each `cYY/` folder. If you have calculated vibrational free energies for each configuration, ```sod_gulp_free.sh``` will extract these.
 
-   2. If you are using VASP, the script ```sod_vasp_ener.sh``` will extract all the energies, assuming you have separate folders for each configuration. 
+   2. If you are using VASP, the script ```sod_vasp_ener.sh``` will extract all the energies, assuming the output file is named `OUTCAR` in each `cYY/` folder.
+
+   3. If you are using CASTEP, the script ```sod_castep_ener.sh``` will extract all the energies, assuming the output file is named `castep.castep` in each `cYY/` folder.
+
+   4. If you are using Quantum ESPRESSO, the script ```sod_qe_ener.sh``` will extract all the energies, assuming the output file is named `pw.out` in each `cYY/` folder.
 
 - *DATA*, which contains *ncol* colums of data to average. The first line contains just the number *ncol* of columns to read. For example:
 
@@ -204,7 +272,7 @@ Important note: While configurational averages (e.g. of cell parameters and enth
 
 ## Grand-canonical analysis 
 
-From version 0.51, it is possible to do statistics in a grand-canonical ensemble, i.e. including results from supercells with different compositions. Please see example4 (perovskites) and example5 (pyrochlore).
+From version 0.51, it is possible to do statistics in a grand-canonical ensemble, i.e. including results from supercells with different compositions. Please see example04 (perovskites) and example05 (pyrochlore).
 
 We recommend to create a file with name x??? at the same level as the n?? files. For example x250 is used for a grandcanonical analyis at composition x=0.250. 
 
@@ -312,7 +380,7 @@ However,  the easiest way to run the spbe module is like this:
 - From the n03/spbe folder, just run the script ```sod_spbe0.sh```, which will copy the relevant input files into the current folder and will call ```spbesod```
 - It is also possible to run the spbe program using data from the other end of the solid solution (i.e. *x*=1). In that case, run the script ```sod_spbe1.sh```, which will copy the files from the folders with *N*, *N*-1, *N*-2 substitutions, will "invert" the OUTSOD files as needed, and call ```spbesod```. 
 
-Finally, it is possible to introduce some rescaling in the first-order and second-order terms to improve the match with a reference set of calculations. You need to give two reference energies in the INSPBE file. The recommended procedure is to run spbe first without rescaling, pick the minimum-energy and maximum-energy configurations (they are identified at the end of the OUTSPBE file) and run them with DFT (or whatever method provides the reference/target values), then input these two values as reference energies in INSPBE, and run the sod_spbe0.sh script again. See example4 (inside n04/spbe0), where the reference energies for configurations 1 and 6 are given as input. 
+Finally, it is possible to introduce some rescaling in the first-order and second-order terms to improve the match with a reference set of calculations. You need to give two reference energies in the INSPBE file. The recommended procedure is to run spbe first without rescaling, pick the minimum-energy and maximum-energy configurations (they are identified at the end of the OUTSPBE file) and run them with DFT (or whatever method provides the reference/target values), then input these two values as reference energies in INSPBE, and run the sod_spbe0.sh script again. See example04 (inside n04/spbe0), where the reference energies for configurations 1 and 6 are given as input. 
 
 
 ## Citing SOD

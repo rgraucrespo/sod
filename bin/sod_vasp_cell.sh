@@ -16,8 +16,19 @@
 
 rm -f cell.dat a.dat b.dat c.dat
 
-n_columns_ls=`ls -l |tail -1 |awk '{ FS = "|" } ; { print NF}'`
-ls -l */CONTCAR |awk -v nc=$n_columns_ls '{print "cellvasp.sh", $nc}' > rungetcell
+n_columns_ls=$(ls -l | tail -1 | awk '{ FS = "|" } ; { print NF}')
+
+if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+  # Called from MAIN/: loop over all nXX/cYY/CONTCAR
+  ls -l n*/c*/CONTCAR | awk -v nc=$n_columns_ls '{print "cellvasp.sh", $nc}' > rungetcell
+elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+  # Called from nXX/: loop over cYY/CONTCAR in current folder
+  ls -l c*/CONTCAR | awk -v nc=$n_columns_ls '{print "cellvasp.sh", $nc}' > rungetcell
+else
+  echo "Error: run sod_vasp_cell.sh from MAIN/ or from an nXX/ folder."
+  exit 1
+fi
+
 chmod +x rungetcell
 ./rungetcell
 paste a.dat b.dat c.dat > cell.dat

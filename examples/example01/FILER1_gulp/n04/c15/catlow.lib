@@ -1,0 +1,44 @@
+#
+#  CATLOW library - collection of potentials based
+#  around the Catlow oxygen-oxygen potential
+#
+#  O2    general O2- species
+#  O1    oxygen in hydroxyl group, OH-
+#  H1    hydrogn in hydroxyl group, OH-
+#
+#  References:
+#  (0) M.J.Sanders, M.J.Leslie and C.R.A.Catlow J.Chem.Soc.Chem.Com 1271 1984
+#  (1) R.A.Jackson and C.R.A.Catlow Mole. Sim. 1 207-224 1988.
+#  (2) K.P.Schroder, J.Sauer, M.Leslie, C.R.A.Catlow and
+#      J.M.Thomas, Chem. Phys. Lett., 188 (1992) 320.
+#  (3) J.D.Gale and N.J.Henson, JCS Faraday Trans., 90
+#      (1994) 3175.
+#  (4) J.D.Gale, unpublished results - non-zeolite potentials
+#      are relax fitted to structure and any available properties
+#      for the relevant binary oxide
+#  (5) A.Jentys and C.R.A.Catlow Catalysis Lett. 22 251-257 1993.
+#      for Ti(IV)-O(II)
+#  (6) D.W.Lewis,C.R.A.Catlow,G.Sankar and S.W.Carr 1995
+#      J.Phys.Chem 99 2377-2383 1995  for Fe(III)-O(II) and OH
+#  (7) C.J.J.den Ouden,R.A.Jackson,C.R.A.Catlow and M.F.M.Post
+#      J.Phys.Chem. 94 5286-5290 1990   for Ni(II)-O(II)
+#
+#  NB no potential parameters have been derived for X-O_OH
+#     and X-H_OH where X=K,Sr,Ti etc.
+#
+species
+Mg    core  2.00000
+Ni    core  2.00000.
+O2    core  0.86902
+O2    shel -2.86902
+
+buckingham
+Mg core    O2    shel   946.627 0.31813  0.00000 0.0 10.0
+Ni core    O2    shel  1582.500 0.28820  0.00000 0.0 10.0
+O2 shel    O2    shel 22764.000 0.14900 27.87900 0.0 12.0
+O2 shel    O1    core 22764.000 0.14900 27.87900 0.0 12.0
+
+
+spring
+O2  74.92
+

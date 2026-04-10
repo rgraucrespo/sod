@@ -20,6 +20,7 @@
 
 function cc(x) &
   result(corx)
+  implicit none
   real, intent(in) :: x
   real :: corx, tol1 = 0.0001
   corx = x - floor(x)

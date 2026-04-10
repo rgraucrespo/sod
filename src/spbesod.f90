@@ -19,21 +19,33 @@
 !******************************************************************************
 
 program spbesod
+  use iso_fortran_env, only: real64
   implicit none
 
-  integer :: p, q, m, m1, m2, m1ref, m2ref, mmin, mmax, mm, mm1, mm2, op, nop, npos, nsubs, aux, irescale
-  real(kind=8) :: e0, mu1, mu2, e1ref, e2ref, emin, emax
+  integer :: p, q, m, m1, m2, m1ref, m2ref, mmin, mmax, mm, mm1, mm2, op, nop, npos, nsubs, aux, irescale, atini
+  real(real64) :: e0, mu1, mu2, e1ref, e2ref, emin, emax
   logical:: inspbe_exists
-  real(kind=8), dimension(:), allocatable:: de1
-  real(kind=8), dimension(:, :), allocatable:: de2
-  real(kind=8), dimension(:), allocatable:: energies1
-  real(kind=8), dimension(:), allocatable:: energies2
-  real(kind=8), dimension(:), allocatable:: a1, a2, energies
+  character(len=200) :: outsod_line
+  real(real64), dimension(:), allocatable:: de1
+  real(real64), dimension(:, :), allocatable:: de2
+  real(real64), dimension(:), allocatable:: energies1
+  real(real64), dimension(:), allocatable:: energies2
+  real(real64), dimension(:), allocatable:: a1, a2, energies
   integer, dimension(:, :), allocatable:: eqmatrix
   integer, dimension(:), allocatable:: omega, omega1, omega2
   integer, dimension(:), allocatable:: conf1
   integer, dimension(:, :), allocatable:: conf2
   integer, dimension(:, :), allocatable:: conf
+
+  write (*, *) "============================================================================"
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.70"
+  write (*, *) ""
+  write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
+  write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
+  write (*, *) "============================================================================"
+  write (*, *) ""
+  write (*, *) " > Simple pair-based extrapolation (SPBE)..."
+  write (*, *) ""
 
 !!!!!! Input files
 
@@ -99,7 +111,11 @@ program spbesod
 
 !       OUTSOD
 !
-  read (14, *) nsubs
+  do
+    read (14, '(a)') outsod_line
+    if (outsod_line(1:1) /= '#') exit
+  end do
+  read (outsod_line, *) nsubs
   read (14, *) mm
 
   allocate (conf(1:mm, 1:nsubs))
@@ -109,9 +125,18 @@ program spbesod
     read (14, *) aux, omega(m), conf(m, 1:nsubs)
   end do
 
+! OUTSOD positions are global atom indices (e.g. 9-16 for Fe when La=1-8).
+! EQMATRIX uses local indices (1-npos). Compute the offset once from the
+! minimum position across all configurations and subtract it everywhere.
+  atini = minval(conf(1:mm, 1:nsubs))
+  conf(1:mm, 1:nsubs) = conf(1:mm, 1:nsubs) - atini + 1
+
 !       OUTSOD1
 !
-  read (15, *)
+  do
+    read (15, '(a)') outsod_line
+    if (outsod_line(1:1) /= '#') exit
+  end do
   read (15, *) mm1
 
   allocate (conf1(1:mm1))
@@ -120,10 +145,14 @@ program spbesod
   do m = 1, mm1
     read (15, *) aux, omega1(m), conf1(m)
   end do
+  conf1(1:mm1) = conf1(1:mm1) - atini + 1
 
 !       OUTSOD2
 !
-  read (16, *)
+  do
+    read (16, '(a)') outsod_line
+    if (outsod_line(1:1) /= '#') exit
+  end do
   read (16, *) mm2
 
   allocate (conf2(1:mm2, 1:2))
@@ -132,6 +161,7 @@ program spbesod
   do m = 1, mm2
     read (16, *) aux, omega2(m), conf2(m, 1:2)
   end do
+  conf2(1:mm2, 1:2) = conf2(1:mm2, 1:2) - atini + 1
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Reading the files with the energies of 0, 1 and 2 substitutions (ENERGIES0, ENERGIES1 and  ENERGIES2)
@@ -231,13 +261,13 @@ program spbesod
     select case (irescale)
     case (0)
       read (17, *)
-      write (*, *) "No rescaling (mu1=mu2=1.0)."
+      write (*, *) " > No rescaling applied (mu1=mu2=1.0)."
       write (99, *) "No rescaling (mu1=mu2=1.0)."
       mu1 = 1.0
       mu2 = 1.0
     case (1)
       read (17, *) mu1, mu2
-      write (*, *) "Rescaling parameters mu1 and mu2 read from INSPBE."
+      write (*, *) " > Rescaling parameters mu1 and mu2 read from INSPBE."
       write (99, *) "Rescaling parameters mu1 and mu2 read from INSPBE."
       write (99, *) mu1, mu2
     case (2)
@@ -245,19 +275,19 @@ program spbesod
       read (17, *) m2ref, e2ref
       mu1 = (a2(m2ref)*(e1ref - e0) - a2(m1ref)*(e2ref - e0))/(a1(m1ref)*a2(m2ref) - a2(m1ref)*a1(m2ref))
       mu2 = (a1(m1ref)*(e2ref - e0) - a1(m2ref)*(e1ref - e0))/(a1(m1ref)*a2(m2ref) - a2(m1ref)*a1(m2ref))
-      write (*, *) "Rescaling parameters calculated using reference energies for two configurations."
+      write (*, *) " > Rescaling parameters calculated using reference energies."
       write (99, *) "mu1 = ", mu1, "mu2 = ", mu2
     case default
       mu1 = 0.0
       mu2 = 0.0
-      write (*, *) "Invalid case for irescale in INSPBE - no rescaling will be applied (mu1=mu2=1.0)."
+      write (*, *) " > Invalid irescale in INSPBE: no rescaling applied (mu1=mu2=1.0)."
     end select
 
   else
 
     mu1 = 1.0
     mu2 = 1.0
-    write (*, *) "No INSPBE file, therefore no rescaling applied (mu1=mu2=1.0)."
+    write (*, *) " > No INSPBE file found: no rescaling applied (mu1=mu2=1.0)."
     write (99, *) "No INSPBE file, therefore no rescaling applied (mu1=mu2=1.0)."
 
   end if
@@ -323,9 +353,9 @@ program spbesod
   deallocate (a2)
 
 !!!!!!Reporting the end
-  write (*, *) "Done!!!"
-  write (*, *)
-  write (*, *)
+  write (*, *) ""
+  write (*, *) " > SPBE extrapolation completed."
+  write (*, *) ""
 
 end program spbesod
 

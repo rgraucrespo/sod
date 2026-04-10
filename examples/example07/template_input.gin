@@ -1,0 +1,12 @@
+opti conp
+title
+ gamma-Fe2O3 (maghemite) Fe vacancies - configuration @configuration_number@
+end
+
+@configuration_structure@
+
+# The sod_type_map lines below map SOD species labels to GULP atom types.
+# Both FeA (tetrahedral) and FeB (octahedral) are treated as Fe(III) in catlow.lib.
+# sod_type_map O O2
+
+library catlow.lib

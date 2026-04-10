@@ -19,57 +19,106 @@
 !******************************************************************************
 
 program genersod
+  use iso_fortran_env, only: real64
   implicit none
 
   integer, parameter :: nspmax = 10, natmax = 10000, nlineamax = 200
   integer, parameter :: maxgulplines = 1000
+  integer, parameter :: ntargetmax = 5, nkmax = 5
 
-  integer :: i, l, m
+  integer :: i, j, l, m
   integer :: ifound
-  integer :: sp, nsp, sptarget, ssp
+  integer :: sp_slot, col_off  ! for multi-nary species-slot determination
+  integer :: sp, nsp, ssp
+  integer :: ntarget, sptarget(ntargetmax)
+  integer :: nk(ntargetmax)
+  integer :: nsubs_t(ntargetmax, nkmax), atini_t(ntargetmax), atfin_t(ntargetmax), npos_t(ntargetmax)
+  integer :: nsubs_A, nsubs_B, nsubs_tot, t_A
   integer :: at0, nat0, at, nat, att, filer, ndigits
-  character :: outfilename*20, fmtstr*20
+  character(len=20) :: outfilename, fmtstr
   integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, atini, atfin, cumnatsp, ierr_rd
-  character :: insod_line*256
+  character(len=256) :: insod_line
   integer :: npos, nic, indcount
   integer, dimension(:), allocatable :: newconf, degen
   integer, dimension(nspmax) :: natsp0, natsp, snatsp
   integer, dimension(natmax) :: spat
-  real, dimension(natmax, 3) :: coords0, coords
-  real, dimension(3, 3) :: cellvector
+  real(real64), dimension(natmax, 3) :: coords0, coords
+  real(real64), dimension(3, 3) :: cellvector
   integer, dimension(:, :), allocatable :: indconf
-  real :: a1, b1, c1, alpha, beta, gamma, a, b, c, xc, yc, zc
-  character, dimension(nspmax) :: symbol*3, ssymbol*3
-  character, dimension(2) :: newsymbol*3
-  character :: linea*85, title*15, runtitle*40, trashtext*20, symboltrash*3
-  character :: cifline*200, atmlabel*20, atmsymbol*3
+  real(real64) :: a1, b1, c1, alpha, beta, gamma, a, b, c, xc, yc, zc
+  character(len=3), dimension(nspmax) :: symbol, ssymbol
+  character(len=5), dimension(ntargetmax, nkmax+1) :: newsymbol
+  character(len=85) :: linea
+  character(len=15) :: title
+  character(len=40) :: runtitle
+  character(len=20) :: trashtext
+  character(len=3) :: symboltrash
+  character(len=200) :: cifline
+  character(len=20) :: atmlabel
+  character(len=3) :: atmsymbol
   logical :: in_atom_loop
+  logical :: found
 
-  ! Variables for GULP logic (case 1)
+! Variables for molecule (@NAME) and vacancy (%NAME) handling
+  integer, parameter :: nmolmax_atoms = 500
+  integer, parameter :: nmoltypes = 10
+  integer :: nmol_types, im, imt
+  character(len=4) :: mol_name(nmoltypes)
+  integer :: mol_natoms(nmoltypes)
+  character(len=3) :: mol_sym_arr(nmoltypes, nmolmax_atoms)
+  real(real64) :: mol_xyz_arr(nmoltypes, nmolmax_atoms, 3)
+  logical :: is_mol1, is_mol2, is_vac1, is_vac2
+  integer :: mol_idx1, mol_idx2
+  logical :: is_mol1_t2, is_mol2_t2, is_vac1_t2, is_vac2_t2
+  integer :: mol_idx1_t2, mol_idx2_t2
+  logical :: has_molecules, has_vacancies
+! Expanded atom list (used for all filers when molecules/vacancies present)
+  integer :: nat_exp, nsp_exp, isp_exp
+  character(len=3), dimension(natmax) :: sym_exp
+  real(real64), dimension(natmax, 3) :: coords_exp
+  character(len=3), dimension(nspmax*2+nmoltypes*5+5) :: uniq_sym_exp
+  integer :: uniq_cnt_exp(nspmax*2+nmoltypes*5+5)
+  real(real64) :: mol_frac_buf(nmolmax_atoms, 3)
+  real(real64) :: Rmat(3,3)
+
+  ! Variables for GULP logic (FILER=1)
   integer :: ios, ngulplines, struc_line_idx, nmap_gulp, all_nsp_gulp, idx_token
-  character :: gulpline_buf*200, sline_trimmed*200, outbuf_gulp*200
-  character, dimension(maxgulplines) :: gulptemplate*200
-  character, dimension(nspmax) :: map_sod_arr*3, map_gulp_arr*3
-  character, dimension(nspmax+1) :: all_sym*3, all_gulptype_arr*3
-  integer :: all_ishell_arr(nspmax+1)
-  character :: libname_gulp*80, gtype_buf*3, gline_type*3, gline_coreshel*4, pending_section_header*200
-  logical :: haslibrary_gulp, hasinline_ff, relevant_line
-  character :: numfmt*20, numstr*10, confdir_gulp*30, inpfile_gulp*60, ndir_gulp*10
+  character(len=200) :: gulpline_buf, sline_trimmed, outbuf_gulp
+  character(len=200), dimension(maxgulplines) :: gulptemplate
+  character(len=3), dimension(nspmax) :: map_sod_arr, map_gulp_arr
+  character(len=3), dimension(nspmax+nmoltypes*5+5) :: all_sym, all_gulptype_arr
+  integer :: all_ishell_arr(nspmax+nmoltypes*5+5)
+  character(len=80) :: libname_gulp
+  character(len=3) :: gtype_buf, gline_type
+  character(len=4) :: gline_coreshel
+  character(len=200) :: pending_section_header
+  logical :: haslibrary_gulp, hasinline_ff, haskimmodel_gulp, relevant_line
+  character(len=20) :: numfmt
+  character(len=10) :: numstr
+  character(len=30) :: confdir_gulp
+  character(len=60) :: inpfile_gulp
+  character(len=10) :: ndir_gulp
 
-  ! Variables for LAMMPS logic (case 2)
-  character :: lammps_atom_style*20
+  ! Variables for LAMMPS logic (FILER=2)
+  character(len=20) :: lammps_atom_style
   integer :: lammps_nmap, lmptypeval, lmpbondval, lmpidx
-  character, dimension(nspmax+1) :: lammps_map_sod*3, lammps_map_role*5
-  integer :: lammps_map_type(nspmax+1), lammps_map_bond(nspmax+1)
-  integer :: lammps_core_type(nspmax+1), lammps_shell_type(nspmax+1), lammps_shell_bond(nspmax+1)
+  character(len=3), dimension(nspmax+nmoltypes*5+5) :: lammps_map_sod
+  character(len=5), dimension(nspmax+nmoltypes*5+5) :: lammps_map_role
+  integer :: lammps_map_type(nspmax+nmoltypes*5+5), lammps_map_bond(nspmax+nmoltypes*5+5)
+  integer :: lammps_core_type(nspmax+nmoltypes*5+5), lammps_shell_type(nspmax+nmoltypes*5+5)
+  integer :: lammps_shell_bond(nspmax+nmoltypes*5+5)
   integer :: natoms_lammps, nbonds_lammps, natom_types_lammps, nbond_types_lammps
   integer :: mol_id_lammps, atom_id_lammps, bond_id_lammps
-  real :: xy_tilt, xz_tilt, yz_tilt
+  real(real64) :: xy_tilt, xz_tilt, yz_tilt
   logical :: has_shells_lammps, is_triclinic_lammps
-  character :: lmptok1_buf*20, lmptok2_buf*10, lmpslinetail*200, lmptmpline*200
+  character(len=20) :: lmptok1_buf
+  character(len=10) :: lmptok2_buf
+  character(len=200) :: lmpslinetail, lmptmpline
   integer, dimension(natmax) :: lmp_core_id, lmp_shell_id, lmp_mol_id, lmp_sym_idx
   integer :: lammps_sym_idx, lmp_i
-  character :: lammps_sym_cur*3
+  character(len=3) :: lammps_sym_cur
+  integer, dimension(natmax) :: exp_sym_idx, exp_core_id, exp_shell_id, exp_mol_id
+  logical, dimension(natmax) :: exp_has_shell
 
 ! Input files
 
@@ -144,26 +193,143 @@ program genersod
   read (9, *) na, nb, nc
   read (9, *)
   read (9, *)
-  read (9, *) sptarget
-  read (9, *)
-  read (9, *)
+! Read sptarget line: one or two species indices
   read (9, '(A)') insod_line
-  read (insod_line, *, IOSTAT=ierr_rd) nsubs_min, nsubs_max
+  read (insod_line, *, IOSTAT=ierr_rd) sptarget(1), sptarget(2)
   if (ierr_rd /= 0) then
-    read (insod_line, *) nsubs_min
-    nsubs_max = nsubs_min
-  end if
-  if (nsubs_max == 0) then
-    write (*, *) "Illegal number of substitutions"
-    stop
+    ntarget = 1
+    read (insod_line, *) sptarget(1)
+  else
+    ntarget = 2
   end if
   read (9, *)
   read (9, *)
   read (9, *)
-  read (9, *) (newsymbol(i), i=1, 2)
+  read (9, *)
+! Read nsubs: one line per target site (ntarget==1: integer, multi-nary ints, or X:Y range;
+!             ntarget==2: first line for target 1, second line for target 2).
+  read (9, '(A)') insod_line
+  nk(:) = 1
+  if (index(trim(insod_line), '/') > 0) then
+!   Old slash format — no longer supported
+    write (*, *) "Error: '/' separator in nsubs is no longer supported."
+    write (*, *) "  Use one line per target site instead (e.g. first line: 2, second line: 1)."
+    stop 1
+  else if (ntarget == 1 .and. index(trim(insod_line), ':') > 0) then
+!   Colon range notation: nsubs_min:nsubs_max
+    j = index(trim(insod_line), ':')
+    read (insod_line(1:j-1), *, IOSTAT=ierr_rd) nsubs_min
+    if (ierr_rd /= 0) then
+      write (*, *) "Error: could not parse nsubs_min from colon notation: ", trim(insod_line)
+      stop 1
+    end if
+    read (insod_line(j+1:), *, IOSTAT=ierr_rd) nsubs_max
+    if (ierr_rd /= 0) then
+      write (*, *) "Error: could not parse nsubs_max from colon notation: ", trim(insod_line)
+      stop 1
+    end if
+    if (nsubs_max == 0) then
+      write (*, *) "Illegal number of substitutions"
+      stop 1
+    end if
+  else if (ntarget == 1) then
+!   Single integer or multiple integers (binary or multi-nary)
+    nk(1) = 0
+    do j = 1, nkmax
+      read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(1,i), i=1,j)
+      if (ierr_rd /= 0) exit
+      nk(1) = j
+    end do
+    if (nk(1) == 0) then
+      write (*, *) "Error: could not parse nsubs line: ", trim(insod_line)
+      stop 1
+    end if
+    if (nk(1) > 3) then
+      write (*, *) "Error: more than 3 species per site (k=", nk(1), ") not yet supported."
+      write (*, *) "  Phase 2 supports k=1 (binary), k=2 and k=3 (multi-nary)."
+      stop 1
+    end if
+    nsubs_min = nsubs_t(1,1)
+    nsubs_max = nsubs_t(1,1)
+    if (nk(1) == 1 .and. nsubs_max == 0) then
+      write (*, *) "Illegal number of substitutions"
+      stop 1
+    end if
+  else
+!   ntarget == 2: first line already in insod_line; read second line for target 2
+    read (insod_line, *, IOSTAT=ierr_rd) nsubs_t(1,1)
+    if (ierr_rd /= 0) then
+      write (*, *) "Error: could not parse nsubs for target 1 from: ", trim(insod_line)
+      stop 1
+    end if
+    read (9, '(A)') insod_line
+    read (insod_line, *, IOSTAT=ierr_rd) nsubs_t(2,1)
+    if (ierr_rd /= 0) then
+      write (*, *) "Error: could not parse nsubs for target 2 from: ", trim(insod_line)
+      stop 1
+    end if
+    nsubs_min = nsubs_t(1,1)
+    nsubs_max = nsubs_t(1,1)
+  end if
+  read (9, *)
+  read (9, *)
+  read (9, *)
+  read (9, *)
+  read (9, *) (newsymbol(1, j), j=1, nk(1)+1)
+  if (ntarget == 2) then
+    read (9, *) newsymbol(2, 1), newsymbol(2, 2)
+  end if
   read (9, *)
   read (9, *)
   read (9, *) filer
+
+  ! Parse @ and % prefixes from newsymbol
+  is_mol1 = .false.; is_mol2 = .false.
+  is_vac1 = .false.; is_vac2 = .false.
+  mol_idx1 = 0; mol_idx2 = 0
+  if (newsymbol(1,1)(1:1) == '@') then
+    is_mol1 = .true.
+  else if (newsymbol(1,1)(1:1) == '%') then
+    is_vac1 = .true.
+  end if
+  if (newsymbol(1,2)(1:1) == '@') then
+    is_mol2 = .true.
+  else if (newsymbol(1,2)(1:1) == '%') then
+    is_vac2 = .true.
+  end if
+! Parse @ and % prefixes for second target species (if present)
+  is_mol1_t2 = .false.; is_mol2_t2 = .false.
+  is_vac1_t2 = .false.; is_vac2_t2 = .false.
+  mol_idx1_t2 = 0; mol_idx2_t2 = 0
+  if (ntarget == 2) then
+    if (newsymbol(2,1)(1:1) == '@') then
+      is_mol1_t2 = .true.
+    else if (newsymbol(2,1)(1:1) == '%') then
+      is_vac1_t2 = .true.
+    end if
+    if (newsymbol(2,2)(1:1) == '@') then
+      is_mol2_t2 = .true.
+    else if (newsymbol(2,2)(1:1) == '%') then
+      is_vac2_t2 = .true.
+    end if
+  end if
+  has_molecules = is_mol1 .or. is_mol2 .or. is_mol1_t2 .or. is_mol2_t2
+  has_vacancies = is_vac1 .or. is_vac2 .or. is_vac1_t2 .or. is_vac2_t2
+! Multi-nary: mol/vac support not yet implemented for nk>=2; issue error if detected
+  if (ntarget == 1 .and. nk(1) >= 2) then
+    if (has_molecules .or. has_vacancies) then
+      write (*, *) "Error: molecule (@) and vacancy (%) symbols are not yet supported"
+      write (*, *) "  for multi-nary substitution (nk>=2)."
+      stop 1
+    end if
+    do j = 3, nk(1)+1
+      if (newsymbol(1,j)(1:1) == '@' .or. newsymbol(1,j)(1:1) == '%') then
+        write (*, *) "Error: molecule (@) and vacancy (%) symbols are not yet supported"
+        write (*, *) "  for multi-nary substitution (nk>=2)."
+        stop 1
+      end if
+    end do
+  end if
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      [OUTSOD is now read per level inside the main loop below]
@@ -215,16 +381,119 @@ program genersod
 !       Calculate the initial and final nat of the target species
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  if (sptarget == 1) then
-    atini = 1
-  else
-    atini = 1
-    do sp = 1, sptarget - 1
-      atini = atini + natsp(sp)
+  do t_A = 1, ntarget
+    atini_t(t_A) = 1
+    do sp = 1, sptarget(t_A) - 1
+      atini_t(t_A) = atini_t(t_A) + natsp(sp)
     end do
+    atfin_t(t_A) = atini_t(t_A) + natsp(sptarget(t_A)) - 1
+    npos_t(t_A) = natsp(sptarget(t_A))
+  end do
+  atini = atini_t(1)
+  atfin = atfin_t(1)
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Read molecule .xyz files for any @NAME symbols
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+  nmol_types = 0
+
+  if (has_molecules .or. has_vacancies) then
+    call cell(cellvector, a, b, c, alpha, beta, gamma)
   end if
 
-  atfin = atini + natsp(sptarget) - 1
+  if (has_molecules) call random_seed()
+
+  do i = 1, 2
+    if (newsymbol(1,i)(1:1) /= '@') cycle
+    ! Check if this molecule name is already loaded
+    imt = 0
+    do m = 1, nmol_types
+      if (trim(mol_name(m)) == trim(newsymbol(1,i)(2:))) then
+        imt = m
+        exit
+      end if
+    end do
+    if (imt == 0) then
+      ! Load new molecule
+      nmol_types = nmol_types + 1
+      if (nmol_types > nmoltypes) then
+        write (*, *) "Error: too many molecule types (max ", nmoltypes, "). Aborting."
+        stop 1
+      end if
+      imt = nmol_types
+      mol_name(imt) = trim(newsymbol(1,i)(2:))
+      open (unit=32, file=trim(mol_name(imt)) // '.xyz', status='old', iostat=ios)
+      if (ios /= 0) then
+        write (*, *) "Error: ", trim(mol_name(imt)), ".xyz not found. Aborting."
+        stop 1
+      end if
+      read (32, *) mol_natoms(imt)
+      if (mol_natoms(imt) > nmolmax_atoms) then
+        write (*, *) "Error: ", trim(mol_name(imt)), ".xyz has more atoms than nmolmax_atoms =", &
+                     nmolmax_atoms, ". Aborting."
+        stop 1
+      end if
+      read (32, '(a)') gulpline_buf   ! comment line
+      do im = 1, mol_natoms(imt)
+        read (32, *) mol_sym_arr(imt, im), &
+                     mol_xyz_arr(imt, im, 1), mol_xyz_arr(imt, im, 2), mol_xyz_arr(imt, im, 3)
+      end do
+      close (32)
+      ! Shift to CoM = origin
+      call shift_to_com(imt)
+      write (*, '(a,a,a,i0,a)') " Molecule @", trim(mol_name(imt)), &
+                                  " read from ", mol_natoms(imt), &
+                                  " atoms in " // trim(mol_name(imt)) // ".xyz"
+    end if
+    if (i == 1) mol_idx1 = imt
+    if (i == 2) mol_idx2 = imt
+  end do
+
+  if (ntarget == 2) then
+    do i = 1, 2
+      if (newsymbol(2,i)(1:1) /= '@') cycle
+      imt = 0
+      do m = 1, nmol_types
+        if (trim(mol_name(m)) == trim(newsymbol(2,i)(2:))) then
+          imt = m
+          exit
+        end if
+      end do
+      if (imt == 0) then
+        nmol_types = nmol_types + 1
+        if (nmol_types > nmoltypes) then
+          write (*, *) "Error: too many molecule types (max ", nmoltypes, "). Aborting."
+          stop 1
+        end if
+        imt = nmol_types
+        mol_name(imt) = trim(newsymbol(2,i)(2:))
+        open (unit=32, file=trim(mol_name(imt)) // '.xyz', status='old', iostat=ios)
+        if (ios /= 0) then
+          write (*, *) "Error: ", trim(mol_name(imt)), ".xyz not found. Aborting."
+          stop 1
+        end if
+        read (32, *) mol_natoms(imt)
+        if (mol_natoms(imt) > nmolmax_atoms) then
+          write (*, *) "Error: ", trim(mol_name(imt)), ".xyz has more atoms than nmolmax_atoms =", &
+                       nmolmax_atoms, ". Aborting."
+          stop 1
+        end if
+        read (32, '(a)') gulpline_buf
+        do im = 1, mol_natoms(imt)
+          read (32, *) mol_sym_arr(imt, im), &
+                       mol_xyz_arr(imt, im, 1), mol_xyz_arr(imt, im, 2), mol_xyz_arr(imt, im, 3)
+        end do
+        close (32)
+        call shift_to_com(imt)
+        write (*, '(a,a,a,i0,a)') " Molecule @", trim(mol_name(imt)), &
+                                    " read from ", mol_natoms(imt), &
+                                    " atoms in " // trim(mol_name(imt)) // ".xyz"
+      end if
+      if (i == 1) mol_idx1_t2 = imt
+      if (i == 2) mol_idx2_t2 = imt
+    end do
+  end if
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!    GENERATE INPUT FILES !!!!!!!!!!!!!!
@@ -239,59 +508,80 @@ program genersod
 
   select case (filer)
   case (-1)
-    write (*, *) "Calculation files not created.&
-               & Change filer value in INSOD if you want to create calculation files."
-    write (*, *) ""
+    write (*, *) " > FILER = -1: No calculation files will be created."
   case (0)
-    write (*, *) " "
-    write (*, *) "Creating CIF files for each configuration..."
-    write (*, *) " "
+    write (*, *) " > Creating CIF files..."
   case (1)
-    write (*, *) " "
-    write (*, *) "Creating input files for GULP in configuration directories..."
-    write (*, *) " "
+    write (*, *) " > Creating GULP input files..."
   case (2)
-    write (*, *) " "
-    write (*, *) "Creating input files for LAMMPS in configuration directories..."
-    write (*, *) " "
+    write (*, *) " > Creating LAMMPS input files..."
   case (11)
-    write (*, *) " "
-    write (*, *) "Creating input files for VASP in configuration directories..."
-    write (*, *) " "
+    write (*, *) " > Creating VASP POSCAR files..."
   case (12)
-    write (*, *) " "
-    write (*, *) "Creating input files for CASTEP in configuration directories..."
-    write (*, *) " "
+    write (*, *) " > Creating CASTEP input files..."
   case (13)
-    write (*, *) " "
-    write (*, *) "Creating input files for Quantum ESPRESSO in configuration directories..."
-    write (*, *) " "
+    write (*, *) " > Creating Quantum ESPRESSO input files..."
   end select
+  write (*, *) ""
+
+  if (ntarget == 2) then
+    nsubs_A = nsubs_t(1,1)
+    nsubs_B = nsubs_t(2,1)
+    nsubs_tot = nsubs_A + nsubs_B
+  else if (ntarget == 1 .and. nk(1) >= 2) then
+    nsubs_tot = sum(nsubs_t(1, 1:nk(1)))
+  else
+    nsubs_tot = nsubs_min  ! will be updated in loop
+  end if
 
   do nsubs = nsubs_min, nsubs_max
 
-    write (ndir_gulp, '("n", i2.2)') nsubs
+    if (ntarget == 1 .and. nk(1) == 1) then
+      write (ndir_gulp, '("n", i2.2)') nsubs
+      nsubs_tot = nsubs
+    else if (ntarget == 1 .and. nk(1) == 2) then
+      write (ndir_gulp, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2)
+    else if (ntarget == 1 .and. nk(1) == 3) then
+      write (ndir_gulp, '("n", i2.2, "_", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3)
+    else
+      write (ndir_gulp, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(2,1)
+    end if
+
     open (unit=30, file=trim(ndir_gulp) // '/OUTSOD', status='old', IOSTAT=ios)
     if (ios /= 0) then
       write (*, *) "Warning: ", trim(ndir_gulp), "/OUTSOD not found, skipping."
+      if (ntarget == 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
       cycle
     end if
 
-    read (30, *) m, trashtext, trashtext, npos
+! Skip any leading comment lines (e.g. "# SOD OUTSOD format version 2")
+    do
+      read (30, '(A)') insod_line
+      if (insod_line(1:1) /= '#') exit
+    end do
+    if (ntarget == 1 .and. nk(1) == 1) then
+      read (insod_line, *) m, trashtext, trashtext, npos
+    else if (ntarget == 1 .and. nk(1) == 2) then
+      read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), trashtext, trashtext, npos_t(1), trashtext
+    else if (ntarget == 1 .and. nk(1) == 3) then
+      read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3), trashtext, trashtext, npos_t(1), trashtext
+    else
+      read (insod_line, *) nsubs_A, nsubs_B, trashtext, trashtext, npos_t(1), npos_t(2), trashtext
+    end if
     read (30, *) nic
 
     ndigits = max(1, int(log10(real(nic))) + 1)
     write (fmtstr, '(a,i0,a,i0,a)') '(a,i', ndigits, '.', ndigits, ')'
 
     allocate (degen(1:nic))
-    allocate (newconf(1:nsubs))
-    allocate (indconf(1:nic, 1:nsubs))
+    allocate (newconf(1:nsubs_tot))
+    allocate (indconf(1:nic, 1:nsubs_tot))
 
     do indcount = 1, nic
-      read (30, *) m, degen(indcount), indconf(indcount, 1:nsubs)
+      read (30, *) m, degen(indcount), indconf(indcount, 1:nsubs_tot)
       if (m /= indcount) then
         write (*, *) "Error in configuration numbering in OUTSOD. Aborting..."
-        stop
+        stop 1
       end if
     end do
 
@@ -308,22 +598,21 @@ program genersod
 
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/configuration.cif'
@@ -352,21 +641,117 @@ program genersod
       write (72, '(a)') "_atom_site_fract_y"
       write (72, '(a)') "_atom_site_fract_z"
 
+      nat_exp = 0
       do at = 1, nat
         sp = spat(at)
-        if (sp /= sptarget) then
+        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+          nat_exp = nat_exp + 1
           write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                trim(symbol(sp)), at, trim(symbol(sp)), coords(at, 1), coords(at, 2), coords(at, 3)
+                trim(symbol(sp)), nat_exp, trim(symbol(sp)), &
+                coords(at, 1), coords(at, 2), coords(at, 3)
         else
-          att = at - atini + 1
-          call member(nsubs, newconf, att, ifound)
-          if (ifound == 1) then
+          if (ntarget == 1 .and. nk(1) >= 2) then
+!           Multi-nary: find which species slot this atom belongs to
+            sp_slot = nk(1) + 1
+            col_off = 0
+            do j = 1, nk(1)
+              do i = 1, nsubs_t(1,j)
+                if (newconf(col_off + i) == at) then
+                  sp_slot = j
+                  exit
+                end if
+              end do
+              if (sp_slot <= nk(1)) exit
+              col_off = col_off + nsubs_t(1,j)
+            end do
+            nat_exp = nat_exp + 1
             write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                  trim(newsymbol(1)), at, trim(newsymbol(1)), coords(at, 1), coords(at, 2), coords(at, 3)
+                  trim(newsymbol(1,sp_slot)), nat_exp, trim(newsymbol(1,sp_slot)), &
+                  coords(at, 1), coords(at, 2), coords(at, 3)
           else
-            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                  trim(newsymbol(2)), at, trim(newsymbol(2)), coords(at, 1), coords(at, 2), coords(at, 3)
+          call member(nsubs_tot, newconf, at, ifound)
+          if (sp == sptarget(1)) then
+            if (ifound == 1) then
+              if (is_mol1) then
+                call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                do im = 1, mol_natoms(mol_idx1)
+                  nat_exp = nat_exp + 1
+                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                        trim(mol_sym_arr(mol_idx1, im)), nat_exp, &
+                        trim(mol_sym_arr(mol_idx1, im)), &
+                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
+                end do
+              else if (is_vac1) then
+                ! skip
+              else
+                nat_exp = nat_exp + 1
+                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                      trim(newsymbol(1,1)), nat_exp, trim(newsymbol(1,1)), &
+                      coords(at, 1), coords(at, 2), coords(at, 3)
+              end if
+            else
+              if (is_mol2) then
+                call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                do im = 1, mol_natoms(mol_idx2)
+                  nat_exp = nat_exp + 1
+                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                        trim(mol_sym_arr(mol_idx2, im)), nat_exp, &
+                        trim(mol_sym_arr(mol_idx2, im)), &
+                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
+                end do
+              else if (is_vac2) then
+                ! skip
+              else
+                nat_exp = nat_exp + 1
+                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                      trim(newsymbol(1,2)), nat_exp, trim(newsymbol(1,2)), &
+                      coords(at, 1), coords(at, 2), coords(at, 3)
+              end if
+            end if
+          else  ! sp == sptarget(2)
+            if (ifound == 1) then
+              if (is_mol1_t2) then
+                call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
+                do im = 1, mol_natoms(mol_idx1_t2)
+                  nat_exp = nat_exp + 1
+                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                        trim(mol_sym_arr(mol_idx1_t2, im)), nat_exp, &
+                        trim(mol_sym_arr(mol_idx1_t2, im)), &
+                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
+                end do
+              else if (is_vac1_t2) then
+                ! skip
+              else
+                nat_exp = nat_exp + 1
+                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                      trim(newsymbol(2,1)), nat_exp, trim(newsymbol(2,1)), &
+                      coords(at, 1), coords(at, 2), coords(at, 3)
+              end if
+            else
+              if (is_mol2_t2) then
+                call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
+                do im = 1, mol_natoms(mol_idx2_t2)
+                  nat_exp = nat_exp + 1
+                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                        trim(mol_sym_arr(mol_idx2_t2, im)), nat_exp, &
+                        trim(mol_sym_arr(mol_idx2_t2, im)), &
+                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
+                end do
+              else if (is_vac2_t2) then
+                ! skip
+              else
+                nat_exp = nat_exp + 1
+                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                      trim(newsymbol(2,2)), nat_exp, trim(newsymbol(2,2)), &
+                      coords(at, 1), coords(at, 2), coords(at, 3)
+              end if
+            end if
           end if
+          end if  ! multi-nary / else
         end if
       end do
 
@@ -389,7 +774,7 @@ program genersod
     open (unit=70, file="template_input.gin", status="old", iostat=ios)
     if (ios /= 0) then
       write (*, *) "Error: template_input.gin not found. Aborting."
-      stop
+      stop 1
     end if
     ngulplines = 0
     do
@@ -397,7 +782,7 @@ program genersod
       ngulplines = ngulplines + 1
       if (ngulplines > maxgulplines) then
         write (*, *) "Error: template_input.gin exceeds ", maxgulplines, " lines. Aborting."
-        stop
+        stop 1
       end if
       gulptemplate(ngulplines) = gulpline_buf
     end do
@@ -411,30 +796,114 @@ program genersod
       if (trim(sline_trimmed) == "@configuration_structure@") then
         if (struc_line_idx /= 0) then
           write (*, *) "Error: @configuration_structure@ appears more than once in template_input.gin. Aborting."
-          stop
+          stop 1
         end if
         struc_line_idx = l
       else if (index(gulptemplate(l), "@configuration_structure@") /= 0) then
         write (*, *) "Error: @configuration_structure@ is not alone on its line. Aborting."
-        stop
+        stop 1
       end if
     end do
     if (struc_line_idx == 0) then
       write (*, *) "Error: @configuration_structure@ not found in template_input.gin. Aborting."
-      stop
+      stop 1
     end if
 
     ! --- Build all_sym array ---
     all_nsp_gulp = 0
     do ssp = 1, nsp
-      if (ssp < sptarget) then
+      if (ssp < sptarget(1)) then
         all_nsp_gulp = all_nsp_gulp + 1
         all_sym(all_nsp_gulp) = symbol(ssp)
-      else if (ssp == sptarget) then
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = newsymbol(1)
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = newsymbol(2)
+      else if (ssp == sptarget(1)) then
+        ! newsymbol(1,1)
+        if (is_mol1) then
+          do im = 1, mol_natoms(mol_idx1)
+            ! Add unique atom types from molecule 1
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1, im)
+            end if
+          end do
+        else if (.not. is_vac1) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(1,1)(1:3)
+        end if
+        ! newsymbol(1,2)
+        if (is_mol2) then
+          do im = 1, mol_natoms(mol_idx2)
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2, im)
+            end if
+          end do
+        else if (.not. is_vac2) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(1,2)(1:3)
+        end if
+      else if (ntarget == 2 .and. ssp == sptarget(2)) then
+        if (is_mol1_t2) then
+          do im = 1, mol_natoms(mol_idx1_t2)
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1_t2, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1_t2, im)
+            end if
+          end do
+        else if (.not. is_vac1_t2) then
+          found = .false.
+          do m = 1, all_nsp_gulp
+            if (trim(all_sym(m)) == trim(newsymbol(2,1)(1:3))) then
+              found = .true.; exit
+            end if
+          end do
+          if (.not. found) then
+            all_nsp_gulp = all_nsp_gulp + 1
+            all_sym(all_nsp_gulp) = newsymbol(2,1)(1:3)
+          end if
+        end if
+        if (is_mol2_t2) then
+          do im = 1, mol_natoms(mol_idx2_t2)
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2_t2, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2_t2, im)
+            end if
+          end do
+        else if (.not. is_vac2_t2) then
+          found = .false.
+          do m = 1, all_nsp_gulp
+            if (trim(all_sym(m)) == trim(newsymbol(2,2)(1:3))) then
+              found = .true.; exit
+            end if
+          end do
+          if (.not. found) then
+            all_nsp_gulp = all_nsp_gulp + 1
+            all_sym(all_nsp_gulp) = newsymbol(2,2)(1:3)
+          end if
+        end if
       else
         all_nsp_gulp = all_nsp_gulp + 1
         all_sym(all_nsp_gulp) = symbol(ssp)
@@ -450,7 +919,7 @@ program genersod
         read (sline_trimmed(16:), *, iostat=ios) map_sod_arr(nmap_gulp), map_gulp_arr(nmap_gulp)
         if (ios /= 0) then
           write (*, *) "Error parsing sod_type_map line: ", trim(sline_trimmed)
-          stop
+          stop 1
         end if
       end if
     end do
@@ -474,6 +943,16 @@ program genersod
       if (sline_trimmed(1:8) == "library ") then
         haslibrary_gulp = .true.
         libname_gulp = trim(adjustl(sline_trimmed(9:)))
+        exit
+      end if
+    end do
+
+    ! --- Detect kim_model directive (OpenKIM potential, no library file needed) ---
+    haskimmodel_gulp = .false.
+    do l = 1, ngulplines
+      sline_trimmed = adjustl(gulptemplate(l))
+      if (sline_trimmed(1:9) == "kim_model") then
+        haskimmodel_gulp = .true.
         exit
       end if
     end do
@@ -507,7 +986,7 @@ program genersod
       open (unit=71, file=trim(libname_gulp), status="old", iostat=ios)
       if (ios /= 0) then
         write (*, *) "Error: library file '", trim(libname_gulp), "' not found. Aborting."
-        stop
+        stop 1
       end if
       do
         read (71, '(a)', end=1002) gulpline_buf
@@ -528,25 +1007,24 @@ program genersod
     end if
 
     ! --- Validate that force-field information is available ---
-    if (.not. hasinline_ff .and. .not. haslibrary_gulp) then
-      write (*, *) "Error: template_input.gin has no inline force-field information and no library directive. Aborting."
-      stop
+    if (.not. hasinline_ff .and. .not. haslibrary_gulp .and. .not. haskimmodel_gulp) then
+      write (*, *) "Error: template_input.gin has no inline force-field information, no library directive, and no kim_model directive. Aborting."
+      stop 1
     end if
 
     ! --- Build number-only format string ---
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
     ! --- Build nXX parent directory and create it ---
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     ! --- Generate one configuration directory per configuration ---
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
@@ -554,7 +1032,7 @@ program genersod
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/input.gin'
@@ -569,7 +1047,7 @@ program genersod
 
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget) then
+            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
               gtype_buf = symbol(sp)
               do m = 1, all_nsp_gulp
                 if (trim(all_sym(m)) == trim(symbol(sp))) then
@@ -585,12 +1063,23 @@ program genersod
                 end if
               end do
             else
-              att = at - atini + 1
-              call member(nsubs, newconf, att, ifound)
-              if (ifound == 1) then
-                gtype_buf = newsymbol(1)
+              if (ntarget == 1 .and. nk(1) >= 2) then
+!               Multi-nary: find species slot and write GULP line
+                sp_slot = nk(1) + 1
+                col_off = 0
+                do j = 1, nk(1)
+                  do i = 1, nsubs_t(1,j)
+                    if (newconf(col_off + i) == at) then
+                      sp_slot = j
+                      exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(1)) exit
+                  col_off = col_off + nsubs_t(1,j)
+                end do
+                gtype_buf = newsymbol(1,sp_slot)(1:3)
                 do m = 1, all_nsp_gulp
-                  if (trim(all_sym(m)) == trim(newsymbol(1))) then
+                  if (trim(all_sym(m)) == trim(newsymbol(1,sp_slot)(1:3))) then
                     gtype_buf = all_gulptype_arr(m)
                     exit
                   end if
@@ -603,21 +1092,169 @@ program genersod
                   end if
                 end do
               else
-                gtype_buf = newsymbol(2)
-                do m = 1, all_nsp_gulp
-                  if (trim(all_sym(m)) == trim(newsymbol(2))) then
-                    gtype_buf = all_gulptype_arr(m)
-                    exit
+              call member(nsubs_tot, newconf, at, ifound)
+              if (sp == sptarget(1)) then
+                if (ifound == 1) then
+                  if (is_mol1) then
+                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                    do im = 1, mol_natoms(mol_idx1)
+                      gtype_buf = mol_sym_arr(mol_idx1, im)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
+                          gtype_buf = all_gulptype_arr(m)
+                          exit
+                        end if
+                      end do
+                      write (72, 331) trim(gtype_buf), "core", &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                          write (72, 331) trim(gtype_buf), "shel", &
+                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                          exit
+                        end if
+                      end do
+                    end do
+                  else if (is_vac1) then
+                    ! vacancy: skip
+                  else
+                    gtype_buf = newsymbol(1,1)(1:3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_sym(m)) == trim(newsymbol(1,1)(1:3))) then
+                        gtype_buf = all_gulptype_arr(m)
+                        exit
+                      end if
+                    end do
+                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
+                        exit
+                      end if
+                    end do
                   end if
-                end do
-                write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                do m = 1, all_nsp_gulp
-                  if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                    write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                    exit
+                else
+                  if (is_mol2) then
+                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                    do im = 1, mol_natoms(mol_idx2)
+                      gtype_buf = mol_sym_arr(mol_idx2, im)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
+                          gtype_buf = all_gulptype_arr(m)
+                          exit
+                        end if
+                      end do
+                      write (72, 331) trim(gtype_buf), "core", &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                          write (72, 331) trim(gtype_buf), "shel", &
+                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                          exit
+                        end if
+                      end do
+                    end do
+                  else if (is_vac2) then
+                    ! vacancy: skip
+                  else
+                    gtype_buf = newsymbol(1,2)(1:3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_sym(m)) == trim(newsymbol(1,2)(1:3))) then
+                        gtype_buf = all_gulptype_arr(m)
+                        exit
+                      end if
+                    end do
+                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
+                        exit
+                      end if
+                    end do
                   end if
-                end do
+                end if
+              else  ! sp == sptarget(2)
+                if (ifound == 1) then
+                  if (is_mol1_t2) then
+                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
+                    do im = 1, mol_natoms(mol_idx1_t2)
+                      gtype_buf = mol_sym_arr(mol_idx1_t2, im)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1_t2, im))) then
+                          gtype_buf = all_gulptype_arr(m); exit
+                        end if
+                      end do
+                      write (72, 331) trim(gtype_buf), "core", &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                          write (72, 331) trim(gtype_buf), "shel", &
+                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                          exit
+                        end if
+                      end do
+                    end do
+                  else if (is_vac1_t2) then
+                    ! vacancy: skip
+                  else
+                    gtype_buf = newsymbol(2,1)(1:3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_sym(m)) == trim(newsymbol(2,1)(1:3))) then
+                        gtype_buf = all_gulptype_arr(m); exit
+                      end if
+                    end do
+                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
+                        exit
+                      end if
+                    end do
+                  end if
+                else
+                  if (is_mol2_t2) then
+                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
+                    do im = 1, mol_natoms(mol_idx2_t2)
+                      gtype_buf = mol_sym_arr(mol_idx2_t2, im)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2_t2, im))) then
+                          gtype_buf = all_gulptype_arr(m); exit
+                        end if
+                      end do
+                      write (72, 331) trim(gtype_buf), "core", &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                      do m = 1, all_nsp_gulp
+                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                          write (72, 331) trim(gtype_buf), "shel", &
+                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                          exit
+                        end if
+                      end do
+                    end do
+                  else if (is_vac2_t2) then
+                    ! vacancy: skip
+                  else
+                    gtype_buf = newsymbol(2,2)(1:3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_sym(m)) == trim(newsymbol(2,2)(1:3))) then
+                        gtype_buf = all_gulptype_arr(m); exit
+                      end if
+                    end do
+                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
+                        exit
+                      end if
+                    end do
+                  end if
+                end if
               end if
+              end if  ! multi-nary / else
             end if
           end do
 
@@ -690,7 +1327,7 @@ program genersod
     open (unit=70, file="template_in.lammps", status="old", iostat=ios)
     if (ios /= 0) then
       write (*, *) "Error: template_in.lammps not found. Aborting."
-      stop
+      stop 1
     end if
     ngulplines = 0
     do
@@ -698,27 +1335,63 @@ program genersod
       ngulplines = ngulplines + 1
       if (ngulplines > maxgulplines) then
         write (*, *) "Error: template_in.lammps exceeds ", maxgulplines, " lines. Aborting."
-        stop
+        stop 1
       end if
       gulptemplate(ngulplines) = gulpline_buf
     end do
 2001 continue
     close (70)
 
-    ! --- Build all_sym array ---
+    ! --- Build all_sym array (molecule-aware) ---
     all_nsp_gulp = 0
     do ssp = 1, nsp
-      if (ssp < sptarget) then
+      if (ssp /= sptarget(1) .and. (ntarget == 1 .or. ssp /= sptarget(2))) then
         all_nsp_gulp = all_nsp_gulp + 1
         all_sym(all_nsp_gulp) = symbol(ssp)
-      else if (ssp == sptarget) then
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = newsymbol(1)
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = newsymbol(2)
-      else
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = symbol(ssp)
+      else if (ssp == sptarget(1)) then
+        if (is_mol1) then
+          do im = 1, mol_natoms(mol_idx1)
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1, im)
+            end if
+          end do
+        else if (.not. is_vac1) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(1,1)(1:3)
+        end if
+        if (is_mol2) then
+          do im = 1, mol_natoms(mol_idx2)
+            found = .false.
+            do m = 1, all_nsp_gulp
+              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
+                found = .true.; exit
+              end if
+            end do
+            if (.not. found) then
+              all_nsp_gulp = all_nsp_gulp + 1
+              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2, im)
+            end if
+          end do
+        else if (.not. is_vac2) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(1,2)(1:3)
+        end if
+      else  ! ntarget==2, ssp==sptarget(2)
+        if (.not. is_vac1_t2) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(2,1)(1:3)
+        end if
+        if (.not. is_vac2_t2) then
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = newsymbol(2,2)(1:3)
+        end if
       end if
     end do
 
@@ -735,7 +1408,7 @@ program genersod
     end do
     if (len_trim(lammps_atom_style) == 0) then
       write (*, *) "Error: atom_style not found in template_in.lammps. Aborting."
-      stop
+      stop 1
     end if
 
     ! --- Parse # sod_type_map lines ---
@@ -748,7 +1421,7 @@ program genersod
       read (lmpslinetail, *, iostat=ios) lmptok1_buf, lmptok2_buf
       if (ios /= 0) then
         write (*, *) "Error parsing sod_type_map: ", trim(sline_trimmed)
-        stop
+        stop 1
       end if
       lammps_map_sod(lammps_nmap) = trim(lmptok1_buf)
       lammps_map_role(lammps_nmap) = trim(lmptok2_buf)
@@ -759,7 +1432,7 @@ program genersod
         read (lmpslinetail(lmpidx+10:), *, iostat=ios) lmpbondval
         if (ios /= 0) then
           write (*, *) "Error: invalid bond_type= in: ", trim(sline_trimmed)
-          stop
+          stop 1
         end if
       end if
       lammps_map_bond(lammps_nmap) = lmpbondval
@@ -773,12 +1446,12 @@ program genersod
       lmpidx = index(lmptmpline, "type=")
       if (lmpidx == 0) then
         write (*, *) "Error: no type= in sod_type_map: ", trim(sline_trimmed)
-        stop
+        stop 1
       end if
       read (lmptmpline(lmpidx+5:), *, iostat=ios) lmptypeval
       if (ios /= 0) then
         write (*, *) "Error: invalid type= in: ", trim(sline_trimmed)
-        stop
+        stop 1
       end if
       lammps_map_type(lammps_nmap) = lmptypeval
     end do
@@ -802,12 +1475,12 @@ program genersod
       if (lammps_core_type(i) == 0) then
         write (*, *) "Error: SOD species '", trim(all_sym(i)), &
                      "' has no core mapping in template_in.lammps. Aborting."
-        stop
+        stop 1
       end if
       if (lammps_shell_type(i) > 0 .and. lammps_shell_bond(i) == 0) then
         write (*, *) "Error: SOD species '", trim(all_sym(i)), &
                      "' has shell mapping but no bond_type. Aborting."
-        stop
+        stop 1
       end if
     end do
 
@@ -821,7 +1494,7 @@ program genersod
     end do
     if (has_shells_lammps .and. trim(lammps_atom_style) /= "full") then
       write (*, *) "Error: shell species require atom_style full. Aborting."
-      stop
+      stop 1
     end if
 
     ! --- Compute max atom and bond type counts ---
@@ -845,16 +1518,15 @@ program genersod
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
     ! --- Build nXX parent directory and create it ---
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     ! --- Generate one configuration directory per configuration ---
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
@@ -862,47 +1534,131 @@ program genersod
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
-      ! --- Precompute LAMMPS atom IDs and species indices ---
+      ! --- Build expanded atom list (handles molecules, vacancies, shells) ---
+      nat_exp = 0
       atom_id_lammps = 0
       mol_id_lammps = 0
+
       do at = 1, nat
         sp = spat(at)
-        if (sp /= sptarget) then
+        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+          ! Framework atom
           lammps_sym_cur = symbol(sp)
         else
-          att = at - atini + 1
-          call member(nsubs, newconf, att, ifound)
-          if (ifound == 1) then
-            lammps_sym_cur = newsymbol(1)
+          if (ntarget == 1 .and. nk(1) >= 2) then
+            ! Multi-nary: find species slot (no molecule support in this branch)
+            sp_slot = nk(1) + 1
+            col_off = 0
+            do j = 1, nk(1)
+              do i = 1, nsubs_t(1,j)
+                if (newconf(col_off + i) == at) then
+                  sp_slot = j; exit
+                end if
+              end do
+              if (sp_slot <= nk(1)) exit
+              col_off = col_off + nsubs_t(1,j)
+            end do
+            lammps_sym_cur = newsymbol(1,sp_slot)(1:3)
           else
-            lammps_sym_cur = newsymbol(2)
+            call member(nsubs_tot, newconf, at, ifound)
+            if (sp == sptarget(1)) then
+              if (ifound == 1) then
+                if (is_vac1) cycle
+                if (is_mol1) then
+                  call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                       cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                  mol_id_lammps = mol_id_lammps + 1
+                  do im = 1, mol_natoms(mol_idx1)
+                    nat_exp = nat_exp + 1
+                    sym_exp(nat_exp) = mol_sym_arr(mol_idx1, im)
+                    coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                    lammps_sym_idx = 0
+                    do lmp_i = 1, all_nsp_gulp
+                      if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(mol_idx1, im))) then
+                        lammps_sym_idx = lmp_i; exit
+                      end if
+                    end do
+                    exp_sym_idx(nat_exp) = lammps_sym_idx
+                    exp_mol_id(nat_exp) = mol_id_lammps
+                    exp_has_shell(nat_exp) = .false.
+                    exp_shell_id(nat_exp) = 0
+                    atom_id_lammps = atom_id_lammps + 1
+                    exp_core_id(nat_exp) = atom_id_lammps
+                  end do
+                  cycle
+                end if
+                lammps_sym_cur = newsymbol(1,1)(1:3)
+              else
+                if (is_vac2) cycle
+                if (is_mol2) then
+                  call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                       cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                  mol_id_lammps = mol_id_lammps + 1
+                  do im = 1, mol_natoms(mol_idx2)
+                    nat_exp = nat_exp + 1
+                    sym_exp(nat_exp) = mol_sym_arr(mol_idx2, im)
+                    coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                    lammps_sym_idx = 0
+                    do lmp_i = 1, all_nsp_gulp
+                      if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(mol_idx2, im))) then
+                        lammps_sym_idx = lmp_i; exit
+                      end if
+                    end do
+                    exp_sym_idx(nat_exp) = lammps_sym_idx
+                    exp_mol_id(nat_exp) = mol_id_lammps
+                    exp_has_shell(nat_exp) = .false.
+                    exp_shell_id(nat_exp) = 0
+                    atom_id_lammps = atom_id_lammps + 1
+                    exp_core_id(nat_exp) = atom_id_lammps
+                  end do
+                  cycle
+                end if
+                lammps_sym_cur = newsymbol(1,2)(1:3)
+              end if
+            else  ! sptarget(2), ntarget==2
+              if (ifound == 1) then
+                if (is_vac1_t2) cycle
+                lammps_sym_cur = newsymbol(2,1)(1:3)
+              else
+                if (is_vac2_t2) cycle
+                lammps_sym_cur = newsymbol(2,2)(1:3)
+              end if
+            end if
           end if
         end if
+        ! Regular (non-molecule) atom: append to expanded list
+        nat_exp = nat_exp + 1
+        sym_exp(nat_exp) = lammps_sym_cur
+        coords_exp(nat_exp, 1:3) = coords(at, 1:3)
         lammps_sym_idx = 0
         do lmp_i = 1, all_nsp_gulp
           if (trim(all_sym(lmp_i)) == trim(lammps_sym_cur)) then
-            lammps_sym_idx = lmp_i
-            exit
+            lammps_sym_idx = lmp_i; exit
           end if
         end do
-        lmp_sym_idx(at) = lammps_sym_idx
+        exp_sym_idx(nat_exp) = lammps_sym_idx
         atom_id_lammps = atom_id_lammps + 1
-        lmp_core_id(at) = atom_id_lammps
+        exp_core_id(nat_exp) = atom_id_lammps
         if (lammps_shell_type(lammps_sym_idx) > 0) then
           mol_id_lammps = mol_id_lammps + 1
-          lmp_mol_id(at) = mol_id_lammps
+          exp_mol_id(nat_exp) = mol_id_lammps
+          exp_has_shell(nat_exp) = .true.
           atom_id_lammps = atom_id_lammps + 1
-          lmp_shell_id(at) = atom_id_lammps
+          exp_shell_id(nat_exp) = atom_id_lammps
         else
-          lmp_mol_id(at) = 0
-          lmp_shell_id(at) = 0
+          exp_mol_id(nat_exp) = 0
+          exp_has_shell(nat_exp) = .false.
+          exp_shell_id(nat_exp) = 0
         end if
       end do
       natoms_lammps = atom_id_lammps
-      nbonds_lammps = mol_id_lammps
+      nbonds_lammps = 0
+      do at = 1, nat_exp
+        if (exp_has_shell(at)) nbonds_lammps = nbonds_lammps + 1
+      end do
 
       ! --- Write conf.data ---
       inpfile_gulp = trim(confdir_gulp) // '/conf.data'
@@ -932,23 +1688,23 @@ program genersod
       end if
       write (72, '(a)') " "
 
-      do at = 1, nat
-        lammps_sym_idx = lmp_sym_idx(at)
-        xc = cellvector(1,1)*coords(at,1) + cellvector(1,2)*coords(at,2) + cellvector(1,3)*coords(at,3)
-        yc = cellvector(2,2)*coords(at,2) + cellvector(2,3)*coords(at,3)
-        zc = cellvector(3,3)*coords(at,3)
+      do at = 1, nat_exp
+        lammps_sym_idx = exp_sym_idx(at)
+        xc = cellvector(1,1)*coords_exp(at,1) + cellvector(1,2)*coords_exp(at,2) + cellvector(1,3)*coords_exp(at,3)
+        yc = cellvector(2,2)*coords_exp(at,2) + cellvector(2,3)*coords_exp(at,3)
+        zc = cellvector(3,3)*coords_exp(at,3)
         if (trim(lammps_atom_style) == "atomic") then
           write (72, '(i0, 2x, i0, 3(2x, f14.6))') &
-                lmp_core_id(at), lammps_core_type(lammps_sym_idx), xc, yc, zc
+                exp_core_id(at), lammps_core_type(lammps_sym_idx), xc, yc, zc
         else if (trim(lammps_atom_style) == "charge") then
           write (72, '(i0, 2x, i0, 2x, f8.4, 3(2x, f14.6))') &
-                lmp_core_id(at), lammps_core_type(lammps_sym_idx), 0.0, xc, yc, zc
+                exp_core_id(at), lammps_core_type(lammps_sym_idx), 0.0, xc, yc, zc
         else  ! full
           write (72, '(i0, 2x, i0, 2x, i0, 2x, f8.4, 3(2x, f14.6))') &
-                lmp_core_id(at), lmp_mol_id(at), lammps_core_type(lammps_sym_idx), 0.0, xc, yc, zc
-          if (lmp_shell_id(at) > 0) then
+                exp_core_id(at), exp_mol_id(at), lammps_core_type(lammps_sym_idx), 0.0, xc, yc, zc
+          if (exp_has_shell(at)) then
             write (72, '(i0, 2x, i0, 2x, i0, 2x, f8.4, 3(2x, f14.6))') &
-                  lmp_shell_id(at), lmp_mol_id(at), lammps_shell_type(lammps_sym_idx), 0.0, xc, yc, zc
+                  exp_shell_id(at), exp_mol_id(at), lammps_shell_type(lammps_sym_idx), 0.0, xc, yc, zc
           end if
         end if
       end do
@@ -958,13 +1714,13 @@ program genersod
         write (72, '(a)') "Bonds"
         write (72, '(a)') " "
         bond_id_lammps = 0
-        do at = 1, nat
-          if (lmp_shell_id(at) > 0) then
-            lammps_sym_idx = lmp_sym_idx(at)
+        do at = 1, nat_exp
+          if (exp_has_shell(at)) then
+            lammps_sym_idx = exp_sym_idx(at)
             bond_id_lammps = bond_id_lammps + 1
             write (72, '(i0, 2x, i0, 2x, i0, 2x, i0)') &
                   bond_id_lammps, lammps_shell_bond(lammps_sym_idx), &
-                  lmp_core_id(at), lmp_shell_id(at)
+                  exp_core_id(at), exp_shell_id(at)
           end if
         end do
       end if
@@ -999,22 +1755,21 @@ program genersod
 
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/POSCAR'
@@ -1027,42 +1782,144 @@ program genersod
       write (72, 335) cellvector(1, 2), cellvector(2, 2), cellvector(3, 2)
       write (72, 335) cellvector(1, 3), cellvector(2, 3), cellvector(3, 3)
 
-      do ssp = 1, nsp
-        if (ssp < sptarget) then
-          snatsp(ssp) = natsp(ssp)
-          ssymbol(ssp) = symbol(ssp)
-        end if
-        if (ssp == sptarget) then
-          snatsp(ssp) = nsubs
-          snatsp(ssp + 1) = npos - nsubs
-          ssymbol(ssp) = newsymbol(1)
-          ssymbol(ssp + 1) = newsymbol(2)
-        end if
-        if (ssp > sptarget) then
-          snatsp(ssp + 1) = natsp(ssp)
-          ssymbol(ssp + 1) = symbol(ssp)
+      ! --- Two-pass expansion: build sym_exp / coords_exp ---
+      nat_exp = 0
+      do at = 1, nat
+        sp = spat(at)
+        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+          nat_exp = nat_exp + 1
+          sym_exp(nat_exp) = symbol(sp)
+          coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+        else
+          if (ntarget == 1 .and. nk(1) >= 2) then
+!           Multi-nary: find species slot
+            sp_slot = nk(1) + 1
+            col_off = 0
+            do j = 1, nk(1)
+              do i = 1, nsubs_t(1,j)
+                if (newconf(col_off + i) == at) then
+                  sp_slot = j
+                  exit
+                end if
+              end do
+              if (sp_slot <= nk(1)) exit
+              col_off = col_off + nsubs_t(1,j)
+            end do
+            nat_exp = nat_exp + 1
+            sym_exp(nat_exp) = newsymbol(1,sp_slot)(1:3)
+            coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+          else
+          call member(nsubs_tot, newconf, at, ifound)
+          if (sp == sptarget(1)) then
+            if (ifound == 1) then
+              ! newsymbol(1,1) site
+              if (is_mol1) then
+                call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                do im = 1, mol_natoms(mol_idx1)
+                  nat_exp = nat_exp + 1
+                  sym_exp(nat_exp) = mol_sym_arr(mol_idx1, im)
+                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                end do
+              else if (is_vac1) then
+                ! vacancy: skip
+              else
+                nat_exp = nat_exp + 1
+                sym_exp(nat_exp) = newsymbol(1,1)(1:3)
+                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+              end if
+            else
+              ! newsymbol(1,2) site
+              if (is_mol2) then
+                call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                do im = 1, mol_natoms(mol_idx2)
+                  nat_exp = nat_exp + 1
+                  sym_exp(nat_exp) = mol_sym_arr(mol_idx2, im)
+                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                end do
+              else if (is_vac2) then
+                ! vacancy: skip
+              else
+                nat_exp = nat_exp + 1
+                sym_exp(nat_exp) = newsymbol(1,2)(1:3)
+                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+              end if
+            end if
+          else  ! sp == sptarget(2)
+            if (ifound == 1) then
+              if (is_mol1_t2) then
+                call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
+                do im = 1, mol_natoms(mol_idx1_t2)
+                  nat_exp = nat_exp + 1
+                  sym_exp(nat_exp) = mol_sym_arr(mol_idx1_t2, im)
+                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                end do
+              else if (is_vac1_t2) then
+                ! vacancy: skip
+              else
+                nat_exp = nat_exp + 1
+                sym_exp(nat_exp) = newsymbol(2,1)(1:3)
+                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+              end if
+            else
+              if (is_mol2_t2) then
+                call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
+                do im = 1, mol_natoms(mol_idx2_t2)
+                  nat_exp = nat_exp + 1
+                  sym_exp(nat_exp) = mol_sym_arr(mol_idx2_t2, im)
+                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+                end do
+              else if (is_vac2_t2) then
+                ! vacancy: skip
+              else
+                nat_exp = nat_exp + 1
+                sym_exp(nat_exp) = newsymbol(2,2)(1:3)
+                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+              end if
+            end if
+          end if
+          end if  ! multi-nary / else
         end if
       end do
 
-      write (72, *) ssymbol(1:nsp + 1)
+      ! --- Collect unique species (order of first appearance) ---
+      nsp_exp = 0
+      uniq_cnt_exp = 0
+      do at = 1, nat_exp
+        isp_exp = 0
+        do i = 1, nsp_exp
+          if (trim(sym_exp(at)) == trim(uniq_sym_exp(i))) then
+            isp_exp = i
+            exit
+          end if
+        end do
+        if (isp_exp == 0) then
+          nsp_exp = nsp_exp + 1
+          uniq_sym_exp(nsp_exp) = sym_exp(at)
+          uniq_cnt_exp(nsp_exp) = 1
+        else
+          uniq_cnt_exp(isp_exp) = uniq_cnt_exp(isp_exp) + 1
+        end if
+      end do
+
+      ! --- Write POSCAR ---
+      outbuf_gulp = trim(uniq_sym_exp(1))
+      do i = 2, nsp_exp
+        outbuf_gulp = trim(outbuf_gulp) // ' ' // trim(uniq_sym_exp(i))
+      end do
+      write (72, '(a)') trim(outbuf_gulp)
 336   format(10(i4, 1x))
-      write (72, 336) snatsp(1:nsp + 1)
+      write (72, 336) (uniq_cnt_exp(i), i=1, nsp_exp)
       write (72, *) 'Direct'
-      do at = 1, atini - 1
-        write (72, 335) coords(at, 1), coords(at, 2), coords(at, 3)
-      end do
-      do at = atini, atfin
-        att = at - atini + 1
-        call member(nsubs, newconf, att, ifound)
-        if (ifound == 1) write (72, 335) coords(at, 1), coords(at, 2), coords(at, 3)
-      end do
-      do at = atini, atfin
-        att = at - atini + 1
-        call member(nsubs, newconf, att, ifound)
-        if (ifound == 0) write (72, 335) coords(at, 1), coords(at, 2), coords(at, 3)
-      end do
-      do at = atfin + 1, nat
-        write (72, 335) coords(at, 1), coords(at, 2), coords(at, 3)
+      do isp_exp = 1, nsp_exp
+        do at = 1, nat_exp
+          if (trim(sym_exp(at)) == trim(uniq_sym_exp(isp_exp))) then
+            write (72, 335) coords_exp(at, 1), coords_exp(at, 2), coords_exp(at, 3)
+          end if
+        end do
       end do
 
       close (72)
@@ -1078,7 +1935,7 @@ program genersod
     open (unit=70, file="template_castep.cell", status="old", iostat=ios)
     if (ios /= 0) then
       write (*, *) "Error: template_castep.cell not found. Aborting."
-      stop
+      stop 1
     end if
     ngulplines = 0
     do
@@ -1086,7 +1943,7 @@ program genersod
       ngulplines = ngulplines + 1
       if (ngulplines > maxgulplines) then
         write (*, *) "Error: template_castep.cell exceeds ", maxgulplines, " lines. Aborting."
-        stop
+        stop 1
       end if
       gulptemplate(ngulplines) = gulpline_buf
     end do
@@ -1100,17 +1957,17 @@ program genersod
       if (trim(sline_trimmed) == "@configuration_structure@") then
         if (struc_line_idx /= 0) then
           write (*, *) "Error: @configuration_structure@ appears more than once in template_castep.cell. Aborting."
-          stop
+          stop 1
         end if
         struc_line_idx = l
       else if (index(gulptemplate(l), "@configuration_structure@") /= 0) then
         write (*, *) "Error: @configuration_structure@ is not alone on its line. Aborting."
-        stop
+        stop 1
       end if
     end do
     if (struc_line_idx == 0) then
       write (*, *) "Error: @configuration_structure@ not found in template_castep.cell. Aborting."
-      stop
+      stop 1
     end if
 
     call cell(cellvector, a, b, c, alpha, beta, gamma)
@@ -1119,15 +1976,14 @@ program genersod
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
     ! --- Build nXX parent directory and create it ---
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
@@ -1135,7 +1991,7 @@ program genersod
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/castep.cell'
@@ -1151,20 +2007,84 @@ program genersod
           write (72, '(a)') "%ENDBLOCK lattice_cart"
           write (72, '(a)') "%BLOCK positions_frac"
 
+337       format(a3, 3(f11.7, 2x))
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget) then
+            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
-              att = at - atini + 1
-              call member(nsubs, newconf, att, ifound)
-              if (ifound == 1) then
-                write (72, 337) newsymbol(1), coords(at, 1), coords(at, 2), coords(at, 3)
+              if (ntarget == 1 .and. nk(1) >= 2) then
+!               Multi-nary: find species slot and write CASTEP line
+                sp_slot = nk(1) + 1
+                col_off = 0
+                do j = 1, nk(1)
+                  do i = 1, nsubs_t(1,j)
+                    if (newconf(col_off + i) == at) then
+                      sp_slot = j
+                      exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(1)) exit
+                  col_off = col_off + nsubs_t(1,j)
+                end do
+                write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
               else
-                write (72, 337) newsymbol(2), coords(at, 1), coords(at, 2), coords(at, 3)
+              call member(nsubs_tot, newconf, at, ifound)
+              if (sp == sptarget(1)) then
+                if (ifound == 1) then
+                  if (is_mol1) then
+                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                    do im = 1, mol_natoms(mol_idx1)
+                      write (72, 337) mol_sym_arr(mol_idx1, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (is_vac1) then
+                    ! skip
+                  else
+                    write (72, 337) newsymbol(1,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                else
+                  if (is_mol2) then
+                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                    do im = 1, mol_natoms(mol_idx2)
+                      write (72, 337) mol_sym_arr(mol_idx2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (is_vac2) then
+                    ! skip
+                  else
+                    write (72, 337) newsymbol(1,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                end if
+              else  ! sp == sptarget(2)
+                if (ifound == 1) then
+                  if (is_mol1_t2) then
+                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
+                    do im = 1, mol_natoms(mol_idx1_t2)
+                      write (72, 337) mol_sym_arr(mol_idx1_t2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (.not. is_vac1_t2) then
+                    write (72, 337) newsymbol(2,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                else
+                  if (is_mol2_t2) then
+                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
+                    do im = 1, mol_natoms(mol_idx2_t2)
+                      write (72, 337) mol_sym_arr(mol_idx2_t2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (.not. is_vac2_t2) then
+                    write (72, 337) newsymbol(2,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                end if
               end if
+              end if  ! multi-nary / else
             end if
-337         format(a3, 3(f11.7, 2x))
           end do
 
           write (72, '(a)') "%ENDBLOCK positions_frac"
@@ -1195,7 +2115,7 @@ program genersod
     open (unit=70, file="template_pw.in", status="old", iostat=ios)
     if (ios /= 0) then
       write (*, *) "Error: template_pw.in not found. Aborting."
-      stop
+      stop 1
     end if
     ngulplines = 0
     do
@@ -1203,7 +2123,7 @@ program genersod
       ngulplines = ngulplines + 1
       if (ngulplines > maxgulplines) then
         write (*, *) "Error: template_pw.in exceeds ", maxgulplines, " lines. Aborting."
-        stop
+        stop 1
       end if
       gulptemplate(ngulplines) = gulpline_buf
     end do
@@ -1217,17 +2137,17 @@ program genersod
       if (trim(sline_trimmed) == "@configuration_structure@") then
         if (struc_line_idx /= 0) then
           write (*, *) "Error: @configuration_structure@ appears more than once in template_pw.in. Aborting."
-          stop
+          stop 1
         end if
         struc_line_idx = l
       else if (index(gulptemplate(l), "@configuration_structure@") /= 0) then
         write (*, *) "Error: @configuration_structure@ is not alone on its line. Aborting."
-        stop
+        stop 1
       end if
     end do
     if (struc_line_idx == 0) then
       write (*, *) "Error: @configuration_structure@ not found in template_pw.in. Aborting."
-      stop
+      stop 1
     end if
 
     call cell(cellvector, a, b, c, alpha, beta, gamma)
@@ -1236,15 +2156,14 @@ program genersod
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
     ! --- Build nXX parent directory and create it ---
-    write (ndir_gulp, '(a,i2.2)') 'n', nsubs
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
     if (ios /= 0) then
       write (*, *) "Error: could not create directory ", trim(ndir_gulp)
-      stop
+      stop 1
     end if
 
     do indcount = 1, nic
-      newconf(1:nsubs) = indconf(indcount, 1:nsubs)
+      newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
       confdir_gulp = trim(ndir_gulp) // '/c' // trim(numstr)
@@ -1252,7 +2171,7 @@ program genersod
       call execute_command_line('mkdir -p ' // trim(confdir_gulp), exitstat=ios)
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
-        stop
+        stop 1
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/pw.in'
@@ -1269,16 +2188,80 @@ program genersod
           write (72, '(a)') "ATOMIC_POSITIONS {crystal}"
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget) then
+            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
-              att = at - atini + 1
-              call member(nsubs, newconf, att, ifound)
-              if (ifound == 1) then
-                write (72, 337) newsymbol(1), coords(at, 1), coords(at, 2), coords(at, 3)
+              if (ntarget == 1 .and. nk(1) >= 2) then
+!               Multi-nary: find species slot and write QE line
+                sp_slot = nk(1) + 1
+                col_off = 0
+                do j = 1, nk(1)
+                  do i = 1, nsubs_t(1,j)
+                    if (newconf(col_off + i) == at) then
+                      sp_slot = j
+                      exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(1)) exit
+                  col_off = col_off + nsubs_t(1,j)
+                end do
+                write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
               else
-                write (72, 337) newsymbol(2), coords(at, 1), coords(at, 2), coords(at, 3)
+              call member(nsubs_tot, newconf, at, ifound)
+              if (sp == sptarget(1)) then
+                if (ifound == 1) then
+                  if (is_mol1) then
+                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
+                    do im = 1, mol_natoms(mol_idx1)
+                      write (72, 337) mol_sym_arr(mol_idx1, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (is_vac1) then
+                    ! skip
+                  else
+                    write (72, 337) newsymbol(1,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                else
+                  if (is_mol2) then
+                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
+                    do im = 1, mol_natoms(mol_idx2)
+                      write (72, 337) mol_sym_arr(mol_idx2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (is_vac2) then
+                    ! skip
+                  else
+                    write (72, 337) newsymbol(1,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                end if
+              else  ! sp == sptarget(2)
+                if (ifound == 1) then
+                  if (is_mol1_t2) then
+                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
+                    do im = 1, mol_natoms(mol_idx1_t2)
+                      write (72, 337) mol_sym_arr(mol_idx1_t2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (.not. is_vac1_t2) then
+                    write (72, 337) newsymbol(2,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                else
+                  if (is_mol2_t2) then
+                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
+                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
+                    do im = 1, mol_natoms(mol_idx2_t2)
+                      write (72, 337) mol_sym_arr(mol_idx2_t2, im), &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    end do
+                  else if (.not. is_vac2_t2) then
+                    write (72, 337) newsymbol(2,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                  end if
+                end if
               end if
+              end if  ! multi-nary / else
             end if
           end do
 
@@ -1305,6 +2288,8 @@ program genersod
     deallocate (degen)
     deallocate (indconf)
 
+    if (ntarget == 1 .and. nk(1) >= 2) exit  ! multi-nary: no range loop
+
   end do  ! nsubs
 
   close (43)
@@ -1313,5 +2298,222 @@ program genersod
   write (*, *) "Done!!!"
   write (*, *) ""
   write (*, *) ""
+
+contains
+
+!---------------------------------------------------------------------------
+  subroutine shift_to_com(imt)
+    integer, intent(in) :: imt
+    integer :: im_loc
+    real(real64) :: com(3), totmass, amass
+    com = 0.0
+    totmass = 0.0
+    do im_loc = 1, mol_natoms(imt)
+      amass = get_mass(trim(mol_sym_arr(imt, im_loc)))
+      com(1) = com(1) + amass * mol_xyz_arr(imt, im_loc, 1)
+      com(2) = com(2) + amass * mol_xyz_arr(imt, im_loc, 2)
+      com(3) = com(3) + amass * mol_xyz_arr(imt, im_loc, 3)
+      totmass = totmass + amass
+    end do
+    com = com / totmass
+    do im_loc = 1, mol_natoms(imt)
+      mol_xyz_arr(imt, im_loc, 1) = mol_xyz_arr(imt, im_loc, 1) - com(1)
+      mol_xyz_arr(imt, im_loc, 2) = mol_xyz_arr(imt, im_loc, 2) - com(2)
+      mol_xyz_arr(imt, im_loc, 3) = mol_xyz_arr(imt, im_loc, 3) - com(3)
+    end do
+  end subroutine shift_to_com
+
+!---------------------------------------------------------------------------
+  function get_mass(sym) result(mass)
+    character(len=*), intent(in) :: sym
+    real(real64) :: mass
+    select case (trim(sym))
+    case ('H');  mass = 1.008
+    case ('He'); mass = 4.003
+    case ('Li'); mass = 6.941
+    case ('Be'); mass = 9.012
+    case ('B');  mass = 10.811
+    case ('C');  mass = 12.011
+    case ('N');  mass = 14.007
+    case ('O');  mass = 15.999
+    case ('F');  mass = 18.998
+    case ('Ne'); mass = 20.180
+    case ('Na'); mass = 22.990
+    case ('Mg'); mass = 24.305
+    case ('Al'); mass = 26.982
+    case ('Si'); mass = 28.086
+    case ('P');  mass = 30.974
+    case ('S');  mass = 32.065
+    case ('Cl'); mass = 35.453
+    case ('Ar'); mass = 39.948
+    case ('K');  mass = 39.098
+    case ('Ca'); mass = 40.078
+    case ('Sc'); mass = 44.956
+    case ('Ti'); mass = 47.867
+    case ('V');  mass = 50.942
+    case ('Cr'); mass = 51.996
+    case ('Mn'); mass = 54.938
+    case ('Fe'); mass = 55.845
+    case ('Co'); mass = 58.933
+    case ('Ni'); mass = 58.693
+    case ('Cu'); mass = 63.546
+    case ('Zn'); mass = 65.38
+    case ('Ga'); mass = 69.723
+    case ('Ge'); mass = 72.630
+    case ('As'); mass = 74.922
+    case ('Se'); mass = 78.971
+    case ('Br'); mass = 79.904
+    case ('Kr'); mass = 83.798
+    case ('Rb'); mass = 85.468
+    case ('Sr'); mass = 87.620
+    case ('Y');  mass = 88.906
+    case ('Zr'); mass = 91.224
+    case ('Nb'); mass = 92.906
+    case ('Mo'); mass = 95.960
+    case ('Tc'); mass = 98.0
+    case ('Ru'); mass = 101.07
+    case ('Rh'); mass = 102.91
+    case ('Pd'); mass = 106.42
+    case ('Ag'); mass = 107.87
+    case ('Cd'); mass = 112.41
+    case ('In'); mass = 114.82
+    case ('Sn'); mass = 118.71
+    case ('Sb'); mass = 121.76
+    case ('Te'); mass = 127.60
+    case ('I');  mass = 126.90
+    case ('Xe'); mass = 131.29
+    case ('Cs'); mass = 132.91
+    case ('Ba'); mass = 137.33
+    case ('La'); mass = 138.91
+    case ('Ce'); mass = 140.12
+    case ('Pr'); mass = 140.91
+    case ('Nd'); mass = 144.24
+    case ('Pm'); mass = 145.0
+    case ('Sm'); mass = 150.36
+    case ('Eu'); mass = 151.96
+    case ('Gd'); mass = 157.25
+    case ('Tb'); mass = 158.93
+    case ('Dy'); mass = 162.50
+    case ('Ho'); mass = 164.93
+    case ('Er'); mass = 167.26
+    case ('Tm'); mass = 168.93
+    case ('Yb'); mass = 173.04
+    case ('Lu'); mass = 174.97
+    case ('Hf'); mass = 178.49
+    case ('Ta'); mass = 180.95
+    case ('W');  mass = 183.84
+    case ('Re'); mass = 186.21
+    case ('Os'); mass = 190.23
+    case ('Ir'); mass = 192.22
+    case ('Pt'); mass = 195.08
+    case ('Au'); mass = 196.97
+    case ('Hg'); mass = 200.59
+    case ('Tl'); mass = 204.38
+    case ('Pb'); mass = 207.2
+    case ('Bi'); mass = 208.98
+    case ('Po'); mass = 209.0
+    case ('At'); mass = 210.0
+    case ('Rn'); mass = 222.0
+    case ('Fr'); mass = 223.0
+    case ('Ra'); mass = 226.0
+    case ('Ac'); mass = 227.0
+    case ('Th'); mass = 232.04
+    case ('Pa'); mass = 231.04
+    case ('U');  mass = 238.03
+    case ('Np'); mass = 237.0
+    case ('Pu'); mass = 244.0
+    case ('Am'); mass = 243.0
+    case ('Cm'); mass = 247.0
+    case ('Bk'); mass = 247.0
+    case ('Cf'); mass = 251.0
+    case ('Es'); mass = 252.0
+    case ('Fm'); mass = 257.0
+    case ('Md'); mass = 258.0
+    case ('No'); mass = 259.0
+    case ('Lr'); mass = 262.0
+    case ('Rf'); mass = 265.0
+    case ('Db'); mass = 268.0
+    case ('Sg'); mass = 271.0
+    case ('Bh'); mass = 270.0
+    case ('Hs'); mass = 277.0
+    case ('Mt'); mass = 276.0
+    case ('Ds'); mass = 281.0
+    case ('Rg'); mass = 280.0
+    case ('Cn'); mass = 285.0
+    case ('Nh'); mass = 284.0
+    case ('Fl'); mass = 289.0
+    case ('Mc'); mass = 288.0
+    case ('Lv'); mass = 293.0
+    case ('Ts'); mass = 294.0
+    case ('Og'); mass = 294.0
+    case default
+      write (*, *) "Warning: unknown element '", trim(sym), "', using mass = 1.0"
+      mass = 1.0
+    end select
+  end function get_mass
+
+!---------------------------------------------------------------------------
+  subroutine random_rotation_matrix(R)
+    real(real64), intent(out) :: R(3,3)
+    real(real64) :: u1, u2, u3, q0, q1, q2, q3, twopi
+    twopi = 8.0_real64 * atan(1.0_real64)
+    call random_number(u1)
+    call random_number(u2)
+    call random_number(u3)
+    q0 = sqrt(1.0-u1) * sin(twopi*u2)
+    q1 = sqrt(1.0-u1) * cos(twopi*u2)
+    q2 = sqrt(u1)     * sin(twopi*u3)
+    q3 = sqrt(u1)     * cos(twopi*u3)
+    ! Quaternion to rotation matrix
+    R(1,1) = 1.0 - 2.0*(q2**2 + q3**2)
+    R(1,2) = 2.0*(q1*q2 - q0*q3)
+    R(1,3) = 2.0*(q1*q3 + q0*q2)
+    R(2,1) = 2.0*(q1*q2 + q0*q3)
+    R(2,2) = 1.0 - 2.0*(q1**2 + q3**2)
+    R(2,3) = 2.0*(q2*q3 - q0*q1)
+    R(3,1) = 2.0*(q1*q3 - q0*q2)
+    R(3,2) = 2.0*(q2*q3 + q0*q1)
+    R(3,3) = 1.0 - 2.0*(q1**2 + q2**2)
+  end subroutine random_rotation_matrix
+
+!---------------------------------------------------------------------------
+  subroutine mol_rotate_frac(mol_idx, fx, fy, fz, cv, frac_out, nm)
+    integer, intent(in) :: mol_idx, nm
+    real(real64), intent(in)    :: fx, fy, fz, cv(3,3)
+    real(real64), intent(out)   :: frac_out(nmolmax_atoms, 3)
+    integer :: im_loc, k, j
+    real(real64) :: rc(3), d_rot(3), r_abs(3), f(3)
+
+    ! Convert site fractional to Cartesian: r = cv * f
+    do k = 1, 3
+      rc(k) = cv(k,1)*fx + cv(k,2)*fy + cv(k,3)*fz
+    end do
+
+    ! Generate random rotation matrix
+    call random_rotation_matrix(Rmat)
+
+    do im_loc = 1, nm
+      ! Rotate molecule atom displacement
+      do k = 1, 3
+        d_rot(k) = 0.0
+        do j = 1, 3
+          d_rot(k) = d_rot(k) + Rmat(k,j) * mol_xyz_arr(mol_idx, im_loc, j)
+        end do
+      end do
+      ! Absolute Cartesian position
+      do k = 1, 3
+        r_abs(k) = rc(k) + d_rot(k)
+      end do
+      ! Back-substitute to get fractional (cv is upper triangular)
+      f(3) = r_abs(3) / cv(3,3)
+      f(2) = (r_abs(2) - cv(2,3)*f(3)) / cv(2,2)
+      f(1) = (r_abs(1) - cv(1,2)*f(2) - cv(1,3)*f(3)) / cv(1,1)
+      ! Wrap into [0,1)
+      do k = 1, 3
+        f(k) = f(k) - floor(f(k))
+      end do
+      frac_out(im_loc, 1:3) = f(1:3)
+    end do
+  end subroutine mol_rotate_frac
 
 end program genersod

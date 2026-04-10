@@ -20,47 +20,62 @@
 
 program gcstatsod
 
+  use iso_fortran_env, only: real64
   implicit none
 
-  integer, parameter :: nconfmax = 10000, ncolmax = 10, npointsmax = 800, ntempmax = 30, noutsodsmax = 23, nbismax = 1000
-  real(kind=8), parameter :: kb = 8.61734e-5, tolprob = 1.0e-12, tolminspec = 1.0e-6, eva3togpa = 160.2176621
+  integer, parameter :: nconfmax = 1000000, ncolmax = 10, npointsmax = 800, ntempmax = 1000, noutsodsmax = 1000, nbismax = 1000
+  real(real64), parameter :: kb = 8.61734e-5_real64, tolprob = 1.0e-12_real64, tolminspec = 1.0e-6_real64, eva3togpa = 160.2176621_real64
   integer :: m, auxm, ncol, col, tt, ntt, nsubs, nbis, npoints, point
   integer :: memin, nsubsemin, iostatus
-  real(kind=8)  :: emin, maxspec
+  real(real64)  :: emin, maxspec
   integer :: nsubsmin, nsubsmax, nconfigmax
-  real(kind=8), dimension(:), allocatable :: z, e, f, s, t, gpot
-  real(kind=8) :: einf, sinf
-  real(kind=8), dimension(:, :, :), allocatable :: data
-  real(kind=8), dimension(ncolmax, ntempmax) :: avedata
-  real(kind=8), dimension(:, :, :), allocatable :: spec
-  real(kind=8), dimension(npointsmax, ntempmax) :: avespec
-  real(kind=8), dimension(ncolmax) :: avedatainf
-  real(kind=8), dimension(:), allocatable :: xspec, avespecinf
+  real(real64), dimension(:), allocatable :: z, e, f, s, t, gpot
+  real(real64) :: einf, sinf
+  real(real64), dimension(:, :, :), allocatable :: data
+  real(real64), dimension(ncolmax, ntempmax) :: avedata
+  real(real64), dimension(:, :, :), allocatable :: spec
+  real(real64), dimension(npointsmax, ntempmax) :: avespec
+  real(real64), dimension(ncolmax) :: avedatainf
+  real(real64), dimension(:), allocatable :: xspec, avespecinf
 
   logical :: temperatures_exists, data_exists, ingc_exists, spectra_exists, booldata, boolspec
-  real(kind=8) :: xormuvalue, x, xeq, mu, nx, oldmu
-  character :: xormu*2
-  character :: filenameout*9, auxstring*15, filenameene*11
-  character, dimension(:), allocatable:: filenamedat*9, filenamespec*12
+  real(real64) :: xormuvalue, x, xeq, mu, nx, oldmu
+  character(len=2) :: xormu
+  character(len=9) :: filenameout
+  character(len=15) :: auxstring
+  character(len=11) :: filenameene
+  character(len=200) :: outsod_line
+  character(len=9), dimension(:), allocatable :: filenamedat
+  character(len=12), dimension(:), allocatable :: filenamespec
   integer :: nsubsread, npos
   integer, dimension(:, :), allocatable :: omega
-  real(kind=8), dimension(:, :), allocatable :: ene, enemun, enemunrel
+  real(real64), dimension(:, :), allocatable :: ene, enemun, enemunrel
   integer, dimension(:), allocatable:: mm
 !REAL (kind=8),DIMENSION(0:NOUTSODSMAX,NCONFMAX,NTEMPMAX)  :: p
-  real(kind=8), dimension(:, :, :), allocatable  :: p
-  real(kind=8), dimension(0:noutsodsmax, ntempmax)  :: pn
+  real(real64), dimension(:, :, :), allocatable  :: p
+  real(real64), dimension(0:noutsodsmax, ntempmax)  :: pn
   integer :: omegasum
-  real(kind=8)  :: naver, eneaver, epsilona, epsilonb, epsilon, e0
-  real(kind=8)  :: a0, a1, a2, b0, b1, b2
-  real(kind=8)  :: momentaa0, momentaa1, momentaa2, momentab0, momentab1, momentab2
-  real(kind=8)  :: a11, a12, a21, a22, bb1, bb2, alpha, beta
-  real(kind=8), dimension(0:noutsodsmax)  :: qn, c, tau
-  real(kind=8), dimension(:, :), allocatable  :: pinf
-  real(kind=8), parameter :: tolmu = 1.0e-10, tolq = 1.0e-10
-  real(kind=8) valpolynom, qtest
-  real(kind=8) valpolynomnew, r1, r2, qa, qb, q, va, vb
-  real(kind=8) lambda, v0, v1, bv, bm0, bm1, bb, vol, bm, voln, xn, eta
-  real(kind=8), dimension(0:noutsodsmax)  :: evsc
+  real(real64)  :: naver, eneaver, epsilona, epsilonb, epsilon, e0
+  real(real64)  :: a0, a1, a2, b0, b1, b2
+  real(real64)  :: momentaa0, momentaa1, momentaa2, momentab0, momentab1, momentab2
+  real(real64)  :: a11, a12, a21, a22, bb1, bb2, alpha, beta
+  real(real64), dimension(0:noutsodsmax)  :: qn, c, tau
+  real(real64), dimension(:, :), allocatable  :: pinf
+  real(real64), parameter :: tolmu = 1.0e-10, tolq = 1.0e-10
+  real(real64) valpolynom, qtest
+  real(real64) valpolynomnew, r1, r2, qa, qb, q, va, vb
+  real(real64) lambda, v0, v1, bv, bm0, bm1, bb, vol, bm, voln, xn, eta
+  real(real64), dimension(0:noutsodsmax)  :: evsc
+
+  write (*, *) "============================================================================"
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.70"
+  write (*, *) ""
+  write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
+  write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
+  write (*, *) "============================================================================"
+  write (*, *) ""
+  write (*, *) " > Grand-canonical statistical analysis..."
+  write (*, *) ""
 
   !Reading the TEMPERATURES files (checking first if it exists)
 
@@ -69,6 +84,7 @@ program gcstatsod
   ntt = 2 !this is the value by defect if TEMPERATURES does not exist
 
   if (temperatures_exists) then
+    write (*, *) " > TEMPERATURES file found."
     open (unit=10, file="TEMPERATURES", status='OLD', action='READ', iostat=iostatus)
     ntt = 0
     do
@@ -77,10 +93,10 @@ program gcstatsod
       ntt = ntt + 1
     end do
   else
-    write (*, *)
-    write (*, *) "TEMPERATURES file not found - analysis will be done at 300 K and 1000 K only."
-    write (*, *)
+    write (*, *) " > TEMPERATURES file not found: analysis will be done at 300 K and 1000 K."
   end if
+
+  call random_seed()
 
 !Allocating arrays with tt as index
   allocate (t(1:ntt))
@@ -105,10 +121,11 @@ program gcstatsod
 
   inquire (file="INGC", exist=ingc_exists)
   if (ingc_exists) then
+    write (*, *) " > INGC file found."
     open (unit=14, file="INGC")
   else
-    write (*, *) "INGC file does not exist, but it is needed for grandcanonical analysis. Aborting execution."
-    stop
+    write (*, *) "ERROR: INGC file does not exist, but it is needed for grand-canonical analysis."
+    stop 1
   end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -156,14 +173,24 @@ program gcstatsod
 
   do nsubs = nsubsmin, nsubsmax
 
-    read (100 + nsubs, *) nsubsread, auxstring, auxstring, npos
+    do
+      read (100 + nsubs, '(a)') outsod_line
+      if (outsod_line(1:1) /= '#') exit
+    end do
+    read (outsod_line, *) nsubsread, auxstring
+    if (trim(auxstring) /= 'substitutions') then
+      write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
+      write (*, *) '       Multi-species or multi-nary OUTSOD detected. Aborting.'
+      stop 1
+    end if
+    read (outsod_line, *) nsubsread, auxstring, auxstring, npos
     if (nsubsread /= nsubs) then
       write (*, *) 'ERROR: nsubsread.ne.nsubs'
-      stop
+      stop 1
     end if
 
     read (100 + nsubs, *) mm(nsubs)
-    write (*, *) "Number of inequivalent configurations with ", nsubs, " substitutions: ", mm(nsubs)
+    write (*, '(a, i4, a, i10)') "   - Level nsubs =", nsubs, ": ", mm(nsubs), " independent configurations"
   end do
 
   nconfigmax = maxval(mm)
@@ -189,7 +216,7 @@ program gcstatsod
     write (*, *) "x is out of range, given the number of substitutions considered"
     write (*, *) "x should be between", real(nsubsmin)/real(npos), "and", real(nsubsmax)/real(npos)
     write (*, *)
-    stop
+    stop 1
   end if
 
   !Reading ENERGIES_xx files
@@ -225,7 +252,6 @@ program gcstatsod
   do nsubs = nsubsmin, nsubsmax
     inquire (file=filenamedat(nsubs), exist=booldata)
     if (booldata) then
-      write (*, *) "DATA file found for", nsubs, "substitutions"
       open (unit=300 + nsubs, file=trim(filenamedat(nsubs)), status='old')
       read (300 + nsubs, *) ncol
     end if
@@ -234,19 +260,13 @@ program gcstatsod
 
   if (data_exists) then
     allocate (data(0:nsubsmax, 1:nconfigmax, 1:ncol))
-    write (*, *)
-    write (*, *) "Average data will be calculated."
-    write (*, *)
+    write (*, *) " > DATA files found: averaging of observables will be performed."
     do nsubs = nsubsmin, nsubsmax
       do m = 1, mm(nsubs)
         read (300 + nsubs, *) data(nsubs, m, 1:ncol)
       end do
       close (300 + nsubs)
     end do
-  else
-    write (*, *)
-    write (*, *) "At least one DATA file not found. No average data will be calculated."
-    write (*, *)
   end if
 
   !Reading SPECTRA_xx files
@@ -263,7 +283,6 @@ program gcstatsod
   do nsubs = nsubsmin, nsubsmax
     inquire (file=filenamespec(nsubs), exist=boolspec)
     if (boolspec) then
-      write (*, *) "SPECTRA file found for", nsubs, "substitutions"
       open (unit=400 + nsubs, file=trim(filenamespec(nsubs)), status='old')
       read (400 + nsubs, *) npoints
     end if
@@ -271,9 +290,7 @@ program gcstatsod
   end do
 
   if (spectra_exists) then
-    write (*, *)
-    write (*, *) "Average spectra will be calculated."
-    write (*, *)
+    write (*, *) " > SPECTRA files found: averaging of spectra will be performed."
     allocate (spec(0:nsubsmax, 1:nconfigmax, 1:npoints))
     allocate (xspec(1:npoints))
     do nsubs = nsubsmin, nsubsmax
@@ -288,15 +305,13 @@ program gcstatsod
     end do
     maxspec = maxval(spec)
     close (15)
-  else
-    write (*, *)
-    write (*, *) "At least one SPECTRA file not found. No average spectra will be calculated."
-    write (*, *)
   end if
+  write (*, *) ""
 
   !Opening output files
   open (unit=20, file="probabilities.dat")
   open (unit=21, file="thermodynamics.dat")
+  write (*, *) " > Writing probabilities.dat and thermodynamics.dat..."
   if (data_exists) then
     open (unit=22, file="ave_data.dat")
   end if
@@ -305,7 +320,7 @@ program gcstatsod
   end if
 
   !Starting to write thermodynamics.dat file
-  write (21, *) "       T             E               F          S             "
+  write (21, *) "      T/K            E/eV            F/eV         S/(eV/K)"
 
   !Starting to write ave_data.dat file
   if (data_exists) then
@@ -326,12 +341,7 @@ program gcstatsod
 
   do tt = 1, ntt  ! loop over all temperature values
 
-    write (*, *)
-    write (*, *) "__________________________________________"
-    write (*, *)
-    write (*, *) " T = ", t(tt), "K"
-    write (*, *) "__________________________________________"
-    write (*, *)
+    write (*, '(a, f10.2, a)') " > Processing T =", t(tt), " K..."
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      If x is specified, get mu
@@ -395,7 +405,7 @@ program gcstatsod
       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
       if (lambda == 0.0) then
-        write (*, *) "No Volume-Stress Correction applied."
+        ! write (*, *) "No Volume-Stress Correction applied."
         do nsubs = nsubsmin, nsubsmax
           evsc(nsubs) = 0.0
         end do
@@ -408,7 +418,7 @@ program gcstatsod
           voln = v0*(1 - xn) + v1*xn + bv*xn*(1 - xn)
           eta = (vol/voln)**(2.0d0/3.0d0)
           evsc(nsubs) = (9.0d0/8.0d0)*vol*bm*(eta - 1.0d0)**2
-          write (*, *) "Energy of Volume-Stress Correction: nsubs=", nsubs, "voln=", voln, "EVSC(nsubs)=", evsc(nsubs)
+          ! write (*, *) "Energy of Volume-Stress Correction: nsubs=", nsubs, "voln=", voln, "EVSC(nsubs)=", evsc(nsubs)
         end do
       end if
 
@@ -432,10 +442,10 @@ program gcstatsod
       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       !      Calculate q with the bisection method
       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      write (*, *) "Using bisection method to find chemical potential corresponding to specified composition"
+      write (*, *) "   - Finding chemical potential (bisection method)..."
       q = x/(1 - x)
       mu = epsilon + kb*t(tt)*log(q)
-      write (*, *) "Initial chemical potential:  mu =", mu, " eV"
+      ! write (*, *) "Initial chemical potential:  mu =", mu, " eV"
 
       valpolynom = 0.0
       do nsubs = nsubsmin, nsubsmax
@@ -445,16 +455,12 @@ program gcstatsod
       valpolynomnew = valpolynom
       do while (valpolynom*valpolynomnew > 0)
 
-        call random_seed()
         call random_number(r1)
-        call random_seed()
         call random_number(r2)
         do while (r1 < tolq)
-          call random_seed()
           call random_number(r1)
         end do
         do while (r2 < tolq)
-          call random_seed()
           call random_number(r2)
         end do
 
@@ -497,14 +503,14 @@ program gcstatsod
         end if
 
         if ((abs(qa - qb) < tolq) .and. (abs(mu - oldmu) < tolmu)) then
-          write (*, *) "Convergence achieved:  delta(mu) = ", mu - oldmu, " eV"
+          ! write (*, *) "Convergence achieved:  delta(mu) = ", mu - oldmu, " eV"
           exit
         end if
 
       end do
 
       mu = epsilon + kb*t(tt)*log(q)
-      write (*, *) "Converged chemical potential: mu = ", mu, " eV"
+      write (*, '(a, f12.6, a)') "   - Converged mu =", mu, " eV"
 
       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       !          Get minimum value of the grand potential to calculate enemunrel
@@ -559,7 +565,7 @@ program gcstatsod
       end do
 
       xeq = nx/npos
-      write (*, *) "Composition calculated for this chemical potential: x = ", xeq
+      write (*, '(a, f12.6)') "   - Equilibrium composition x =", xeq
 
     else !(xormu = 'mu')
       !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -614,7 +620,7 @@ program gcstatsod
       end do
 
       xeq = nx/npos
-      write (*, *) "Composition at this temperature, for the given chemical potential: x = ", xeq
+      write (*, '(a, f12.6)') "   - Equilibrium composition x =", xeq
       x = xeq
 
     end if ! End if for xormu.eq."x "
@@ -635,7 +641,7 @@ program gcstatsod
       pn(nsubs, tt) = 0.0
       do m = 1, mm(nsubs)
         write (20, 101) nsubs, m, omega(nsubs, m), ene(nsubs, m), enemun(nsubs, m), p(nsubs, m, tt), p(nsubs, m, tt)/omega(nsubs, m)
-101     format(i3, 1x, i6, 1x, i8, 5x, 2(4x, f14.5) 2(4x, e12.6))
+101     format(i3, 1x, i6, 1x, i8, 5x, 2(4x, f14.5), 2(4x, e12.6))
         pn(nsubs, tt) = pn(nsubs, tt) + p(nsubs, m, tt)
       end do
     end do
@@ -771,14 +777,8 @@ program gcstatsod
 
   xeq = nx/npos
 
-  write (*, *)
-  write (*, *) "___________________________________________________"
-  write (*, *)
-  write (*, *) " T = infinity (ideal disorder limit)"
-  write (*, *) "___________________________________________________"
-  write (*, *)
-  write (*, *) "Composition from probabilities:"
-  write (*, *) "x = ", xeq
+  write (*, *) " > Processing T = infinity (ideal disorder limit)..."
+  write (*, '(a, f12.6)') "   - Composition x =", xeq
 
   if (xormu == "mu") then
     x = xeq
@@ -869,12 +869,9 @@ program gcstatsod
   if (data_exists) close (22)
   if (spectra_exists) close (23)
 
-  write (*, *)
-  write (*, *)
-  write (*, *) "---------------------------------------"
-  write (*, *) "Grand-canonical analysis completed."
-  write (*, *) "---------------------------------------"
-  write (*, *)
+  write (*, *) ""
+  write (*, *) " > Grand-canonical analysis completed."
+  write (*, *) ""
 
 end
 

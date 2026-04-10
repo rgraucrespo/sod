@@ -66,7 +66,7 @@ subroutine ksubset(n, k, a, more)
     write (*, '(a,i6)') 'N = ', n
     write (*, '(a,i6)') 'K = ', k
     write (*, '(a)') 'but 1 <= K <= N is required!'
-    stop
+    stop 1
   end if
 
   if (.not. more) then
