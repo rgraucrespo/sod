@@ -1,6 +1,6 @@
 # SOD 0.70 - Notes for users
 
-SOD (standing for Site-Occupation Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
+SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
 The package is distributed under the [GPL licence](https://github.com/ypriverol/sod/blob/master/LICENSE.md). 
 
