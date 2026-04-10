@@ -14,3 +14,4 @@ src/*.mod
 # Miscellaneous
 *.swp
 .DS_Store
+sod_dev_log.md
