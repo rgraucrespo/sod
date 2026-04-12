@@ -1,4 +1,4 @@
-# SOD 0.70 - Notes for users
+# SOD 0.71 - Notes for users
 
 SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -21,7 +21,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - sod(version)/src contains the source files.
 - sod(version)/sgo is a library of space group operators (e.g. 131.sgo contains the operators of the space group 131).
 - sod(version)/bin contains the executables. Compile for your platform using `make all`.
-- sod(version)/examples contains twelve examples, covering a range of structure types and substitution modes: binary, multi-nary, multi-species, vacancies and molecules.
+- sod(version)/examples contains fourteen examples, covering a range of structure types and substitution modes: binary, multi-nary, multi-species, multi-target multi-nary, vacancies and molecules.
 
 ## Examples
 
@@ -43,11 +43,11 @@ The **example01/\*** series all use the same physical system — Ni/Mg substitut
 
 - **example04**: Al/Fe substitution in a 2×2×2 supercell of LaFeO₃ perovskite (cubic approximation, space group Pm-3m). 4 Al in 8 Fe sites give 6 inequivalent configurations. GULP input files (FILER=1) using the Bush et al. Buckingham potentials with core-shell model, defined inline in `template_input.gin`. Also includes SPBE energy extrapolation (subfolders `n04/spbe0` and `n04/spbe1`) and a grand-canonical statistics example (`x250`, composition x=0.25).
 
-- **example05**: Sn/Zr substitution in the La₂Zr₂O₇–La₂Sn₂O₇ solid solution (pyrochlore, space group Fd-3m). 2 Sn substitutions in 16 Zr sites give 5 inequivalent configurations. CASTEP input files (FILER=12) are generated via `template_castep.cell`; DFT outputs are not included to save space. Demonstrates canonical and grand-canonical averaging of ¹³⁹La NMR spectra across compositions n00–n16, with optional stress-volume correction (see `x125` and `x250`).
+- **example05**: Zr/Sn substitution in the La₂Sn₂O₇–La₂Zr₂O₇ solid solution (pyrochlore, space group Fd-3m). INSOD enumerates all compositions (nsubs=0:16, FILER=-1), spanning pure La₂Sn₂O₇ (n00) to pure La₂Zr₂O₇ (n16). Pre-generated CASTEP structure files for nsubs=2 are in `n02/c1-c3/` as a usage illustration. Pre-computed DFT results (ENERGIES, DATA, SPECTRA) across all n00–n16 are provided to demonstrate canonical and grand-canonical averaging of ¹³⁹La NMR spectra with stress-volume correction (see `x250` and `x750`).
 
 - **example06**: Li/Mg substitution coupled with an H vacancy in a 2×2×2 supercell of rutile MgH₂ (space group P4₂/mnm, #136). The charge-neutral defect pair — Li⁺ on an Mg²⁺ site plus one H⁻ vacancy — is enumerated as a **multi-species** substitution: `sptarget: 1 2` with `nsubs` = 1 (Li) on line 1 and 1 (%H vacancy) on line 2. The 2×2×2 supercell contains 16 Mg and 32 H sites, giving 512 total Li–vacancy arrangements of which **9 are inequivalent** under the full tetragonal symmetry. VASP input files (FILER=11) are generated; the user must supply `INCAR`, `KPOINTS` and `POTCAR`. See: Smith, K.C., Fisher, T.S., Waghmare, U.V., Grau-Crespo, R., *Dopant-vacancy binding effects in Li-doped magnesium hydride*, Phys. Rev. B **82**, 134109 (2010).
 
-- **example07**: Fe vacancies in maghemite (γ-Fe₂O₃) derived from magnetite (Fe₃O₄). A 1×1×3 supercell of the conventional spinel cell (Fd-3m) has 8 octahedral FeB sites removed to reach the γ-Fe₂O₃ stoichiometry. Demonstrates the `%NAME` vacancy syntax (`%FeB` in `newsymbol`). GULP input files (FILER=1) generated using the Catlow library (`catlow.lib`).
+- **example07**: Fe vacancies in maghemite (γ-Fe₂O₃) starting from the P4₃32 cubic structure (space group 212, a=8.344 Å). A 1×1×3 supercell has 12 vacant Fe sites; SOD fills 4 of them with Fe, leaving 8 vacancies to reach the γ-Fe₂O₃ stoichiometry. 29 inequivalent configurations out of C(12,4)=495. Demonstrates the `%NAME` vacancy syntax (`%Fe` in `newsymbol`). GULP input files (FILER=1) generated using the Catlow library (`catlow.lib`).
 
 - **example08**: Methylammonium (MA = CH₃NH₃⁺) substitution in a 4×4×4 supercell of cubic CsPbI₃ perovskite (Pm-3m, 320 atoms). 2 of the 64 Cs A-sites are replaced by MA molecules, yielding 9 inequivalent configurations. Demonstrates the `@NAME` molecule syntax (`@MA` in `newsymbol`) with `MA.xyz` geometry. LAMMPS data files (FILER=2) are generated; each `conf.data` has 334 atoms (62 Cs + 64 Pb + 192 I + 2 C + 2 N + 12 H).
 
@@ -55,17 +55,19 @@ The **example01/\*** series all use the same physical system — Ni/Mg substitut
 
 - **example10**: $Ti_{50}Zr_{25}Nb_{25}$ ($Ti_2ZrNb$) alloy with biomedical interest — a **multi-nary** example. Two species, Zr (4 atoms) and Nb (4 atoms), substitute Ti in a 2×2×2 supercell of the BCC structure (16 atoms total). No output files are requested (FILER=-1).
 
-- **example11**: Equimolar NiCoFeCr Cantor subsystem alloy in a 2×2×2 supercell of the FCC primitive cell (8 atoms total, 2 of each species) — a **multi-nary** example with three new species. The FCC primitive cell (a=b=c=2.491 Å, α=β=γ=60°) is used with operators from `225_primitive.sgo`. `nsubs: 2 2 2` places 2 Co, 2 Fe and 2 Cr on Ni sites, leaving 2 Ni. Out of 2520 total arrangements (8!/(2!2!2!2!)), 23 are inequivalent under the full FCC symmetry. CIF files are generated (FILER=0).
+- **example11**: Equimolar NiCoFeCr Cantor subsystem alloy in a 2×2×2 supercell of the FCC primitive cell (8 atoms total, 2 of each species) — a **multi-nary** example with three new species. The FCC primitive cell (a=b=c=2.491 Å, α=β=γ=60°) is used with operators from `225_primitive.sgo`. `nsubs: 2 2 2` places 2 Co, 2 Fe and 2 Cr on Ni sites, leaving 2 Ni. Out of 2520 total arrangements (8!/(2!2!2!2!)), 23 are inequivalent under the full FCC symmetry. GULP input files (FILER=1) are generated using an OpenKIM EAM potential (`kim_model` directive).
 
-- **example12**: Complex perovskite La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃ in a 2×2×2 supercell (space group Pm-3m) — a **multi-species** example. Two target sites are substituted simultaneously: 2 Sr replace La on 8 La-sites (binary, site 1) and 2 Mn replace Fe on 8 Fe-sites (binary, site 2). `nsubs` given as `2` (line 1) and `2` (line 2). Out of 784 total joint arrangements, 13 are inequivalent under the full cubic symmetry. GULP input files (FILER=1) are generated.
+- **example12**: Complex perovskite La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃ in a 2×2×2 supercell (space group Pm-3m) — a **multi-species** example. Two target sites are substituted simultaneously: 2 Sr replace La on 8 La-sites (binary, site 1) and 2 Mn replace Fe on 8 Fe-sites (binary, site 2). `nsubs` given as `2` (line 1) and `2` (line 2). Out of 784 total joint arrangements, 13 are inequivalent under the full cubic symmetry. FILER=-1.
 
-> **Note:** Simultaneous multi-species (multiple target sites) and multi-nary (multiple new species per site) substitutions are not yet supported. Each target site is restricted to a binary substitution in the multi-species code path.
+- **example13**: La₁₋ₓSrₓFe₁₋ᵧMnᵧO₃₋ᵤ in a 2×2×2 supercell (space group Pm-3m) — a **multi-species** example with three target sites. One Sr replaces La (8 La-sites), one Mn replaces Fe (8 Fe-sites), and one O vacancy is created (24 O-sites), all enumerated simultaneously. `sptarget: 1 2 3`, `nsubs` on three lines: `1`, `1`, `1`. Vacancy on the O site uses the `%O` syntax. 6 inequivalent configurations from 1536 total. FILER=-1.
+
+- **example14**: La₁₋ₓ₋ᵧSrₓBaᵧMnᵤFe₁₋ᵤO₃ in a 2×2×2 supercell (space group Pm-3m) — the first **multi-target multi-nary** example, combining multi-site and multi-nary substitution. Target 1 (La site, 8 atoms): ternary disorder with 1 Sr + 1 Ba (2 new species). Target 2 (Fe site, 8 atoms): binary disorder with 1 Mn. `nsubs` on two lines: `1 1` (line 1) and `1` (line 2). 3 inequivalent configurations from 448 total. FILER=-1.
 
 ## Molecules (@NAME) and vacancies (%NAME)
 
 Two special prefixes extend the `newsymbol` field in INSOD beyond simple atomic substitution:
 
-- **`@NAME`** — molecule: SOD reads `NAME.xyz` from the working directory (standard XYZ format: natoms, comment, then symbol x y z per line in Ångström), computes the centre of mass, and places the molecule at the substituted site with a uniformly random orientation. Each site gets an independent rotation. All output formats (CIF, GULP, VASP, CASTEP, QE) expand the molecule into its individual atoms; LAMMPS is not supported for molecular species.
+- **`@NAME`** — molecule: SOD reads `NAME.xyz` from the working directory (standard XYZ format: natoms, comment, then symbol x y z per line in Ångström), computes the centre of mass, and places the molecule at the substituted site with a uniformly random orientation. Each site gets an independent rotation. All output formats (CIF, GULP, VASP, CASTEP, QE, LAMMPS) expand the molecule into its individual atoms.
 
 - **`%NAME`** — vacancy: the atom at the substituted site is simply omitted from all output files. `NAME` is informational only (e.g. `%Fe` or `%FeB`). All output formats including LAMMPS support vacancies.
 
@@ -73,7 +75,7 @@ Both can appear simultaneously in `newsymbol(1:2)`, and multiple molecule types 
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.70.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.71.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -103,6 +105,7 @@ export PATH=$PATH:ROOTSOD/sod(version)/bin
   - **Range** (e.g. `1:8`): SOD loops over all integer values from 1 to 8 in sequence, creating one `nXX/` folder per concentration. Only valid when a single target site and a single new species are specified.
   - **Multi-nary** (e.g. `1 2` or `2 2 2`): place the specified numbers of each new species simultaneously on a single target site. Up to 3 new species are supported (quaternary disorder, e.g. `nsubs: 2 2 2` for NiCoFeCr). Extension to higher orders (quinary and beyond) is planned but not yet implemented.
   - **Multi-species** (e.g. two lines `2` then `1`): one line per target site, in the order listed in `sptarget`. The example places 2 substitutions on the first target site and 1 on the second, enumerating all joint configurations simultaneously under the full crystal symmetry.
+  - **Multi-target multi-nary** (e.g. line 1: `1 1`, line 2: `1`): combines multi-species and multi-nary — each target site can independently have multiple new species. Each line contains space-separated counts for the new species on that site, and enumerates all joint configurations simultaneously.
 
 - In MAINFOLDER, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
 

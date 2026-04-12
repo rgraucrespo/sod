@@ -68,7 +68,7 @@ program gcstatsod
   real(real64), dimension(0:noutsodsmax)  :: evsc
 
   write (*, *) "============================================================================"
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.70"
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.71"
   write (*, *) ""
   write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
   write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"

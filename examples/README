@@ -44,23 +44,27 @@ files for five different calculators using the same INSOD file (apart from the F
 - example04:         Al/Fe substitution in a 2×2×2 supercell of LaFeO3 perovskite (space group
                     Pnma). 4 Al substitutions in 8 Fe sites give 6 inequivalent configurations.
                     GULP input files (FILER=1) using the Bush et al. potential (inline in
-                    template_input.gin). Also includes:
-                    - SPBE energy extrapolation (n04/spbe0 subfolder)
-                    - grand-canonical statistics example (x250 folder, composition x=0.25)
+                    template_input.gin). The x250 folder provides an INGC file for
+                    grand-canonical analysis (x=0.25); ENERGIES files are not pre-committed
+                    and must be obtained by running GULP on the generated configurations.
 
-- example05:         Sn/Zr substitution in the La2Zr2O7–La2Sn2O7 solid solution (pyrochlore,
-                    space group Fd-3m, 1×1×1 unit cell). 2 Sn substitutions in 16 Zr sites give
-                    5 inequivalent configurations. CASTEP input files (FILER=12) are generated
-                    using template_castep.cell; DFT calculation outputs are not included to save
-                    space. The example demonstrates canonical and grand-canonical averaging of
-                    NMR spectra across compositions n00–n16, with a stress-volume correction.
-                    See the INGC files in the x125 and x250 folders.
+- example05:         Zr/Sn substitution in the La2Sn2O7–La2Zr2O7 solid solution (pyrochlore,
+                    space group Fd-3m, 1×1×1 unit cell). INSOD enumerates all compositions
+                    (nsubs=0:16, FILER=-1): 17 levels from pure La2Sn2O7 (n00) to pure
+                    La2Zr2O7 (n16), giving 1, 1, 3, 8, 22, ... 1 inequivalent configurations.
+                    To generate CASTEP input files, change FILER=12 and set nsubs to the
+                    desired level; pre-generated examples for nsubs=2 are in n02/c1-c3/.
+                    The n00–n16 folders also contain pre-computed DFT results (ENERGIES,
+                    DATA, SPECTRA, XSPEC) provided to demonstrate post-processing: canonical
+                    statistics (sod_stat.sh) and grand-canonical NMR spectra averaging
+                    (sod_gcstat.sh) with stress-volume correction. See x250 and x750.
 
-- example06:         Mg/Zn substitution in a 2×2×1 supercell of wurtzite ZnO (space group P6_3mc).
-                    2 Mg substitutions in 8 Zn sites reduce to 3 inequivalent configurations
-                    under the hexagonal symmetry. Quantum ESPRESSO input files (FILER=13) are
-                    generated using template_pw.in. Replace Mg.upf, Zn.upf, O.upf with your
-                    own pseudopotential files before running.
+- example06:         Li/Mg substitution coupled with an H vacancy in a 2×2×2 supercell of
+                    rutile MgH2 (space group P4_2/mnm, #136). The charge-neutral defect pair
+                    Li+/H-vacancy is enumerated as a multi-species substitution: sptarget: 1 2,
+                    nsubs: 1 (Li on Mg), 1 (%H vacancy). 9 inequivalent configurations from
+                    512 total (16 Mg x 32 H). VASP input files (FILER=11) generated; INCAR,
+                    KPOINTS and POTCAR must be supplied by the user.
 
 - example07:         Fe vacancies in maghemite (gamma-Fe2O3) starting from the P4(3)32 cubic
                     structure (space group 212, a=8.344 A). A 1×1×3 supercell has 12 vacant
@@ -78,8 +82,8 @@ files for five different calculators using the same INSOD file (apart from the F
 - example09:         Multi-species example: simultaneous Mg/La substitution (2 sites) and O vacancy
                     (1 site) in a 2×2×2 supercell of LaFeO3 perovskite. Two target sites are
                     specified (sptarget: 1 3) with nsubs on two lines: 2 (site 1), 1 (site 2).
-                    Configurations are enumerated
-                    jointly under the full crystal symmetry and written to n02_01/. FILER=-1.
+                    Configurations are enumerated jointly under the full crystal symmetry
+                    and written to n02_01/. FILER=-1.
 
 - example10:         Ti_{50}Zr_{25}Nb_{25} (Ti_2ZrNb) alloy with biomedical interest (multi-nary).
                     Two species, Zr (4 atoms) and Nb (4 atoms), substitute Ti in a 2×2×2
@@ -97,8 +101,17 @@ files for five different calculators using the same INSOD file (apart from the F
                     in a 2x2x2 supercell (space group Pm-3m). Two target sites substituted
                     simultaneously: 2 Sr on 8 La-sites (binary, site 1) and 2 Mn on 8
                     Fe-sites (binary, site 2). nsubs on two lines: 2 (site 1), 2 (site 2).
-                    13 inequivalent configurations from 784 total. GULP input files (FILER=1) using woodley.lib.
-                    Note: simultaneous multi-species and multi-nary substitutions (ternary
-                    or higher on one target while using multiple targets) are not yet
-                    supported.
+                    13 inequivalent configurations from 784 total. FILER=-1.
+
+- example13:         Multi-species example with 3 targets: La_{1-x}Sr_x Fe_{1-y}Mn_y O_{3-z}
+                    in a 2x2x2 supercell of the Pm-3m perovskite (8 La, 8 Fe, 24 O sites).
+                    One substitution per site: Sr on La, Mn on Fe, O vacancy (%O syntax).
+                    sptarget: 1 2 3; nsubs on three lines: 1, 1, 1.
+                    6 inequivalent configurations from 1536 total. FILER=-1.
+
+- example14:         Multi-target multi-nary example: La_{1-x-y}Sr_{x}Ba_{y}Mn_{z}Fe_{1-z}O_3
+                    in a 2x2x2 supercell of the Pm-3m perovskite.
+                    Target 1 (8 La sites): ternary — 1 Sr + 1 Ba (nsubs line 1: "1 1").
+                    Target 2 (8 Fe sites): binary — 1 Mn (nsubs line 2: "1").
+                    3 inequivalent configurations from 448 total. FILER=-1.
 

@@ -35,9 +35,9 @@ program combsod
   integer :: at0, nat0, at1, nat1, nat1r, at, nat, at1r, at1i, attmp, att, atsp, filer
   integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, nsubs_loop, atini, atfin
   integer :: nsubs_t(ntargetmax, nkmax), npos_t(ntargetmax), atini_t(ntargetmax), atfin_t(ntargetmax)
-  integer :: nsubs_A, nsubs_B, npos_A, npos_B, t_A
+  integer :: npos_max, t_A, tt, offset, nsubs_tot, nsubs_max_t
   integer :: pos, npos
-  integer(int64):: ntc, count, nic, equivcount, indcount, combinations, r
+  integer(int64):: ntc, count, nic, equivcount, indcount, r
   logical :: found, foundnoind, mores
   integer, dimension(:), allocatable:: newconf
   logical, dimension(:), allocatable:: visited
@@ -45,9 +45,14 @@ program combsod
   character(len=10) :: nxx_dir
   integer(int64) :: t_start_total, t_start_level, t_now, clock_rate, clock_max
   integer(int64) :: ntc_A, ntc_B, ntc_joint
+  integer(int64) :: ntc_t(ntargetmax), r_t(ntargetmax), new_r, new_r_tt
+  logical :: mores_t(ntargetmax)
   integer(int64) :: r_A, r_B, new_r_A, new_r_B
   integer, dimension(:), allocatable :: as_A, as_B, newconf_A, newconf_B, new_as_B
+  integer, dimension(:,:), allocatable :: as_t, newconf_t
+  integer, dimension(:), allocatable :: tmp_conf
   integer(int64), allocatable :: binom_A(:,:), binom_B(:,:)
+  integer(int64), allocatable :: binom_t(:,:,:)
   logical :: mores_A, mores_B
   integer(int64) :: ntc_C
   integer(int64) :: r_C, new_r_C
@@ -56,6 +61,15 @@ program combsod
   integer(int64), allocatable :: binom_C(:,:)
   logical :: mores_C
   integer :: n2rem
+! Phase 4: multi-target multi-nary
+  integer :: nsubs_tot_t(ntargetmax), nrem2_t(ntargetmax), nsubs_pos_max
+  integer(int64) :: ntc_pos_t(ntargetmax), ntc_col1_t(ntargetmax), ntc_col2_t(ntargetmax)
+  integer(int64) :: r_pos, r_col1, r_col2, new_r_pos, new_r_col1, new_r_col2
+  logical :: mores_pos_t(ntargetmax), mores_col1_t(ntargetmax), mores_col2_t(ntargetmax)
+  integer, allocatable :: as_pos_t(:,:), as_col1_t(:,:), as_col2_t(:,:), notcol1_t(:,:)
+  integer, allocatable :: newpos_t(:,:), newval_col1_t(:,:), new_col1_t(:,:)
+  integer, allocatable :: new_notcol1_t(:,:), newval_col2_t(:,:), new_col2_t(:,:)
+  integer(int64), allocatable :: binom_pos_t(:,:,:), binom_col_t(:,:,:)
   real(real64) :: elapsed_level, elapsed_total
   real(real64), dimension(:), allocatable :: elapsed_per_level
   integer, dimension(:), allocatable :: nsubs_level_list
@@ -73,7 +87,8 @@ program combsod
   integer, dimension(nopmax)   :: op1good
   real(real64), dimension(nopmax, 3, 3) :: mgroup1, mgroup, mgroup1new
   real(real64), dimension(nopmax, 3)   :: vgroup1, vgroup, vgroup1new
-  integer, dimension(:, :), allocatable :: fulleqmatrix, eqmatrixtarget, eqmatrixtarget2
+  integer, dimension(:, :), allocatable :: fulleqmatrix
+  integer, dimension(:, :, :), allocatable :: eqmt
   integer, dimension(natmax) :: spat0, spat1, spat, spat1r
   real(real64), dimension(natmax, 3) :: coords0, coords1, coords, coords1r
   integer, dimension(natmax)   :: as
@@ -138,7 +153,7 @@ program combsod
 !
 
   write (*, *) "============================================================================"
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.70"
+  write (*, *) "         SOD (Site Occupancy Disorder) version 0.71"
   write (*, *) ""
   write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
   write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
@@ -202,14 +217,17 @@ program combsod
   read (9, *) na, nb, nc
   read (9, *)
   read (9, *)
-! Read sptarget line: one or two species indices
+! Read sptarget line: 1..ntargetmax species indices
   read (9, '(A)') line_buffer
-  read (line_buffer, *, IOSTAT=ierr) sptarget(1), sptarget(2)
-  if (ierr /= 0) then
-    ntarget = 1
-    read (line_buffer, *) sptarget(1)
-  else
-    ntarget = 2
+  ntarget = 0
+  do t = 1, ntargetmax
+    read (line_buffer, *, IOSTAT=ierr) (sptarget(i), i=1,t)
+    if (ierr /= 0) exit
+    ntarget = t
+  end do
+  if (ntarget == 0) then
+    write (*, *) "Error: could not parse sptarget from: ", trim(line_buffer)
+    stop 1
   end if
   read (9, *)
   read (9, *)
@@ -220,32 +238,58 @@ program combsod
 ! ntarget==2: first line for target 1, second line for target 2.
   read (9, '(A)') line_buffer
   nk(:) = 1
-  if (ntarget == 2) then
-!   Two-line format for multi-species: one integer per target site per line
+  if (ntarget >= 2) then
+!   Multi-target: space-separated integers per line; 1 integer = binary, 2+ = multi-nary.
     if (index(trim(line_buffer), '/') > 0) then
       write (*, *) "Error: '/' separator in nsubs is no longer supported."
       write (*, *) "  Use one line per target site instead (e.g. first line: 2, second line: 1)."
       stop 1
     end if
-    read (line_buffer, *, IOSTAT=ierr) nsubs_t(1,1)
-    if (ierr /= 0) then
+!   Parse target 1 (line_buffer already read above)
+    nk(1) = 0
+    do j = 1, nkmax
+      read (line_buffer, *, IOSTAT=ierr) (nsubs_t(1,i), i=1,j)
+      if (ierr /= 0) exit
+      nk(1) = j
+    end do
+    if (nk(1) == 0) then
       write (*, *) "Error: could not parse nsubs for target 1 from: ", trim(line_buffer)
       stop 1
     end if
-    if (nsubs_t(1,1) < 0) then
-      write (*, *) "Error: number of substitutions must be >= 0"
+    if (nk(1) > 3) then
+      write (*, *) "Error: more than 3 species per site (k=", nk(1), ") not yet supported."
       stop 1
     end if
-    read (9, '(A)') line_buffer
-    read (line_buffer, *, IOSTAT=ierr) nsubs_t(2,1)
-    if (ierr /= 0) then
-      write (*, *) "Error: could not parse nsubs for target 2 from: ", trim(line_buffer)
-      stop 1
-    end if
-    if (nsubs_t(2,1) < 0) then
-      write (*, *) "Error: number of substitutions must be >= 0"
-      stop 1
-    end if
+    do j = 1, nk(1)
+      if (nsubs_t(1,j) < 0) then
+        write (*, *) "Error: number of substitutions must be >= 0"
+        stop 1
+      end if
+    end do
+!   Parse targets 2..ntarget
+    do t = 2, ntarget
+      read (9, '(A)') line_buffer
+      nk(t) = 0
+      do j = 1, nkmax
+        read (line_buffer, *, IOSTAT=ierr) (nsubs_t(t,i), i=1,j)
+        if (ierr /= 0) exit
+        nk(t) = j
+      end do
+      if (nk(t) == 0) then
+        write (*, '(a,i0,a,a)') "Error: could not parse nsubs for target ", t, " from: ", trim(line_buffer)
+        stop 1
+      end if
+      if (nk(t) > 3) then
+        write (*, *) "Error: more than 3 species per site (k=", nk(t), ") not yet supported."
+        stop 1
+      end if
+      do j = 1, nk(t)
+        if (nsubs_t(t,j) < 0) then
+          write (*, *) "Error: number of substitutions must be >= 0"
+          stop 1
+        end if
+      end do
+    end do
     nsubs_min = nsubs_t(1,1)
     nsubs_max = nsubs_t(1,1)
   else if (index(trim(line_buffer), ':') > 0) then
@@ -300,9 +344,9 @@ program combsod
   read (9, *)
   read (9, *)
   read (9, *) (newsymbol(1, j), j=1, nk(1)+1)
-  if (ntarget == 2) then
-    read (9, *) newsymbol(2, 1), newsymbol(2, 2)
-  end if
+  do t = 2, ntarget
+    read (9, *) (newsymbol(t, j), j=1, nk(t)+1)
+  end do
   read (9, *)
   read (9, *)
   read (9, *) filer
@@ -594,7 +638,7 @@ program combsod
 !       Calculate the initial and final nat of the target species
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-! Compute atini/atfin and eqmatrixtarget for all target species
+! Compute atini/atfin and eqmt for all target species
 
   do t_A = 1, ntarget
     atini_t(t_A) = 1
@@ -614,42 +658,25 @@ program combsod
 !         Obtain the Equivalence Matrix for the target species from the Full Equivalence Matrix
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  allocate (eqmatrixtarget(1:npos_t(1), 1:nop), stat=ierr)
+  npos_max = maxval(npos_t(1:ntarget))
+  allocate (eqmt(1:ntarget, 1:npos_max, 1:nop), stat=ierr)
   if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory (eqmatrixtarget)"
+    write (*, *) "Error: problem too large for SOD - insufficient memory (eqmt)"
     stop 1
   end if
-  do op = 1, nop
-    att = 0
-    do at = atini_t(1), atfin_t(1)
-      att = att + 1
-      eqmatrixtarget(att, op) = fulleqmatrix(op, at) - atini_t(1) + 1
-    end do
-  end do
-
-  write (26, *) nop, npos_t(1)
-  do op = 1, nop
-    write (26, *) (eqmatrixtarget(pos, op), pos=1, npos_t(1))
-  end do
-
-  if (ntarget == 2) then
-    allocate (eqmatrixtarget2(1:npos_t(2), 1:nop), stat=ierr)
-    if (ierr /= 0) then
-      write (*, *) "Error: problem too large for SOD - insufficient memory (eqmatrixtarget2)"
-      stop 1
-    end if
+  do t = 1, ntarget
     do op = 1, nop
       att = 0
-      do at = atini_t(2), atfin_t(2)
+      do at = atini_t(t), atfin_t(t)
         att = att + 1
-        eqmatrixtarget2(att, op) = fulleqmatrix(op, at) - atini_t(2) + 1
+        eqmt(t, att, op) = fulleqmatrix(op, at) - atini_t(t) + 1
       end do
     end do
-    write (26, *) nop, npos_t(2)
+    write (26, *) nop, npos_t(t)
     do op = 1, nop
-      write (26, *) (eqmatrixtarget2(pos, op), pos=1, npos_t(2))
+      write (26, *) (eqmt(t, pos, op), pos=1, npos_t(t))
     end do
-  end if
+  end do
 
   deallocate (fulleqmatrix)
 
@@ -664,10 +691,13 @@ program combsod
     write (*, *) "Error: nsubs_max (", nsubs_max, ") exceeds number of available sites (", npos_t(1), ")"
     stop 1
   end if
-  if (ntarget == 2 .and. nsubs_t(2,1) > npos_t(2)) then
-    write (*, *) "Error: nsubs for second target (", nsubs_t(2,1), ") exceeds available sites (", npos_t(2), ")"
-    stop 1
-  end if
+  do t = 2, ntarget
+    if (sum(nsubs_t(t, 1:nk(t))) > npos_t(t)) then
+      write (*, '(a,i0,a,i0,a,i0,a)') "Error: total nsubs for target ", t, &
+        " (", sum(nsubs_t(t, 1:nk(t))), ") exceeds available sites (", npos_t(t), ")"
+      stop 1
+    end if
+  end do
 
 ! Direction selection: only for binary substitution (single new-species range)
   if (ntarget == 1 .and. nk(1) == 1) then
@@ -935,7 +965,7 @@ program combsod
 ! Apply all symmetry operators to find equivalents and count degeneracy
         do op = 2, nop
           do concurrent (i = 1:nsubs)
-            newconf(i) = eqmatrixtarget(conf(cand, i), op)
+            newconf(i) = eqmt(1, conf(cand, i), op)
           end do
           call bubble(newconf, nsubs)
           r = binom(nsubs, npos)
@@ -1060,7 +1090,7 @@ program combsod
       visited(count) = .true.
       do op = 2, nop
         do concurrent (i = 1:nsubs)
-          newconf(i) = eqmatrixtarget(as(i), op)
+          newconf(i) = eqmt(1, as(i), op)
         end do
         call bubble(newconf, nsubs)
         r = binom(nsubs, npos)
@@ -1107,7 +1137,7 @@ program combsod
           end do
           op_loop: do op = 2, nop
             do concurrent (i = 1:nsubs)
-              newconf(i) = eqmatrixtarget(as(i), op)
+              newconf(i) = eqmt(1, as(i), op)
             end do
             call bubble(newconf, nsubs)
             r = binom(nsubs, npos)
@@ -1363,13 +1393,13 @@ program combsod
         do op = 2, nop
 !         Image of all combined positions
           do concurrent (i = 1:nsubs)
-            newconf_A(i) = eqmatrixtarget(as_A(i), op)
+            newconf_A(i) = eqmt(1, as_A(i), op)
           end do
           call bubble(newconf_A, nsubs)
 
 !         Image of sp1 positions (values, then find indices in new combined)
           do concurrent (i = 1:nsubs_t(1,1))
-            newconf_B(i) = eqmatrixtarget(as_A(as_B(i)), op)
+            newconf_B(i) = eqmt(1, as_A(as_B(i)), op)
           end do
           call bubble(newconf_B, nsubs_t(1,1))
 
@@ -1717,13 +1747,13 @@ program combsod
           do op = 2, nop
 !           Image of all combined positions
             do concurrent (i = 1:nsubs)
-              newconf_A(i) = eqmatrixtarget(as_A(i), op)
+              newconf_A(i) = eqmt(1, as_A(i), op)
             end do
             call bubble(newconf_A, nsubs)
 
 !           Image of sp1 positions
             do concurrent (i = 1:nsubs_t(1,1))
-              newconf_B(i) = eqmatrixtarget(as_A(as_B(i)), op)
+              newconf_B(i) = eqmt(1, as_A(as_B(i)), op)
             end do
             call bubble(newconf_B, nsubs_t(1,1))
 
@@ -1752,7 +1782,7 @@ program combsod
 
 !           Image of sp2 positions
             do concurrent (i = 1:nsubs_t(1,2))
-              newconf_C(i) = eqmatrixtarget(as_A(as_notB_tmp(as_C(i))), op)
+              newconf_C(i) = eqmt(1, as_A(as_notB_tmp(as_C(i))), op)
             end do
             call bubble(newconf_C, nsubs_t(1,2))
 
@@ -1885,78 +1915,81 @@ program combsod
   close (30)
   close (47)
 
-  else  ! ntarget == 2
+  else if (ntarget >= 2 .and. all(nk(1:ntarget) == 1)) then  ! Stage D: multi-target binary
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!         Multi-target enumeration (ntarget == 2): direct only
+!         Multi-target enumeration (ntarget >= 2): direct only
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  nsubs_A = nsubs_t(1,1)
-  nsubs_B = nsubs_t(2,1)
-  npos_A  = npos_t(1)
-  npos_B  = npos_t(2)
+  nsubs_tot   = sum(nsubs_t(1:ntarget, 1))
+  nsubs_max_t = maxval(nsubs_t(1:ntarget, 1))
 
-  write (nxx_dir, '("n", i2.2, "_", i2.2)') nsubs_A, nsubs_B
+! Build directory name nXX[_YY[_ZZ...]] dynamically
+  write (nxx_dir, '("n", i2.2)') nsubs_t(1,1)
+  do t = 2, ntarget
+    write (nxx_dir, '(a, "_", i2.2)') trim(nxx_dir), nsubs_t(t,1)
+  end do
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
   open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
   write (30, '(a)') "# SOD OUTSOD format version 2"
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
   write (*, *) "----------------------------------------------------------------------------"
-  write (*, '(a,i0,a,i0,a)') " Multi-species substitution: nsubs_A = ", nsubs_A, ", nsubs_B = ", nsubs_B
+  write (*, '(a)', advance='no') " Multi-target substitution: nsubs = ["
+  do t = 1, ntarget
+    if (t > 1) write (*, '(a)', advance='no') ", "
+    write (*, '(i0)', advance='no') nsubs_t(t,1)
+  end do
+  write (*, '(a)') "]"
   write (*, *) "----------------------------------------------------------------------------"
   write (*, *) ""
   write (*, *) " > Composition of the substituted supercell:"
   do sp = 1, nsp
-    if (sp == sptarget(1)) then
-      write (*, '(a, a, i10)') "    - ", newsymbol(1,1), nsubs_A
-      write (*, '(a, a, i10)') "    - ", newsymbol(1,2), natsp(sp) - nsubs_A
-    else if (sp == sptarget(2)) then
-      write (*, '(a, a, i10)') "    - ", newsymbol(2,1), nsubs_B
-      write (*, '(a, a, i10)') "    - ", newsymbol(2,2), natsp(sp) - nsubs_B
-    else
-      write (*, '(a, a, i10)') "    - ", symbol(sp), natsp(sp)
-    end if
+    found = .false.
+    do t = 1, ntarget
+      if (sp == sptarget(t)) then
+        write (*, '(a, a, i10)') "    - ", newsymbol(t,1), nsubs_t(t,1)
+        write (*, '(a, a, i10)') "    - ", newsymbol(t,2), natsp(sp) - nsubs_t(t,1)
+        found = .true.
+        exit
+      end if
+    end do
+    if (.not. found) write (*, '(a, a, i10)') "    - ", symbol(sp), natsp(sp)
   end do
   write (*, *) ""
 
-! Precompute binomial tables for both species
-  allocate (binom_A(0:nsubs_A, 0:npos_A))
-  binom_A(0, :) = 1_int64
-  do k = 1, nsubs_A
-    binom_A(k, 0:k-1) = 0_int64
-    do j = k, npos_A
-      binom_A(k, j) = binom_A(k-1, j-1) + binom_A(k, j-1)
+! Precompute 3D binomial table: binom_t(t, k, n) = C(n,k) for each target t
+  npos_max = maxval(npos_t(1:ntarget))
+  allocate (binom_t(1:ntarget, 0:nsubs_max_t, 0:npos_max))
+  binom_t(:, 0, :) = 1_int64
+  binom_t(:, 1:, :) = 0_int64
+  do t = 1, ntarget
+    do k = 1, nsubs_t(t,1)
+      do j = k, npos_t(t)
+        binom_t(t, k, j) = binom_t(t, k-1, j-1) + binom_t(t, k, j-1)
+      end do
     end do
   end do
 
-  allocate (binom_B(0:nsubs_B, 0:npos_B))
-  binom_B(0, :) = 1_int64
-  do k = 1, nsubs_B
-    binom_B(k, 0:k-1) = 0_int64
-    do j = k, npos_B
-      binom_B(k, j) = binom_B(k-1, j-1) + binom_B(k, j-1)
-    end do
+  do t = 1, ntarget
+    ntc_t(t) = binom_t(t, nsubs_t(t,1), npos_t(t))
   end do
+  ntc_joint = product(ntc_t(1:ntarget))
 
-  ntc_A = binom_A(nsubs_A, npos_A)
-  ntc_B = binom_B(nsubs_B, npos_B)
-  ntc_joint = ntc_A * ntc_B
-
-  write (*, '(a,i0,a,i0,a,i0)') "       Configurations for target 1: C(", npos_A, ", ", nsubs_A, ") = ", ntc_A
-  write (*, '(a,i0,a,i0,a,i0)') "       Configurations for target 2: C(", npos_B, ", ", nsubs_B, ") = ", ntc_B
-  write (*, '(a,i0)')           "       Total joint configurations: ", ntc_joint
+  do t = 1, ntarget
+    write (*, '(a,i0,a,i0,a,i0,a,i0)') &
+      "       Configurations for target ", t, ": C(", npos_t(t), ", ", nsubs_t(t,1), ") = ", ntc_t(t)
+  end do
+  write (*, '(a,i0)') "       Total joint configurations: ", ntc_joint
   maxentropy = kb * log(real(ntc_joint, real64))
   ientropy = 0.d0
-  x = real(nsubs_A, real64) / real(npos_A, real64)
-  if (x > 0.d0 .and. x < 1.d0) ientropy = ientropy &
-    - kb * (real(npos_A, real64) / real(npos_A + npos_B, real64)) &
-         * (x * log(x) + (1.d0 - x) * log(1.d0 - x))
-  x = real(nsubs_B, real64) / real(npos_B, real64)
-  if (x > 0.d0 .and. x < 1.d0) ientropy = ientropy &
-    - kb * (real(npos_B, real64) / real(npos_A + npos_B, real64)) &
-         * (x * log(x) + (1.d0 - x) * log(1.d0 - x))
-  ientropy = ientropy * real(npos_A + npos_B, real64)
+  do t = 1, ntarget
+    x = real(nsubs_t(t,1), real64) / real(npos_t(t), real64)
+    if (x > 0.d0 .and. x < 1.d0) ientropy = ientropy &
+      - kb * (real(npos_t(t), real64) / real(sum(npos_t(1:ntarget)), real64)) &
+           * (x * log(x) + (1.d0 - x) * log(1.d0 - x))
+  end do
+  ientropy = ientropy * real(sum(npos_t(1:ntarget)), real64)
   if (ientropy > 0.d0) then
     perc = maxentropy / ientropy * 100.d0
   else
@@ -1966,6 +1999,7 @@ program combsod
   write (*, '(a,f12.6,a)') "       Ideal mixing entropy (per cell):          ", ientropy * 1000.d0, " meV/K"
   write (*, '(a,f7.2,a)')  "       Supercell captures                        ", perc, "% of ideal entropy"
   write (*, *) " "
+
   allocate (visited(1:ntc_joint), stat=ierr)
   if (ierr /= 0) then
     write (*, *) "Error: insufficient memory for visited array (size", ntc_joint, ")"
@@ -1973,11 +2007,10 @@ program combsod
   end if
   visited(:) = .false.
 
-  allocate (as_A(1:nsubs_A), stat=ierr)
-  allocate (as_B(1:nsubs_B), stat=ierr)
-  allocate (newconf_A(1:nsubs_A), stat=ierr)
-  allocate (newconf_B(1:nsubs_B), stat=ierr)
-  allocate (indconf(1:ntc_joint, 1:nsubs_A+nsubs_B), stat=ierr)
+  allocate (as_t(1:ntarget, 1:nsubs_max_t), stat=ierr)
+  allocate (newconf_t(1:ntarget, 1:nsubs_max_t), stat=ierr)
+  allocate (tmp_conf(1:nsubs_tot), stat=ierr)
+  allocate (indconf(1:ntc_joint, 1:nsubs_tot), stat=ierr)
   if (ierr /= 0) then
     write (*, *) "Error: insufficient memory for indconf"
     stop 1
@@ -1995,133 +2028,122 @@ program combsod
   perc = 0.0d0
   equivcount = 0
 
-! Outer loop: species A configurations
-! Initialize as_A = [1, 2, ..., nsubs_A]; inline to avoid shared save-variable conflict with inner loop
-  do i = 1, nsubs_A
-    as_A(i) = i
+! Initialise all targets to first subset [1, 2, ..., nsubs_t(t,1)]
+  do t = 1, ntarget
+    do i = 1, nsubs_t(t,1)
+      as_t(t, i) = i
+    end do
+    mores_t(t) = (nsubs_t(t,1) < npos_t(t))
   end do
-  mores_A = (nsubs_A < npos_A)
 
-  do   ! outer A loop
-!   Compute rank_A for current as_A
-    r_A = binom_A(nsubs_A, npos_A)
-    do i = 1, nsubs_A
-      if (npos_A - as_A(i) >= nsubs_A - i + 1) &
-        r_A = r_A - binom_A(nsubs_A - i + 1, npos_A - as_A(i))
+  main_loop: do
+
+!   Joint rank of current state (mixed-radix, 1-based)
+    r = 0_int64
+    do t = 1, ntarget
+      r_t(t) = binom_t(t, nsubs_t(t,1), npos_t(t))
+      do i = 1, nsubs_t(t,1)
+        if (npos_t(t) - as_t(t,i) >= nsubs_t(t,1) - i + 1) &
+          r_t(t) = r_t(t) - binom_t(t, nsubs_t(t,1) - i + 1, npos_t(t) - as_t(t,i))
+      end do
+      r = r * ntc_t(t) + (r_t(t) - 1_int64)
     end do
+    r = r + 1_int64
 
-!   Inner loop: species B configurations
-!   Initialize as_B = [1, 2, ..., nsubs_B]
-    do i = 1, nsubs_B
-      as_B(i) = i
-    end do
-    mores_B = (nsubs_B < npos_B)
-
-    do   ! inner B loop
-!     Compute rank_B for current as_B
-      r_B = binom_B(nsubs_B, npos_B)
-      do i = 1, nsubs_B
-        if (npos_B - as_B(i) >= nsubs_B - i + 1) &
-          r_B = r_B - binom_B(nsubs_B - i + 1, npos_B - as_B(i))
+    if (.not. visited(r)) then
+      equivcount = equivcount + 1
+      indcount = indcount + 1
+      offset = 0
+      do t = 1, ntarget
+        indconf(indcount, offset+1:offset+nsubs_t(t,1)) = as_t(t, 1:nsubs_t(t,1))
+        offset = offset + nsubs_t(t,1)
+      end do
+      visited(r) = .true.
+      write (47, *) "List of operators for configuration: ", indcount
+      opc = 1
+      write (47, *) opc
+      do i = 1, 3
+        write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
       end do
 
-!     Joint rank (1-based): (r_A - 1)*ntc_B + r_B
-      r = (r_A - 1_int64) * ntc_B + r_B
-
-      if (.not. visited(r)) then
-        equivcount = equivcount + 1
-        indcount = indcount + 1
-        indconf(indcount, 1:nsubs_A) = as_A(1:nsubs_A)
-        indconf(indcount, nsubs_A+1:nsubs_A+nsubs_B) = as_B(1:nsubs_B)
-        visited(r) = .true.
-        write (47, *) "List of operators for configuration: ", indcount
-        opc = 1
-        write (47, *) opc
-        do i = 1, 3
-          write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
+!     Apply symmetry operators
+      do op = 2, nop
+!       Map each target's positions under op; sort result
+        do t = 1, ntarget
+          do concurrent (i = 1:nsubs_t(t,1))
+            newconf_t(t, i) = eqmt(t, as_t(t, i), op)
+          end do
+          call bubble(newconf_t(t, 1:nsubs_t(t,1)), nsubs_t(t,1))
         end do
-
-!       Apply symmetry operators
-        do op = 2, nop
-          do concurrent (i = 1:nsubs_A)
-            newconf_A(i) = eqmatrixtarget(as_A(i), op)
+!       Joint rank of image (mixed-radix)
+        new_r = 0_int64
+        do t = 1, ntarget
+          new_r_tt = binom_t(t, nsubs_t(t,1), npos_t(t))
+          do i = 1, nsubs_t(t,1)
+            if (npos_t(t) - newconf_t(t,i) >= nsubs_t(t,1) - i + 1) &
+              new_r_tt = new_r_tt - binom_t(t, nsubs_t(t,1) - i + 1, npos_t(t) - newconf_t(t,i))
           end do
-          call bubble(newconf_A, nsubs_A)
-          do concurrent (i = 1:nsubs_B)
-            newconf_B(i) = eqmatrixtarget2(as_B(i), op)
+          new_r = new_r * ntc_t(t) + (new_r_tt - 1_int64)
+        end do
+        new_r = new_r + 1_int64
+!       Stabilizer (same rank = same joint config) or new equivalent?
+        if (new_r == r) then
+          opc = opc + 1
+          write (47, *) opc
+          do i = 1, 3
+            write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
           end do
-          call bubble(newconf_B, nsubs_B)
+        else if (.not. visited(new_r)) then
+          visited(new_r) = .true.
+          degen(indcount) = degen(indcount) + 1
+          equivcount = equivcount + 1
+        end if
+      end do
+      write (47, *) 0
 
-          new_r_A = binom_A(nsubs_A, npos_A)
-          do i = 1, nsubs_A
-            if (npos_A - newconf_A(i) >= nsubs_A - i + 1) &
-              new_r_A = new_r_A - binom_A(nsubs_A - i + 1, npos_A - newconf_A(i))
-          end do
-          new_r_B = binom_B(nsubs_B, npos_B)
-          do i = 1, nsubs_B
-            if (npos_B - newconf_B(i) >= nsubs_B - i + 1) &
-              new_r_B = new_r_B - binom_B(nsubs_B - i + 1, npos_B - newconf_B(i))
-          end do
+      if ((100.0d0*equivcount/ntc_joint - perc > 5.0d0) .or. (equivcount == ntc_joint)) then
+        perc = 100.0d0*equivcount/ntc_joint
+        write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
+      end if
+    end if
 
-          new_r_A = (new_r_A - 1_int64) * ntc_B + new_r_B
-
-          if (all(newconf_A(1:nsubs_A) == as_A(1:nsubs_A)) .and. &
-              all(newconf_B(1:nsubs_B) == as_B(1:nsubs_B))) then
-            opc = opc + 1
-            write (47, *) opc
-            do i = 1, 3
-              write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
+!   Advance to next joint configuration (carry propagation, innermost level first)
+    do t = ntarget, 1, -1
+      if (mores_t(t)) then
+!       Advance level t (inline next-k-subset)
+        do i = nsubs_t(t,1), 1, -1
+          if (as_t(t, i) < npos_t(t) - nsubs_t(t,1) + i) then
+            as_t(t, i) = as_t(t, i) + 1
+            do j = i+1, nsubs_t(t,1)
+              as_t(t, j) = as_t(t, j-1) + 1
             end do
-          else if (.not. visited(new_r_A)) then
-            visited(new_r_A) = .true.
-            degen(indcount) = degen(indcount) + 1
-            equivcount = equivcount + 1
+            mores_t(t) = (as_t(t, 1) /= npos_t(t) - nsubs_t(t,1) + 1)
+            exit
           end if
         end do
-        write (47, *) 0
-
-        if ((100.0d0*equivcount/ntc_joint - perc > 5.0d0) .or. (equivcount == ntc_joint)) then
-          perc = 100.0d0*equivcount/ntc_joint
-          write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
-        end if
-      end if
-
-      if (.not. mores_B) exit
-!     Advance as_B to next nsubs_B-subset of {1..npos_B} (inline, no shared state)
-      do i = nsubs_B, 1, -1
-        if (as_B(i) < npos_B - nsubs_B + i) then
-          as_B(i) = as_B(i) + 1
-          do j_remove = i+1, nsubs_B
-            as_B(j_remove) = as_B(j_remove-1) + 1
+!       Reset all inner levels to initial subsets
+        do tt = t+1, ntarget
+          do i = 1, nsubs_t(tt,1)
+            as_t(tt, i) = i
           end do
-          mores_B = (as_B(1) /= npos_B - nsubs_B + 1)
-          exit
-        end if
-      end do
-    end do  ! inner B loop
-
-    if (.not. mores_A) exit
-!   Advance as_A to next nsubs_A-subset of {1..npos_A} (inline, no shared state)
-    do i = nsubs_A, 1, -1
-      if (as_A(i) < npos_A - nsubs_A + i) then
-        as_A(i) = as_A(i) + 1
-        do j_remove = i+1, nsubs_A
-          as_A(j_remove) = as_A(j_remove-1) + 1
+          mores_t(tt) = (nsubs_t(tt,1) < npos_t(tt))
         end do
-        mores_A = (as_A(1) /= npos_A - nsubs_A + 1)
         exit
+      else if (t == 1) then
+        exit main_loop  ! all joint configurations exhausted
       end if
     end do
-  end do  ! outer A loop
+
+  end do main_loop
 
   nic = indcount
 
-! Trim indconf and degen
+! Trim indconf and degen to actual size
   block
     integer, dimension(:,:), allocatable :: tmp2d
     integer, dimension(:), allocatable :: tmp1d
-    allocate (tmp2d(1:nic, 1:nsubs_A+nsubs_B))
-    tmp2d = indconf(1:nic, 1:nsubs_A+nsubs_B)
+    allocate (tmp2d(1:nic, 1:nsubs_tot))
+    tmp2d = indconf(1:nic, 1:nsubs_tot)
     call move_alloc(tmp2d, indconf)
     allocate (tmp1d(1:nic))
     tmp1d = degen(1:nic)
@@ -2132,33 +2154,477 @@ program combsod
   write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
   write (*, *) " "
 
-  write (30, *) nsubs_A, nsubs_B, " substitutions in ", npos_A, npos_B, "sites"
+  write (30, *) (nsubs_t(t,1), t=1,ntarget), " substitutions in ", (npos_t(t), t=1,ntarget), "sites"
   write (30, *) nic, " configurations"
   do indcount = 1, nic
-    write (30, 331) indcount, degen(indcount), &
-      indconf(indcount, 1:nsubs_A) + atini_t(1) - 1, &
-      indconf(indcount, nsubs_A+1:nsubs_A+nsubs_B) + atini_t(2) - 1
+    offset = 0
+    do t = 1, ntarget
+      tmp_conf(offset+1:offset+nsubs_t(t,1)) = &
+        indconf(indcount, offset+1:offset+nsubs_t(t,1)) + atini_t(t) - 1
+      offset = offset + nsubs_t(t,1)
+    end do
+    write (30, 331) indcount, degen(indcount), tmp_conf(1:nsubs_tot)
   end do
 331 format(i6, 1x, i6, *(1x, i4))
 
-  deallocate (newconf_A, newconf_B, as_A, as_B)
+  deallocate (newconf_t, as_t, tmp_conf)
   deallocate (degen)
   deallocate (indconf)
-  deallocate (binom_A, binom_B)
+  deallocate (binom_t)
   deallocate (visited)
 
   close (30)
   close (47)
 
-  end if  ! ntarget == 1 / 2
+  else  ! Phase 4: ntarget >= 2, at least one nk(t) >= 2
+
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!         Multi-target multi-nary enumeration (Phase 4)
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+! Per-target derived counts
+  do t = 1, ntarget
+    nsubs_tot_t(t) = sum(nsubs_t(t, 1:nk(t)))
+    nrem2_t(t) = nsubs_tot_t(t) - nsubs_t(t,1)
+  end do
+  nsubs_tot    = sum(nsubs_tot_t(1:ntarget))
+  nsubs_pos_max = maxval(nsubs_tot_t(1:ntarget))
+  npos_max      = maxval(npos_t(1:ntarget))
+
+! Build directory name: nAA[_BB[_CC]]_DD[_EE[_FF]]...
+  write (nxx_dir, '("n", i2.2)') nsubs_t(1,1)
+  do j = 2, nk(1)
+    write (nxx_dir, '(a,"_",i2.2)') trim(nxx_dir), nsubs_t(1,j)
+  end do
+  do t = 2, ntarget
+    do j = 1, nk(t)
+      write (nxx_dir, '(a,"_",i2.2)') trim(nxx_dir), nsubs_t(t,j)
+    end do
+  end do
+  call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
+  open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
+  write (30, '(a)') "# SOD OUTSOD format version 2"
+  open (unit=47, file=trim(nxx_dir) // "/cSGO")
+
+  write (*, *) "----------------------------------------------------------------------------"
+  write (*, '(a)', advance='no') " Multi-target multi-nary substitution: nsubs = ["
+  do t = 1, ntarget
+    if (t > 1) write (*, '(a)', advance='no') " | "
+    do j = 1, nk(t)
+      if (j > 1) write (*, '(a)', advance='no') ","
+      write (*, '(i0)', advance='no') nsubs_t(t,j)
+    end do
+  end do
+  write (*, '(a)') "]"
+  write (*, *) "----------------------------------------------------------------------------"
+  write (*, *) ""
+  write (*, *) " > Composition of the substituted supercell:"
+  do sp = 1, nsp
+    found = .false.
+    do t = 1, ntarget
+      if (sp == sptarget(t)) then
+        do j = 1, nk(t)
+          write (*, '(a, a, i10)') "    - ", newsymbol(t,j), nsubs_t(t,j)
+        end do
+        write (*, '(a, a, i10)') "    - ", newsymbol(t, nk(t)+1), natsp(sp) - nsubs_tot_t(t)
+        found = .true.
+        exit
+      end if
+    end do
+    if (.not. found) write (*, '(a, a, i10)') "    - ", symbol(sp), natsp(sp)
+  end do
+  write (*, *) ""
+
+! Binomial tables:
+!   binom_pos_t(t, k, n) = C(n,k) for position ranks: k=0..nsubs_tot_t(t), n=0..npos_t(t)
+!   binom_col_t(t, k, n) = C(n,k) for colouring ranks: k,n in 0..nsubs_pos_max
+  allocate (binom_pos_t(1:ntarget, 0:nsubs_pos_max, 0:npos_max))
+  allocate (binom_col_t(1:ntarget, 0:nsubs_pos_max, 0:nsubs_pos_max))
+  binom_pos_t(:, 0, :) = 1_int64;  binom_pos_t(:, 1:, :) = 0_int64
+  binom_col_t(:, 0, :) = 1_int64;  binom_col_t(:, 1:, :) = 0_int64
+  do t = 1, ntarget
+    do k = 1, nsubs_tot_t(t)
+      do j = k, npos_t(t)
+        binom_pos_t(t, k, j) = binom_pos_t(t, k-1, j-1) + binom_pos_t(t, k, j-1)
+      end do
+    end do
+    do k = 1, nsubs_pos_max
+      do j = k, nsubs_pos_max
+        binom_col_t(t, k, j) = binom_col_t(t, k-1, j-1) + binom_col_t(t, k, j-1)
+      end do
+    end do
+  end do
+
+! Per-target space sizes
+  do t = 1, ntarget
+    ntc_pos_t(t) = binom_pos_t(t, nsubs_tot_t(t), npos_t(t))
+    if (nk(t) >= 2) then
+      ntc_col1_t(t) = binom_col_t(t, nsubs_t(t,1), nsubs_tot_t(t))
+    else
+      ntc_col1_t(t) = 1_int64
+    end if
+    if (nk(t) >= 3) then
+      ntc_col2_t(t) = binom_col_t(t, nsubs_t(t,2), nrem2_t(t))
+    else
+      ntc_col2_t(t) = 1_int64
+    end if
+    ntc_t(t) = ntc_pos_t(t) * ntc_col1_t(t) * ntc_col2_t(t)
+  end do
+  ntc_joint = product(ntc_t(1:ntarget))
+
+  do t = 1, ntarget
+    write (*, '(a,i0,a,i0,a,i0,a,i0)') &
+      "       Configurations for target ", t, &
+      ": C(", npos_t(t), ",", nsubs_tot_t(t), ") = ", ntc_pos_t(t)
+    if (nk(t) >= 2) write (*, '(a,i0,a,i0,a,i0)') &
+      "         col1 space: C(", nsubs_tot_t(t), ",", nsubs_t(t,1), ") = ", ntc_col1_t(t)
+    if (nk(t) >= 3) write (*, '(a,i0,a,i0,a,i0)') &
+      "         col2 space: C(", nrem2_t(t), ",", nsubs_t(t,2), ") = ", ntc_col2_t(t)
+    write (*, '(a,i0,a,i0)') "         ntc(t=", t, ") = ", ntc_t(t)
+  end do
+  write (*, '(a,i0)') "       Total joint configurations: ", ntc_joint
+  write (*, *) ""
+
+  allocate (visited(1:ntc_joint), stat=ierr)
+  if (ierr /= 0) then
+    write (*, *) "Error: insufficient memory for visited array (size", ntc_joint, ")"
+    stop 1
+  end if
+  visited(:) = .false.
+
+  allocate (as_pos_t(1:ntarget,      1:nsubs_pos_max))
+  allocate (as_col1_t(1:ntarget,     1:nsubs_pos_max))
+  allocate (as_col2_t(1:ntarget,     1:nsubs_pos_max))
+  allocate (notcol1_t(1:ntarget,     1:nsubs_pos_max))
+  allocate (newpos_t(1:ntarget,      1:nsubs_pos_max))
+  allocate (newval_col1_t(1:ntarget, 1:nsubs_pos_max))
+  allocate (new_col1_t(1:ntarget,    1:nsubs_pos_max))
+  allocate (new_notcol1_t(1:ntarget, 1:nsubs_pos_max))
+  allocate (newval_col2_t(1:ntarget, 1:nsubs_pos_max))
+  allocate (new_col2_t(1:ntarget,    1:nsubs_pos_max))
+  allocate (tmp_conf(1:nsubs_tot))
+  allocate (indconf(1:ntc_joint, 1:nsubs_tot), stat=ierr)
+  if (ierr /= 0) then
+    write (*, *) "Error: insufficient memory for indconf"
+    stop 1
+  end if
+  allocate (degen(1:ntc_joint))
+  indconf(:,:) = 0
+  degen(:) = 1
+
+! Initialise all targets to first position subset and colouring
+  do t = 1, ntarget
+    do i = 1, nsubs_tot_t(t)
+      as_pos_t(t, i) = i
+    end do
+    mores_pos_t(t) = (nsubs_tot_t(t) < npos_t(t))
+    if (nk(t) >= 2) then
+      do i = 1, nsubs_t(t,1)
+        as_col1_t(t, i) = i
+      end do
+      mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+      call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
+    end if
+    if (nk(t) >= 3) then
+      do i = 1, nsubs_t(t,2)
+        as_col2_t(t, i) = i
+      end do
+      mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+    end if
+  end do
+
+  write (*, *) "Finding the inequivalent configurations..."
+  write (*, *) " "
+  write (*, *) "       Found    Completion "
+  write (*, *) "       =====    ========== "
+  indcount = 0
+  perc     = 0.0d0
+  equivcount = 0
+
+  p4_main: do
+
+!   --- Compute joint rank (mixed-radix, 1-based) ---
+    r = 0_int64
+    do t = 1, ntarget
+      r_pos = binom_pos_t(t, nsubs_tot_t(t), npos_t(t))
+      do i = 1, nsubs_tot_t(t)
+        if (npos_t(t) - as_pos_t(t,i) >= nsubs_tot_t(t) - i + 1) &
+          r_pos = r_pos - binom_pos_t(t, nsubs_tot_t(t)-i+1, npos_t(t)-as_pos_t(t,i))
+      end do
+      if (nk(t) >= 2) then
+        r_col1 = binom_col_t(t, nsubs_t(t,1), nsubs_tot_t(t))
+        do i = 1, nsubs_t(t,1)
+          if (nsubs_tot_t(t) - as_col1_t(t,i) >= nsubs_t(t,1) - i + 1) &
+            r_col1 = r_col1 - binom_col_t(t, nsubs_t(t,1)-i+1, nsubs_tot_t(t)-as_col1_t(t,i))
+        end do
+      else
+        r_col1 = 1_int64
+      end if
+      if (nk(t) >= 3) then
+        r_col2 = binom_col_t(t, nsubs_t(t,2), nrem2_t(t))
+        do i = 1, nsubs_t(t,2)
+          if (nrem2_t(t) - as_col2_t(t,i) >= nsubs_t(t,2) - i + 1) &
+            r_col2 = r_col2 - binom_col_t(t, nsubs_t(t,2)-i+1, nrem2_t(t)-as_col2_t(t,i))
+        end do
+      else
+        r_col2 = 1_int64
+      end if
+      r_t(t) = (r_pos - 1_int64)*ntc_col1_t(t)*ntc_col2_t(t) &
+             + (r_col1 - 1_int64)*ntc_col2_t(t) + r_col2
+      r = r * ntc_t(t) + (r_t(t) - 1_int64)
+    end do
+    r = r + 1_int64
+
+    if (.not. visited(r)) then
+      equivcount = equivcount + 1
+      indcount   = indcount + 1
+      visited(r) = .true.
+
+!     Build indconf row
+      offset = 0
+      do t = 1, ntarget
+        if (nk(t) == 1) then
+          do i = 1, nsubs_tot_t(t)
+            indconf(indcount, offset+i) = as_pos_t(t, i)
+          end do
+        else if (nk(t) == 2) then
+          do i = 1, nsubs_t(t,1)
+            indconf(indcount, offset+i) = as_pos_t(t, as_col1_t(t,i))
+          end do
+          do i = 1, nrem2_t(t)
+            indconf(indcount, offset+nsubs_t(t,1)+i) = as_pos_t(t, notcol1_t(t,i))
+          end do
+        else  ! nk(t) == 3
+          do i = 1, nsubs_t(t,1)
+            indconf(indcount, offset+i) = as_pos_t(t, as_col1_t(t,i))
+          end do
+          do i = 1, nsubs_t(t,2)
+            indconf(indcount, offset+nsubs_t(t,1)+i) = as_pos_t(t, notcol1_t(t, as_col2_t(t,i)))
+          end do
+          k = offset + nsubs_t(t,1) + nsubs_t(t,2) + 1
+          do i = 1, nrem2_t(t)
+            found = .false.
+            do j = 1, nsubs_t(t,2)
+              if (as_col2_t(t,j) == i) then; found = .true.; exit; end if
+            end do
+            if (.not. found) then
+              indconf(indcount, k) = as_pos_t(t, notcol1_t(t,i))
+              k = k + 1
+            end if
+          end do
+        end if
+        offset = offset + nsubs_tot_t(t)
+      end do
+
+      write (47, *) "List of operators for configuration: ", indcount
+      opc = 1
+      write (47, *) opc
+      do i = 1, 3
+        write (47, *) (mgroup(1, i, j), j=1, 3), vgroup(1, i)
+      end do
+
+!     Apply symmetry operators
+      do op = 2, nop
+        do t = 1, ntarget
+!         Image of combined position set
+          do i = 1, nsubs_tot_t(t)
+            newpos_t(t, i) = eqmt(t, as_pos_t(t,i), op)
+          end do
+          call bubble(newpos_t(t, 1:nsubs_tot_t(t)), nsubs_tot_t(t))
+
+          if (nk(t) >= 2) then
+!           Image of sp1 positions (absolute values)
+            do i = 1, nsubs_t(t,1)
+              newval_col1_t(t, i) = eqmt(t, as_pos_t(t, as_col1_t(t,i)), op)
+            end do
+            call bubble(newval_col1_t(t, 1:nsubs_t(t,1)), nsubs_t(t,1))
+!           Find indices of sp1 values in newpos_t (two-pointer)
+            call find_in_sorted(newval_col1_t(t, 1:nsubs_t(t,1)), nsubs_t(t,1), &
+                                newpos_t(t, 1:nsubs_tot_t(t)), new_col1_t(t, :))
+!           Build new_notcol1_t: values in newpos_t not at new_col1_t indices
+            jj = 0; j = 1
+            do i = 1, nsubs_tot_t(t)
+              if (j <= nsubs_t(t,1) .and. new_col1_t(t,j) == i) then
+                j = j + 1
+              else
+                jj = jj + 1
+                new_notcol1_t(t, jj) = newpos_t(t, i)
+              end if
+            end do
+          end if
+
+          if (nk(t) >= 3) then
+!           Image of sp2 positions
+            do i = 1, nsubs_t(t,2)
+              newval_col2_t(t, i) = eqmt(t, as_pos_t(t, notcol1_t(t, as_col2_t(t,i))), op)
+            end do
+            call bubble(newval_col2_t(t, 1:nsubs_t(t,2)), nsubs_t(t,2))
+!           Find indices of sp2 values in new_notcol1_t (two-pointer)
+            call find_in_sorted(newval_col2_t(t, 1:nsubs_t(t,2)), nsubs_t(t,2), &
+                                new_notcol1_t(t, 1:nrem2_t(t)), new_col2_t(t, :))
+          end if
+        end do  ! t loop
+
+!       Compute joint rank of image
+        new_r = 0_int64
+        do t = 1, ntarget
+          new_r_pos = binom_pos_t(t, nsubs_tot_t(t), npos_t(t))
+          do i = 1, nsubs_tot_t(t)
+            if (npos_t(t) - newpos_t(t,i) >= nsubs_tot_t(t) - i + 1) &
+              new_r_pos = new_r_pos - binom_pos_t(t, nsubs_tot_t(t)-i+1, npos_t(t)-newpos_t(t,i))
+          end do
+          if (nk(t) >= 2) then
+            new_r_col1 = binom_col_t(t, nsubs_t(t,1), nsubs_tot_t(t))
+            do i = 1, nsubs_t(t,1)
+              if (nsubs_tot_t(t) - new_col1_t(t,i) >= nsubs_t(t,1) - i + 1) &
+                new_r_col1 = new_r_col1 - binom_col_t(t, nsubs_t(t,1)-i+1, nsubs_tot_t(t)-new_col1_t(t,i))
+            end do
+          else
+            new_r_col1 = 1_int64
+          end if
+          if (nk(t) >= 3) then
+            new_r_col2 = binom_col_t(t, nsubs_t(t,2), nrem2_t(t))
+            do i = 1, nsubs_t(t,2)
+              if (nrem2_t(t) - new_col2_t(t,i) >= nsubs_t(t,2) - i + 1) &
+                new_r_col2 = new_r_col2 - binom_col_t(t, nsubs_t(t,2)-i+1, nrem2_t(t)-new_col2_t(t,i))
+            end do
+          else
+            new_r_col2 = 1_int64
+          end if
+          new_r_tt = (new_r_pos - 1_int64)*ntc_col1_t(t)*ntc_col2_t(t) &
+                   + (new_r_col1 - 1_int64)*ntc_col2_t(t) + new_r_col2
+          new_r = new_r * ntc_t(t) + (new_r_tt - 1_int64)
+        end do
+        new_r = new_r + 1_int64
+
+        if (new_r == r) then
+          opc = opc + 1
+          write (47, *) opc
+          do i = 1, 3
+            write (47, *) (mgroup(op, i, j), j=1, 3), vgroup(op, i)
+          end do
+        else if (.not. visited(new_r)) then
+          visited(new_r) = .true.
+          degen(indcount) = degen(indcount) + 1
+          equivcount = equivcount + 1
+        end if
+      end do  ! op loop
+      write (47, *) 0
+
+      if ((100.0d0*equivcount/ntc_joint - perc > 5.0d0) .or. (equivcount == ntc_joint)) then
+        perc = 100.0d0*equivcount/ntc_joint
+        write (*, '(4x,i6,7x,f5.1,a2)') indcount, perc, "% "
+      end if
+    end if  ! .not. visited(r)
+
+!   --- Carry propagation (innermost = col2 of tN, outermost = pos of t1) ---
+    p4_carry: do t = ntarget, 1, -1
+      if (nk(t) >= 3) then
+        if (mores_col2_t(t)) then
+          call comb_next(as_col2_t(t,:), nsubs_t(t,2), nrem2_t(t), mores_col2_t(t))
+          exit p4_carry
+        else
+          do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
+          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+        end if
+      end if
+      if (nk(t) >= 2) then
+        if (mores_col1_t(t)) then
+          call comb_next(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), mores_col1_t(t))
+          call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
+          if (nk(t) >= 3) then
+            do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
+            mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+          end if
+          exit p4_carry
+        else
+          do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
+          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
+          if (nk(t) >= 3) then
+            do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
+            mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+          end if
+        end if
+      end if
+      if (mores_pos_t(t)) then
+        call comb_next(as_pos_t(t,:), nsubs_tot_t(t), npos_t(t), mores_pos_t(t))
+        if (nk(t) >= 2) then
+          do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
+          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
+        end if
+        if (nk(t) >= 3) then
+          do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
+          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+        end if
+        exit p4_carry
+      else if (t == 1) then
+        exit p4_main
+      else
+        do i = 1, nsubs_tot_t(t); as_pos_t(t,i) = i; end do
+        mores_pos_t(t) = (nsubs_tot_t(t) < npos_t(t))
+        if (nk(t) >= 2) then
+          do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
+          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
+        end if
+        if (nk(t) >= 3) then
+          do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
+          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+        end if
+      end if
+    end do p4_carry
+
+  end do p4_main
+
+  nic = indcount
+
+  block
+    integer, dimension(:,:), allocatable :: tmp2d
+    integer, dimension(:), allocatable   :: tmp1d
+    allocate (tmp2d(1:nic, 1:nsubs_tot))
+    tmp2d = indconf(1:nic, 1:nsubs_tot)
+    call move_alloc(tmp2d, indconf)
+    allocate (tmp1d(1:nic))
+    tmp1d = degen(1:nic)
+    call move_alloc(tmp1d, degen)
+  end block
+
+  write (*, *) " "
+  write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
+  write (*, *) " "
+
+! OUTSOD: per-target nsubs counts, then per-target npos
+  write (30, *) ((nsubs_t(t,j), j=1,nk(t)), t=1,ntarget), &
+                " substitutions in ", (npos_t(t), t=1,ntarget), "sites"
+  write (30, *) nic, " configurations"
+  do indcount = 1, nic
+    offset = 0
+    do t = 1, ntarget
+      tmp_conf(offset+1:offset+nsubs_tot_t(t)) = &
+        indconf(indcount, offset+1:offset+nsubs_tot_t(t)) + atini_t(t) - 1
+      offset = offset + nsubs_tot_t(t)
+    end do
+    write (30, 331) indcount, degen(indcount), tmp_conf(1:nsubs_tot)
+  end do
+
+  deallocate (binom_pos_t, binom_col_t)
+  deallocate (as_pos_t, as_col1_t, as_col2_t, notcol1_t)
+  deallocate (newpos_t, newval_col1_t, new_col1_t, new_notcol1_t, newval_col2_t, new_col2_t)
+  deallocate (tmp_conf, degen, indconf, visited)
+
+  close (30)
+  close (47)
+
+  end if  ! ntarget == 1 / ntarget >= 2
 
 !!!!!!! Write FILER to file, to be read by the shell script
   write (43, *) filer
 ! Calculation input file generation is handled by genersod,
 ! called automatically by sod_comb.sh when FILER is not -1.
 
-  deallocate (eqmatrixtarget)
-  if (ntarget == 2) deallocate (eqmatrixtarget2)
+  deallocate (eqmt)
 
 !!!!!!!Reporting the end
   call system_clock(t_now)
@@ -2178,5 +2644,82 @@ program combsod
   end if
   write (*, *) " > Done!"
   write (*, *) ""
+
+contains
+
+  ! ---------------------------------------------------------------------------
+  ! Helper: combinatorial rank of sorted subset as(1:nchoose) ⊆ {1..nelem}.
+  ! Uses precomputed binomial table btab(0:nchoose, 0:nelem).
+  ! ---------------------------------------------------------------------------
+  pure integer(int64) function comb_rank(as, nchoose, nelem, btab)
+    integer,        intent(in) :: as(:), nchoose, nelem
+    integer(int64), intent(in) :: btab(0:, 0:)
+    integer :: i
+    comb_rank = btab(nchoose, nelem)
+    do i = 1, nchoose
+      if (nelem - as(i) >= nchoose - i + 1) &
+        comb_rank = comb_rank - btab(nchoose - i + 1, nelem - as(i))
+    end do
+  end function comb_rank
+
+  ! ---------------------------------------------------------------------------
+  ! Helper: advance sorted subset as(1:nchoose) to next nchoose-subset of {1..nelem}.
+  ! Updates mores: .false. when the new value is the last subset.
+  ! Must only be called when mores is currently .true.
+  ! ---------------------------------------------------------------------------
+  subroutine comb_next(as, nchoose, nelem, mores)
+    integer, intent(inout) :: as(:)
+    integer, intent(in)    :: nchoose, nelem
+    logical, intent(inout) :: mores
+    integer :: i, j
+    do i = nchoose, 1, -1
+      if (as(i) < nelem - nchoose + i) then
+        as(i) = as(i) + 1
+        do j = i + 1, nchoose
+          as(j) = as(j-1) + 1
+        end do
+        mores = (as(1) /= nelem - nchoose + 1)
+        return
+      end if
+    end do
+  end subroutine comb_next
+
+  ! ---------------------------------------------------------------------------
+  ! Helper: given sorted as(1:k) ⊆ {1..n}, return sorted complement in notAs.
+  ! m returns n-k (number of complement elements written).
+  ! ---------------------------------------------------------------------------
+  subroutine complement_indices(as, k, n, notAs, m)
+    integer, intent(in)  :: as(:), k, n
+    integer, intent(out) :: notAs(:), m
+    integer :: i, j
+    m = 0
+    j = 1
+    do i = 1, n
+      if (j <= k .and. as(j) == i) then
+        j = j + 1
+      else
+        m = m + 1
+        notAs(m) = i
+      end if
+    end do
+  end subroutine complement_indices
+
+  ! ---------------------------------------------------------------------------
+  ! Helper: for each vals(i) (sorted), find its 1-based index in sorted ref,
+  ! store in idx_out(i). Output is automatically sorted (two-pointer).
+  ! ---------------------------------------------------------------------------
+  subroutine find_in_sorted(vals, nvals, ref, idx_out)
+    integer, intent(in)  :: vals(:), nvals, ref(:)
+    integer, intent(out) :: idx_out(:)
+    integer :: i, j
+    j = 1
+    do i = 1, nvals
+      do while (ref(j) /= vals(i))
+        j = j + 1
+      end do
+      idx_out(i) = j
+      j = j + 1
+    end do
+  end subroutine find_in_sorted
 
 end program combsod

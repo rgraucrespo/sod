@@ -20,10 +20,12 @@
 
 function cc(x) &
   result(corx)
+  use iso_fortran_env, only: real64
   implicit none
-  real, intent(in) :: x
-  real :: corx, tol1 = 0.0001
+  real(real64), intent(in) :: x
+  real(real64) :: corx
+  real(real64), parameter :: tol1 = 0.0001_real64
   corx = x - floor(x)
-  if (corx > (1.0 - tol1)) corx = 0.0
+  if (corx > (1.0_real64 - tol1)) corx = 0.0_real64
 end function cc
 

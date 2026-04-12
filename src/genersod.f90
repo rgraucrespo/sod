@@ -28,17 +28,17 @@ program genersod
 
   integer :: i, j, l, m
   integer :: ifound
-  integer :: sp_slot, col_off  ! for multi-nary species-slot determination
+  integer :: sp_slot, col_off, col_off_t  ! for multi-nary species-slot determination
   integer :: sp, nsp, ssp
   integer :: ntarget, sptarget(ntargetmax)
   integer :: nk(ntargetmax)
   integer :: nsubs_t(ntargetmax, nkmax), atini_t(ntargetmax), atfin_t(ntargetmax), npos_t(ntargetmax)
-  integer :: nsubs_A, nsubs_B, nsubs_tot, t_A
+  integer :: nsubs_A, nsubs_B, nsubs_tot, nsubs_tot_t(ntargetmax), t_A, t
   integer :: at0, nat0, at, nat, att, filer, ndigits
   character(len=20) :: outfilename, fmtstr
   integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, atini, atfin, cumnatsp, ierr_rd
   character(len=256) :: insod_line
-  integer :: npos, nic, indcount
+  integer :: npos, nic, indcount, nsubs_flat(ntargetmax*nkmax), nflat_tot, iflat
   integer, dimension(:), allocatable :: newconf, degen
   integer, dimension(nspmax) :: natsp0, natsp, snatsp
   integer, dimension(natmax) :: spat
@@ -193,14 +193,17 @@ program genersod
   read (9, *) na, nb, nc
   read (9, *)
   read (9, *)
-! Read sptarget line: one or two species indices
+! Read sptarget line: 1..ntargetmax species indices
   read (9, '(A)') insod_line
-  read (insod_line, *, IOSTAT=ierr_rd) sptarget(1), sptarget(2)
-  if (ierr_rd /= 0) then
-    ntarget = 1
-    read (insod_line, *) sptarget(1)
-  else
-    ntarget = 2
+  ntarget = 0
+  do t = 1, ntargetmax
+    read (insod_line, *, IOSTAT=ierr_rd) (sptarget(i), i=1,t)
+    if (ierr_rd /= 0) exit
+    ntarget = t
+  end do
+  if (ntarget == 0) then
+    write (*, *) "Error: could not parse sptarget from: ", trim(insod_line)
+    stop 1
   end if
   read (9, *)
   read (9, *)
@@ -256,18 +259,31 @@ program genersod
       stop 1
     end if
   else
-!   ntarget == 2: first line already in insod_line; read second line for target 2
-    read (insod_line, *, IOSTAT=ierr_rd) nsubs_t(1,1)
-    if (ierr_rd /= 0) then
+!   ntarget >= 2: first line already in insod_line; each line may have nk(t) integers
+    nk(1) = 0
+    do j = 1, nkmax
+      read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(1,i), i=1,j)
+      if (ierr_rd /= 0) exit
+      nk(1) = j
+    end do
+    if (nk(1) == 0) then
       write (*, *) "Error: could not parse nsubs for target 1 from: ", trim(insod_line)
       stop 1
     end if
-    read (9, '(A)') insod_line
-    read (insod_line, *, IOSTAT=ierr_rd) nsubs_t(2,1)
-    if (ierr_rd /= 0) then
-      write (*, *) "Error: could not parse nsubs for target 2 from: ", trim(insod_line)
-      stop 1
-    end if
+    do t = 2, ntarget
+      read (9, '(A)') insod_line
+      nk(t) = 0
+      do j = 1, nkmax
+        read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(t,i), i=1,j)
+        if (ierr_rd /= 0) exit
+        nk(t) = j
+      end do
+      if (nk(t) == 0) then
+        write (*, '(a,i0,a)') "Error: could not parse nsubs for target ", t, &
+          " from: " // trim(insod_line)
+        stop 1
+      end if
+    end do
     nsubs_min = nsubs_t(1,1)
     nsubs_max = nsubs_t(1,1)
   end if
@@ -276,9 +292,9 @@ program genersod
   read (9, *)
   read (9, *)
   read (9, *) (newsymbol(1, j), j=1, nk(1)+1)
-  if (ntarget == 2) then
-    read (9, *) newsymbol(2, 1), newsymbol(2, 2)
-  end if
+  do t = 2, ntarget
+    read (9, *) (newsymbol(t, j), j=1, nk(t)+1)
+  end do
   read (9, *)
   read (9, *)
   read (9, *) filer
@@ -524,10 +540,18 @@ program genersod
   end select
   write (*, *) ""
 
-  if (ntarget == 2) then
-    nsubs_A = nsubs_t(1,1)
-    nsubs_B = nsubs_t(2,1)
-    nsubs_tot = nsubs_A + nsubs_B
+  if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!   Phase 4: at least one target is multi-nary
+    do t = 1, ntarget
+      nsubs_tot_t(t) = sum(nsubs_t(t, 1:nk(t)))
+    end do
+    nsubs_tot = sum(nsubs_tot_t(1:ntarget))
+  else if (ntarget >= 2) then
+!   Stage D: multi-target binary (all nk==1)
+    do t = 1, ntarget
+      nsubs_tot_t(t) = nsubs_t(t, 1)
+    end do
+    nsubs_tot = sum(nsubs_tot_t(1:ntarget))
   else if (ntarget == 1 .and. nk(1) >= 2) then
     nsubs_tot = sum(nsubs_t(1, 1:nk(1)))
   else
@@ -543,14 +567,29 @@ program genersod
       write (ndir_gulp, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2)
     else if (ntarget == 1 .and. nk(1) == 3) then
       write (ndir_gulp, '("n", i2.2, "_", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3)
+    else if (ntarget >= 2 .and. all(nk(1:ntarget) == 1)) then
+      ! Stage D: multi-target binary
+      write (ndir_gulp, '("n", i2.2)') nsubs_t(1,1)
+      do t = 2, ntarget
+        write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(t,1)
+      end do
     else
-      write (ndir_gulp, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(2,1)
+      ! Phase 4: ntarget >= 2, at least one nk(t) >= 2
+      write (ndir_gulp, '("n", i2.2)') nsubs_t(1,1)
+      do j = 2, nk(1)
+        write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(1,j)
+      end do
+      do t = 2, ntarget
+        do j = 1, nk(t)
+          write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(t,j)
+        end do
+      end do
     end if
 
     open (unit=30, file=trim(ndir_gulp) // '/OUTSOD', status='old', IOSTAT=ios)
     if (ios /= 0) then
       write (*, *) "Warning: ", trim(ndir_gulp), "/OUTSOD not found, skipping."
-      if (ntarget == 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
+      if (ntarget >= 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
       cycle
     end if
 
@@ -565,8 +604,22 @@ program genersod
       read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), trashtext, trashtext, npos_t(1), trashtext
     else if (ntarget == 1 .and. nk(1) == 3) then
       read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3), trashtext, trashtext, npos_t(1), trashtext
+    else if (ntarget >= 2 .and. all(nk(1:ntarget) == 1)) then
+      ! Stage D: multi-target binary
+      read (insod_line, *) (nsubs_t(t,1), t=1,ntarget), trashtext, trashtext, &
+                           (npos_t(t), t=1,ntarget), trashtext
     else
-      read (insod_line, *) nsubs_A, nsubs_B, trashtext, trashtext, npos_t(1), npos_t(2), trashtext
+      ! Phase 4: ntarget >= 2, at least one nk(t) >= 2 — read flat then unpack
+      nflat_tot = sum(nk(1:ntarget))
+      read (insod_line, *) (nsubs_flat(i), i=1,nflat_tot), trashtext, trashtext, &
+                           (npos_t(t), t=1,ntarget), trashtext
+      iflat = 0
+      do t = 1, ntarget
+        do j = 1, nk(t)
+          nsubs_t(t, j) = nsubs_flat(iflat + j)
+        end do
+        iflat = iflat + nk(t)
+      end do
     end if
     read (30, *) nic
 
@@ -644,14 +697,14 @@ program genersod
       nat_exp = 0
       do at = 1, nat
         sp = spat(at)
-        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+        if (.not. any(sp == sptarget(1:ntarget))) then
           nat_exp = nat_exp + 1
           write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                 trim(symbol(sp)), nat_exp, trim(symbol(sp)), &
                 coords(at, 1), coords(at, 2), coords(at, 3)
         else
           if (ntarget == 1 .and. nk(1) >= 2) then
-!           Multi-nary: find which species slot this atom belongs to
+!           Single-target multi-nary: find which species slot this atom belongs to
             sp_slot = nk(1) + 1
             col_off = 0
             do j = 1, nk(1)
@@ -668,6 +721,30 @@ program genersod
             write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
                   trim(newsymbol(1,sp_slot)), nat_exp, trim(newsymbol(1,sp_slot)), &
                   coords(at, 1), coords(at, 2), coords(at, 3)
+          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!           Phase 4: find target and slot for this atom
+            col_off = 0
+            do t = 1, ntarget
+              if (sp == sptarget(t)) then
+                sp_slot = nk(t) + 1
+                col_off_t = col_off
+                do j = 1, nk(t)
+                  do i = 1, nsubs_t(t, j)
+                    if (newconf(col_off_t + i) == at) then
+                      sp_slot = j; exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(t)) exit
+                  col_off_t = col_off_t + nsubs_t(t, j)
+                end do
+                nat_exp = nat_exp + 1
+                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                      trim(newsymbol(t,sp_slot)), nat_exp, trim(newsymbol(t,sp_slot)), &
+                      coords(at, 1), coords(at, 2), coords(at, 3)
+                exit
+              end if
+              col_off = col_off + nsubs_tot_t(t)
+            end do
           else
           call member(nsubs_tot, newconf, at, ifound)
           if (sp == sptarget(1)) then
@@ -1047,7 +1124,7 @@ program genersod
 
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+            if (.not. any(sp == sptarget(1:ntarget))) then
               gtype_buf = symbol(sp)
               do m = 1, all_nsp_gulp
                 if (trim(all_sym(m)) == trim(symbol(sp))) then
@@ -1064,7 +1141,7 @@ program genersod
               end do
             else
               if (ntarget == 1 .and. nk(1) >= 2) then
-!               Multi-nary: find species slot and write GULP line
+!               Single-target multi-nary: find species slot and write GULP line
                 sp_slot = nk(1) + 1
                 col_off = 0
                 do j = 1, nk(1)
@@ -1090,6 +1167,39 @@ program genersod
                     write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
                     exit
                   end if
+                end do
+              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!               Phase 4: find target and slot for this atom
+                col_off = 0
+                do t = 1, ntarget
+                  if (sp == sptarget(t)) then
+                    sp_slot = nk(t) + 1
+                    col_off_t = col_off
+                    do j = 1, nk(t)
+                      do i = 1, nsubs_t(t, j)
+                        if (newconf(col_off_t + i) == at) then
+                          sp_slot = j; exit
+                        end if
+                      end do
+                      if (sp_slot <= nk(t)) exit
+                      col_off_t = col_off_t + nsubs_t(t, j)
+                    end do
+                    gtype_buf = newsymbol(t,sp_slot)(1:3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_sym(m)) == trim(newsymbol(t,sp_slot)(1:3))) then
+                        gtype_buf = all_gulptype_arr(m); exit
+                      end if
+                    end do
+                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
+                    do m = 1, all_nsp_gulp
+                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
+                        exit
+                      end if
+                    end do
+                    exit
+                  end if
+                  col_off = col_off + nsubs_tot_t(t)
                 end do
               else
               call member(nsubs_tot, newconf, at, ifound)
@@ -1544,12 +1654,12 @@ program genersod
 
       do at = 1, nat
         sp = spat(at)
-        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+        if (.not. any(sp == sptarget(1:ntarget))) then
           ! Framework atom
           lammps_sym_cur = symbol(sp)
         else
           if (ntarget == 1 .and. nk(1) >= 2) then
-            ! Multi-nary: find species slot (no molecule support in this branch)
+            ! Single-target multi-nary: find species slot
             sp_slot = nk(1) + 1
             col_off = 0
             do j = 1, nk(1)
@@ -1562,6 +1672,27 @@ program genersod
               col_off = col_off + nsubs_t(1,j)
             end do
             lammps_sym_cur = newsymbol(1,sp_slot)(1:3)
+          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!           Phase 4: find target and slot for this atom
+            col_off = 0
+            do t = 1, ntarget
+              if (sp == sptarget(t)) then
+                sp_slot = nk(t) + 1
+                col_off_t = col_off
+                do j = 1, nk(t)
+                  do i = 1, nsubs_t(t, j)
+                    if (newconf(col_off_t + i) == at) then
+                      sp_slot = j; exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(t)) exit
+                  col_off_t = col_off_t + nsubs_t(t, j)
+                end do
+                lammps_sym_cur = newsymbol(t,sp_slot)(1:3)
+                exit
+              end if
+              col_off = col_off + nsubs_tot_t(t)
+            end do
           else
             call member(nsubs_tot, newconf, at, ifound)
             if (sp == sptarget(1)) then
@@ -1786,13 +1917,13 @@ program genersod
       nat_exp = 0
       do at = 1, nat
         sp = spat(at)
-        if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+        if (.not. any(sp == sptarget(1:ntarget))) then
           nat_exp = nat_exp + 1
           sym_exp(nat_exp) = symbol(sp)
           coords_exp(nat_exp, 1:3) = coords(at, 1:3)
         else
           if (ntarget == 1 .and. nk(1) >= 2) then
-!           Multi-nary: find species slot
+!           Single-target multi-nary: find species slot
             sp_slot = nk(1) + 1
             col_off = 0
             do j = 1, nk(1)
@@ -1808,6 +1939,29 @@ program genersod
             nat_exp = nat_exp + 1
             sym_exp(nat_exp) = newsymbol(1,sp_slot)(1:3)
             coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!           Phase 4: find target and slot for this atom
+            col_off = 0
+            do t = 1, ntarget
+              if (sp == sptarget(t)) then
+                sp_slot = nk(t) + 1
+                col_off_t = col_off
+                do j = 1, nk(t)
+                  do i = 1, nsubs_t(t, j)
+                    if (newconf(col_off_t + i) == at) then
+                      sp_slot = j; exit
+                    end if
+                  end do
+                  if (sp_slot <= nk(t)) exit
+                  col_off_t = col_off_t + nsubs_t(t, j)
+                end do
+                nat_exp = nat_exp + 1
+                sym_exp(nat_exp) = newsymbol(t,sp_slot)(1:3)
+                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
+                exit
+              end if
+              col_off = col_off + nsubs_tot_t(t)
+            end do
           else
           call member(nsubs_tot, newconf, at, ifound)
           if (sp == sptarget(1)) then
@@ -2010,11 +2164,11 @@ program genersod
 337       format(a3, 3(f11.7, 2x))
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+            if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
               if (ntarget == 1 .and. nk(1) >= 2) then
-!               Multi-nary: find species slot and write CASTEP line
+!               Single-target multi-nary: find species slot and write CASTEP line
                 sp_slot = nk(1) + 1
                 col_off = 0
                 do j = 1, nk(1)
@@ -2028,6 +2182,27 @@ program genersod
                   col_off = col_off + nsubs_t(1,j)
                 end do
                 write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!               Phase 4: find target and slot for this atom
+                col_off = 0
+                do t = 1, ntarget
+                  if (sp == sptarget(t)) then
+                    sp_slot = nk(t) + 1
+                    col_off_t = col_off
+                    do j = 1, nk(t)
+                      do i = 1, nsubs_t(t, j)
+                        if (newconf(col_off_t + i) == at) then
+                          sp_slot = j; exit
+                        end if
+                      end do
+                      if (sp_slot <= nk(t)) exit
+                      col_off_t = col_off_t + nsubs_t(t, j)
+                    end do
+                    write (72, 337) newsymbol(t,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                    exit
+                  end if
+                  col_off = col_off + nsubs_tot_t(t)
+                end do
               else
               call member(nsubs_tot, newconf, at, ifound)
               if (sp == sptarget(1)) then
@@ -2188,11 +2363,11 @@ program genersod
           write (72, '(a)') "ATOMIC_POSITIONS {crystal}"
           do at = 1, nat
             sp = spat(at)
-            if (sp /= sptarget(1) .and. (ntarget == 1 .or. sp /= sptarget(2))) then
+            if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
               if (ntarget == 1 .and. nk(1) >= 2) then
-!               Multi-nary: find species slot and write QE line
+!               Single-target multi-nary: find species slot and write QE line
                 sp_slot = nk(1) + 1
                 col_off = 0
                 do j = 1, nk(1)
@@ -2206,6 +2381,27 @@ program genersod
                   col_off = col_off + nsubs_t(1,j)
                 end do
                 write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
+!               Phase 4: find target and slot for this atom
+                col_off = 0
+                do t = 1, ntarget
+                  if (sp == sptarget(t)) then
+                    sp_slot = nk(t) + 1
+                    col_off_t = col_off
+                    do j = 1, nk(t)
+                      do i = 1, nsubs_t(t, j)
+                        if (newconf(col_off_t + i) == at) then
+                          sp_slot = j; exit
+                        end if
+                      end do
+                      if (sp_slot <= nk(t)) exit
+                      col_off_t = col_off_t + nsubs_t(t, j)
+                    end do
+                    write (72, 337) newsymbol(t,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
+                    exit
+                  end if
+                  col_off = col_off + nsubs_tot_t(t)
+                end do
               else
               call member(nsubs_tot, newconf, at, ifound)
               if (sp == sptarget(1)) then
@@ -2289,6 +2485,7 @@ program genersod
     deallocate (indconf)
 
     if (ntarget == 1 .and. nk(1) >= 2) exit  ! multi-nary: no range loop
+    if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) exit  ! Phase 4: no range loop
 
   end do  ! nsubs
 
