@@ -14,3 +14,4 @@ src/*.mod
 # Miscellaneous
 *.swp
 .DS_Store
+docs/_build/
