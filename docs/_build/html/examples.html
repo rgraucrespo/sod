@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Examples &#8212; SOD documentation (0.71)</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=89bdf08e"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Installation" href="installation.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading">¶</a></h1>
+<p>The SOD release includes a set of worked examples that illustrate the main
+workflow, supported calculator backends, and post-processing tools. These
+examples are the best starting point for learning how to prepare inputs, run
+configuration generation, and analyse the resulting ensembles.</p>
+<p>The examples are distributed in the <code class="docutils literal notranslate"><span class="pre">examples/</span></code> directory of the released
+package.</p>
+<section id="example-layout">
+<h2>Example layout<a class="headerlink" href="#example-layout" title="Link to this heading">¶</a></h2>
+<p>The examples directory contains:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example01</span></code> through <code class="docutils literal notranslate"><span class="pre">example14</span></code></p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">example01</span></code> family demonstrates the same substitution problem with
+different calculator backends. The remaining examples cover a broader range of
+disorder models and statistical-mechanical workflows.</p>
+</section>
+<section id="recommended-starting-point">
+<h2>Recommended starting point<a class="headerlink" href="#recommended-starting-point" title="Link to this heading">¶</a></h2>
+<p>New users should begin with <code class="docutils literal notranslate"><span class="pre">example01</span></code>. This example is especially useful
+because it keeps the physical problem fixed while changing only the calculator
+backend. It therefore shows clearly how the SOD workflow stays the same while
+the generated input files depend on the selected <code class="docutils literal notranslate"><span class="pre">FILER</span></code> option.</p>
+<p>Calculator backends illustrated in <code class="docutils literal notranslate"><span class="pre">example01</span></code> include:</p>
+<ul class="simple">
+<li><p>GULP</p></li>
+<li><p>LAMMPS</p></li>
+<li><p>VASP</p></li>
+<li><p>CASTEP</p></li>
+<li><p>Quantum ESPRESSO</p></li>
+</ul>
+<p>This is the best place to learn how SOD generates calculator-specific inputs.</p>
+</section>
+<section id="other-examples">
+<h2>Other examples<a class="headerlink" href="#other-examples" title="Link to this heading">¶</a></h2>
+<p>The later examples illustrate a broader range of use cases, including:</p>
+<ul class="simple">
+<li><p>binary substitutions</p></li>
+<li><p>multi-nary substitutions</p></li>
+<li><p>multi-species substitutions</p></li>
+<li><p>vacancy models</p></li>
+<li><p>molecule substitutions</p></li>
+<li><p>canonical statistics workflows</p></li>
+<li><p>grand-canonical statistics workflows</p></li>
+<li><p>SPBE extrapolation workflows</p></li>
+</ul>
+<p>Many examples already include reference outputs such as <code class="docutils literal notranslate"><span class="pre">OUTSOD</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ENERGIES</span></code>, <code class="docutils literal notranslate"><span class="pre">DATA</span></code>, <code class="docutils literal notranslate"><span class="pre">SPECTRA</span></code>, or grand-canonical <code class="docutils literal notranslate"><span class="pre">x???/</span></code> folders.
+These are useful both for understanding the expected workflow and for checking
+that a run has behaved as intended.</p>
+</section>
+<section id="typical-way-to-use-an-example">
+<h2>Typical way to use an example<a class="headerlink" href="#typical-way-to-use-an-example" title="Link to this heading">¶</a></h2>
+<p>A typical workflow is:</p>
+<ol class="arabic simple">
+<li><p>Copy an example directory to a separate working location.</p></li>
+<li><p>Make sure the SOD executables and wrapper scripts are available in your
+<code class="docutils literal notranslate"><span class="pre">PATH</span></code>.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">sod_comb.sh</span></code> in the example directory.</p></li>
+<li><p>If calculator inputs are generated, run the external calculator in the
+corresponding configuration directories.</p></li>
+<li><p>Use the appropriate post-processing wrapper to extract energies or carry out
+statistical analysis.</p></li>
+</ol>
+</section>
+<section id="examples-and-regression-testing">
+<h2>Examples and regression testing<a class="headerlink" href="#examples-and-regression-testing" title="Link to this heading">¶</a></h2>
+<p>The examples are also used as a regression test set for the released code.</p>
+<p>In particular:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">example02</span></code> through <code class="docutils literal notranslate"><span class="pre">example14</span></code> are used in <code class="docutils literal notranslate"><span class="pre">combsod</span></code> regression tests</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example01</span></code> variants are used to test <code class="docutils literal notranslate"><span class="pre">genersod</span></code> output generation</p></li>
+<li><p>selected <code class="docutils literal notranslate"><span class="pre">nXX/</span></code> and <code class="docutils literal notranslate"><span class="pre">x???/</span></code> folders are used to test <code class="docutils literal notranslate"><span class="pre">statsod</span></code> and
+<code class="docutils literal notranslate"><span class="pre">gcstatsod</span></code> workflows</p></li>
+</ul>
+</section>
+<section id="further-information">
+<h2>Further information<a class="headerlink" href="#further-information" title="Link to this heading">¶</a></h2>
+<p>For more detailed scientific context and example-specific notes, see the main
+<code class="docutils literal notranslate"><span class="pre">README.md</span></code> file and the files included within each example directory.</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">SOD</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">SOD Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#example-layout">Example layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#recommended-starting-point">Recommended starting point</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#other-examples">Other examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#typical-way-to-use-an-example">Typical way to use an example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#examples-and-regression-testing">Examples and regression testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#further-information">Further information</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="installation.html" title="previous chapter">Installation</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/examples.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

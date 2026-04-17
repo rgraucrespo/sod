@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>SOD Documentation &#8212; SOD documentation (0.71)</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=89bdf08e"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="SOD Overview" href="overview.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="sod-documentation">
+<h1>SOD Documentation<a class="headerlink" href="#sod-documentation" title="Link to this heading">¶</a></h1>
+<p>SOD is a toolkit for modelling site-occupancy disorder in periodic solids with
+the supercell ensemble method. This documentation summarises the released
+version of SOD and the main workflow exposed by the compiled programs
+and wrapper scripts in this repository.</p>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">SOD Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#what-sod-does">What SOD does</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#typical-workflow">Typical workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#main-executables">Main executables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#wrapper-scripts">Wrapper scripts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#supported-calculators">Supported calculators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#directory-conventions">Directory conventions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#source-tree">Source tree</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#building-sod">Building SOD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="overview.html#where-to-go-next">Where to go next</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#obtaining-the-source">Obtaining the source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#building-sod">Building SOD</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#making-the-executables-available">Making the executables available</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#main-programs-and-scripts">Main programs and scripts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#verifying-the-installation">Verifying the installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#next-steps">Next steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#example-layout">Example layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#recommended-starting-point">Recommended starting point</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#other-examples">Other examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#typical-way-to-use-an-example">Typical way to use an example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#examples-and-regression-testing">Examples and regression testing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#further-information">Further information</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">SOD</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">SOD Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="overview.html" title="next chapter">SOD Overview</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
