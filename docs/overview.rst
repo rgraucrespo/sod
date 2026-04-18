@@ -1,7 +1,8 @@
 SOD Overview
 ============
 
-SOD is a toolkit for modelling site-occupancy disorder in periodic solids with
+SOD (standing for Site Occupancy Disorder) is a toolkit for 
+modelling site-occupancy disorder in periodic solids with
 the supercell ensemble method. It generates symmetry-inequivalent atomic
 configurations consistent with a specified substitutional disorder pattern, and
 supports the statistical-mechanical analysis of the resulting configurational
@@ -122,10 +123,10 @@ repository root, run:
 
 .. code-block:: bash
 
-   make -C sod all
+   make all
 
 Where to go next
 ----------------
 
-For installation instructions, see :doc:`installation`. For worked examples,
+For detailed installation instructions, see :doc:`installation`. For worked examples,
 see :doc:`examples`.

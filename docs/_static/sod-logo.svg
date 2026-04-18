@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" role="img" aria-labelledby="title desc">
+  <title id="title">SOD logo</title>
+  <desc id="desc">Lowercase sod wordmark with a split circular o representing a mixed atom.</desc>
+  <rect width="520" height="160" fill="#ffffff"/>
+  <g transform="translate(26 28)">
+    <path
+      d="M73 25C64 18 53 14 39 14C17 14 1 28 1 48C1 66 13 77 38 85C56 91 62 95 62 103C62 113 53 119 38 119C25 119 12 115 2 107"
+      fill="none"
+      stroke="#263238"
+      stroke-width="15"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+    <g transform="translate(159 66)">
+      <defs>
+        <clipPath id="mixedAtomClip">
+          <circle cx="0" cy="0" r="43"/>
+        </clipPath>
+      </defs>
+      <circle cx="0" cy="0" r="43" fill="#d7dde2"/>
+      <path d="M-46 8C-23 -14 4 -24 46 -14V46H-46Z" fill="#7f8c96" clip-path="url(#mixedAtomClip)"/>
+      <circle cx="0" cy="0" r="43" fill="none" stroke="#263238" stroke-width="12"/>
+      <path d="M-31 27C-18 15 -6 8 11 3C24 -1 35 -2 43 -1" fill="none" stroke="#4b5861" stroke-width="4.5" stroke-linecap="round"/>
+    </g>
+    <path
+      d="M359 16C326 16 301 40 301 66C301 92 326 116 359 116C393 116 417 92 417 66C417 40 393 16 359 16ZM359 31C384 31 401 46 401 66C401 86 384 101 359 101C335 101 317 86 317 66C317 46 335 31 359 31Z"
+      fill="#263238"/>
+  </g>
+</svg>
