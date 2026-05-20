@@ -1085,7 +1085,8 @@ program genersod
 
     ! --- Validate that force-field information is available ---
     if (.not. hasinline_ff .and. .not. haslibrary_gulp .and. .not. haskimmodel_gulp) then
-      write (*, *) "Error: template_input.gin has no inline force-field information, no library directive, and no kim_model directive. Aborting."
+      write (*, *) "Error: template_input.gin has no inline force-field information, " // &
+                   "no library directive, and no kim_model directive. Aborting."
       stop 1
     end if
 
