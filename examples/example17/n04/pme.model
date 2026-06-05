@@ -1,0 +1,42 @@
+# SOD PME calibration/control file.
+# Rename this file to pme.model to enable calibration.
+# Target level directory: n04/
+
+# PME Hamiltonian: 0 (PME0 low-side); 1 (PME1 high-side); 2 (PMEh hybrid)
+2
+
+# PMEorder cap (2, 3, or 4)
+3
+
+# n_calib: 0 no calibration (manual epsilons); 1..9 number of configurations for calibration
+9
+
+# calib_config_list: configuration indices; only first n_calib used
+ 25 3 20 34 8 33 12 17 7
+
+# epsilon_low (epsilon_0 ... epsilon_PMEorder)
+   0.000000   1.000000   1.000000   1.000000
+
+# epsilon_high (epsilon_N ... epsilon_{N-PMEorder})
+   0.000000   1.000000   1.000000   1.000000
+
+# PMEh_alpha (>1.0 for smooth blending, default 2.0) and PMEh_eta (default 0.0; >0 favours low-end, <0 favours high-end)
+  2.000000   0.000000
+
+# PME energy terms
+
+ 0  1   -3798.72033632000011   -3877.30436663000000
+ 1  1      -2.81039706000001       2.92756774000009
+ 2  1      -0.02396625999972       0.01919548999967
+ 2  2      -0.00991995999993       0.00392674999966
+ 2  3      -0.02555510999991      -0.00388996000038
+ 3  1       0.01997881999932       0.01922952000086
+ 3  2       0.04446962999964      -0.00173986999926
+ 3  3       0.01255768999954       0.00142186000085
+ 3  4       0.01535173999991      -0.00107011999944
+ 3  5       0.01155667999956      -0.00000364999914
+ 3  6       0.00186038999982       0.00438504000067
+ 3  7       0.01659449999988       0.00260230000094
+ 3  8       0.01178651999999      -0.00097932999915
+ 3  9       0.01065096999992      -0.00023412999917
+ 3 10       0.00043976000006      -0.00032711999893

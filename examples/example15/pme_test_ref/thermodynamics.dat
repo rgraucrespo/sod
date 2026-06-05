@@ -1,0 +1,8 @@
+# mcstatsod: thermodynamic integration over MC temperatures
+# System: 12 subs in 24 sites;  ln(Omega) =   1.4810E+01
+# F and S from Gibbs-Helmholtz TI with T=inf reference; U from MC trajectory averages
+      T/K            E/eV            F/eV         S/(eV/K)
+     300.0     -727.951058     -728.270305  1.064155E-03
+     600.0     -727.889475     -728.620343  1.218114E-03
+    1000.0     -727.861568     -729.116891  1.255323E-03
+Infinite       -727.819708         -        1.276253E-03

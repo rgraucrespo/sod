@@ -20,6 +20,8 @@
 
 program genersod
   use iso_fortran_env, only: real64
+  use insod_reader,    only: insod_t, read_insod
+  use ensemble_io,     only: read_ensemble
   implicit none
 
   integer, parameter :: nspmax = 10, natmax = 10000, nlineamax = 200
@@ -27,6 +29,8 @@ program genersod
   integer, parameter :: ntargetmax = 5, nkmax = 5
 
   integer :: i, j, l, m
+  integer :: arg_count, max_generate, gen_limit
+  integer :: mode, n_chosen, gen_count, ic
   integer :: ifound
   integer :: sp_slot, col_off, col_off_t  ! for multi-nary species-slot determination
   integer :: sp, nsp, ssp
@@ -36,10 +40,10 @@ program genersod
   integer :: nsubs_A, nsubs_B, nsubs_tot, nsubs_tot_t(ntargetmax), t_A, t
   integer :: at0, nat0, at, nat, att, filer, ndigits
   character(len=20) :: outfilename, fmtstr
-  integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, atini, atfin, cumnatsp, ierr_rd
-  character(len=256) :: insod_line
-  integer :: npos, nic, indcount, nsubs_flat(ntargetmax*nkmax), nflat_tot, iflat
+  integer :: na, nb, nc, nsubs, nsubs_min, nsubs_max, atini, atfin, cumnatsp
+  integer :: nic, indcount
   integer, dimension(:), allocatable :: newconf, degen
+  integer, allocatable :: chosen_indices(:), gen_indices(:)
   integer, dimension(nspmax) :: natsp0, natsp, snatsp
   integer, dimension(natmax) :: spat
   real(real64), dimension(natmax, 3) :: coords0, coords
@@ -51,13 +55,15 @@ program genersod
   character(len=85) :: linea
   character(len=15) :: title
   character(len=40) :: runtitle
-  character(len=20) :: trashtext
+  type(insod_t) :: insod
+  character(len=32) :: arg_text
   character(len=3) :: symboltrash
   character(len=200) :: cifline
   character(len=20) :: atmlabel
   character(len=3) :: atmsymbol
   logical :: in_atom_loop
   logical :: found
+  logical :: fileexists
 
 ! Variables for molecule (@NAME) and vacancy (%NAME) handling
   integer, parameter :: nmolmax_atoms = 500
@@ -120,14 +126,52 @@ program genersod
   integer, dimension(natmax) :: exp_sym_idx, exp_core_id, exp_shell_id, exp_mol_id
   logical, dimension(natmax) :: exp_has_shell
 
+  mode = 0
+  max_generate = -1
+  n_chosen = 0
+  arg_count = command_argument_count()
+  if (arg_count >= 1) then
+    call get_command_argument(1, arg_text)
+    if (trim(arg_text) == '-first') then
+      if (arg_count /= 2) then
+        write (*, *) "Error: -first requires exactly one argument N."
+        stop 1
+      end if
+      call get_command_argument(2, arg_text)
+      read (arg_text, *, iostat=ios) max_generate
+      if (ios /= 0 .or. max_generate <= 0) then
+        write (*, *) "Error: -first N requires N to be a positive integer."
+        stop 1
+      end if
+      mode = 1
+    else if (trim(arg_text) == '-choose') then
+      if (arg_count < 2) then
+        write (*, *) "Error: -choose requires at least one configuration index."
+        stop 1
+      end if
+      n_chosen = arg_count - 1
+      allocate(chosen_indices(n_chosen))
+      do i = 1, n_chosen
+        call get_command_argument(i + 1, arg_text)
+        read (arg_text, *, iostat=ios) chosen_indices(i)
+        if (ios /= 0 .or. chosen_indices(i) <= 0) then
+          write (*, *) "Error: -choose indices must be positive integers."
+          stop 1
+        end if
+      end do
+      mode = 2
+    else
+      write (*, '(2A)') "Error: unknown argument: ", trim(arg_text)
+      write (*, *) "Usage: genersod [-first N | -choose i1 i2 ...]"
+      stop 1
+    end if
+  end if
+
 ! Input files
 
-  open (unit=9, file="INSOD")
   open (unit=31, file="supercell.cif")
 
 ! Output files
-
-  open (unit=43, file="filer")
 
 !
 ! DEFINITION OF VARIABLES:
@@ -155,149 +199,31 @@ program genersod
 !
 !
 
-  write (*, *) "Reading INSOD, supercell.cif, and OUTSOD to generate calculation input files"
+  write (*, *) "Reading INSOD, supercell.cif, and ENSEMBLE to generate calculation input files"
   write (*, *) " "
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Reading the INSOD file
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  read (9, *)
-
-  read (9, *) runtitle
-  read (9, *)
-  read (9, *)
-  read (9, *) a1, b1, c1, alpha, beta, gamma
-  read (9, *)
-  read (9, *)
-  read (9, *) nsp
-  read (9, *)
-  read (9, *)
-  read (9, *) (symbol(sp), sp=1, nsp)
-  read (9, *)
-  read (9, *)
-  read (9, *) (natsp0(sp), sp=1, nsp)
-  read (9, *)
-  read (9, *)
-
-  nat0 = 0
-  do sp = 1, nsp
-    nat0 = nat0 + natsp0(sp)
-  end do
-
-  do at0 = 1, nat0
-    read (9, *) (coords0(at0, i), i=1, 3)
-  end do
-  read (9, *)
-  read (9, *)
-  read (9, *) na, nb, nc
-  read (9, *)
-  read (9, *)
-! Read sptarget line: 1..ntargetmax species indices
-  read (9, '(A)') insod_line
-  ntarget = 0
-  do t = 1, ntargetmax
-    read (insod_line, *, IOSTAT=ierr_rd) (sptarget(i), i=1,t)
-    if (ierr_rd /= 0) exit
-    ntarget = t
-  end do
-  if (ntarget == 0) then
-    write (*, *) "Error: could not parse sptarget from: ", trim(insod_line)
-    stop 1
-  end if
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *)
-! Read nsubs: one line per target site (ntarget==1: integer, multi-nary ints, or X:Y range;
-!             ntarget==2: first line for target 1, second line for target 2).
-  read (9, '(A)') insod_line
-  nk(:) = 1
-  if (index(trim(insod_line), '/') > 0) then
-!   Old slash format — no longer supported
-    write (*, *) "Error: '/' separator in nsubs is no longer supported."
-    write (*, *) "  Use one line per target site instead (e.g. first line: 2, second line: 1)."
-    stop 1
-  else if (ntarget == 1 .and. index(trim(insod_line), ':') > 0) then
-!   Colon range notation: nsubs_min:nsubs_max
-    j = index(trim(insod_line), ':')
-    read (insod_line(1:j-1), *, IOSTAT=ierr_rd) nsubs_min
-    if (ierr_rd /= 0) then
-      write (*, *) "Error: could not parse nsubs_min from colon notation: ", trim(insod_line)
-      stop 1
-    end if
-    read (insod_line(j+1:), *, IOSTAT=ierr_rd) nsubs_max
-    if (ierr_rd /= 0) then
-      write (*, *) "Error: could not parse nsubs_max from colon notation: ", trim(insod_line)
-      stop 1
-    end if
-    if (nsubs_max == 0) then
-      write (*, *) "Illegal number of substitutions"
-      stop 1
-    end if
-  else if (ntarget == 1) then
-!   Single integer or multiple integers (binary or multi-nary)
-    nk(1) = 0
-    do j = 1, nkmax
-      read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(1,i), i=1,j)
-      if (ierr_rd /= 0) exit
-      nk(1) = j
-    end do
-    if (nk(1) == 0) then
-      write (*, *) "Error: could not parse nsubs line: ", trim(insod_line)
-      stop 1
-    end if
-    if (nk(1) > 3) then
-      write (*, *) "Error: more than 3 species per site (k=", nk(1), ") not yet supported."
-      write (*, *) "  Phase 2 supports k=1 (binary), k=2 and k=3 (multi-nary)."
-      stop 1
-    end if
-    nsubs_min = nsubs_t(1,1)
-    nsubs_max = nsubs_t(1,1)
-    if (nk(1) == 1 .and. nsubs_max == 0) then
-      write (*, *) "Illegal number of substitutions"
-      stop 1
-    end if
-  else
-!   ntarget >= 2: first line already in insod_line; each line may have nk(t) integers
-    nk(1) = 0
-    do j = 1, nkmax
-      read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(1,i), i=1,j)
-      if (ierr_rd /= 0) exit
-      nk(1) = j
-    end do
-    if (nk(1) == 0) then
-      write (*, *) "Error: could not parse nsubs for target 1 from: ", trim(insod_line)
-      stop 1
-    end if
-    do t = 2, ntarget
-      read (9, '(A)') insod_line
-      nk(t) = 0
-      do j = 1, nkmax
-        read (insod_line, *, IOSTAT=ierr_rd) (nsubs_t(t,i), i=1,j)
-        if (ierr_rd /= 0) exit
-        nk(t) = j
-      end do
-      if (nk(t) == 0) then
-        write (*, '(a,i0,a)') "Error: could not parse nsubs for target ", t, &
-          " from: " // trim(insod_line)
-        stop 1
-      end if
-    end do
-    nsubs_min = nsubs_t(1,1)
-    nsubs_max = nsubs_t(1,1)
-  end if
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *) (newsymbol(1, j), j=1, nk(1)+1)
-  do t = 2, ntarget
-    read (9, *) (newsymbol(t, j), j=1, nk(t)+1)
-  end do
-  read (9, *)
-  read (9, *)
-  read (9, *) filer
+  call read_insod('INSOD', insod)
+  runtitle = insod%runtitle
+  a1 = insod%a1; b1 = insod%b1; c1 = insod%c1
+  alpha = insod%alpha; beta = insod%beta; gamma = insod%gamma
+  nsp = insod%nsp
+  symbol(1:nsp)  = insod%symbol
+  natsp0(1:nsp)  = insod%natsp0
+  nat0           = insod%nat0
+  coords0(1:nat0, 1:3) = insod%coords0
+  na = insod%na; nb = insod%nb; nc = insod%nc
+  ntarget        = insod%ntarget
+  sptarget(1:ntarget) = insod%sptarget(1:ntarget)
+  nk(1:ntarget)  = insod%nk(1:ntarget)
+  nsubs_t(1:ntarget, 1:nkmax) = insod%nsubs_t(1:ntarget, 1:nkmax)
+  nsubs_min      = insod%nsubs_min
+  nsubs_max      = insod%nsubs_max
+  newsymbol      = insod%newsymbol
+  filer          = insod%filer
 
   ! Parse @ and % prefixes from newsymbol
   is_mol1 = .false.; is_mol2 = .false.
@@ -348,7 +274,7 @@ program genersod
   end if
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      [OUTSOD is now read per level inside the main loop below]
+!      [ENSEMBLE is now read per level inside the main loop below]
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -515,9 +441,6 @@ program genersod
 !!!!!!!!!!!    GENERATE INPUT FILES !!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-!!!!!!! Write a temporary file with FILER, to be read later by the script
-  write (43, *) filer
-
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      Loop over substitution levels
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -586,59 +509,80 @@ program genersod
       end do
     end if
 
-    open (unit=30, file=trim(ndir_gulp) // '/OUTSOD', status='old', IOSTAT=ios)
-    if (ios /= 0) then
-      write (*, *) "Warning: ", trim(ndir_gulp), "/OUTSOD not found, skipping."
-      if (ntarget >= 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
-      cycle
-    end if
+    block
+      integer :: ntarget_rd, nic_rd, iflat
+      integer, allocatable :: nsfl_rd(:), npst_rd(:), degen_rd(:), indconf_rd(:,:)
+      real(real64) :: tsampling_rd
+      logical :: ensemble_ok
 
-! Skip any leading comment lines (e.g. "# SOD OUTSOD format version 2")
-    do
-      read (30, '(A)') insod_line
-      if (insod_line(1:1) /= '#') exit
-    end do
-    if (ntarget == 1 .and. nk(1) == 1) then
-      read (insod_line, *) m, trashtext, trashtext, npos
-    else if (ntarget == 1 .and. nk(1) == 2) then
-      read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), trashtext, trashtext, npos_t(1), trashtext
-    else if (ntarget == 1 .and. nk(1) == 3) then
-      read (insod_line, *) nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3), trashtext, trashtext, npos_t(1), trashtext
-    else if (ntarget >= 2 .and. all(nk(1:ntarget) == 1)) then
-      ! Stage D: multi-target binary
-      read (insod_line, *) (nsubs_t(t,1), t=1,ntarget), trashtext, trashtext, &
-                           (npos_t(t), t=1,ntarget), trashtext
-    else
-      ! Phase 4: ntarget >= 2, at least one nk(t) >= 2 — read flat then unpack
-      nflat_tot = sum(nk(1:ntarget))
-      read (insod_line, *) (nsubs_flat(i), i=1,nflat_tot), trashtext, trashtext, &
-                           (npos_t(t), t=1,ntarget), trashtext
+      call read_ensemble(trim(ndir_gulp) // '/ENSEMBLE', ntarget_rd, nsfl_rd, npst_rd, &
+                         nic_rd, indconf_rd, degen_rd, tsampling_rd, ensemble_ok)
+      if (.not. ensemble_ok) then
+        write (*, *) "Warning: ", trim(ndir_gulp), "/ENSEMBLE not found or invalid, skipping."
+        if (ntarget >= 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
+        cycle
+      end if
+      ! Unpack flat nsubs back into nsubs_t and npos_t
+
       iflat = 0
       do t = 1, ntarget
         do j = 1, nk(t)
-          nsubs_t(t, j) = nsubs_flat(iflat + j)
+          nsubs_t(t, j) = nsfl_rd(iflat + j)
         end do
         iflat = iflat + nk(t)
       end do
-    end if
-    read (30, *) nic
-
+      npos_t(1:ntarget_rd) = npst_rd(1:ntarget_rd)
+      nic = nic_rd
+      allocate(degen(nic))
+      degen = degen_rd(1:nic)
+      allocate(newconf(max(1, nsubs_tot)))
+      allocate(indconf(nic, max(1, nsubs_tot)))
+      if (nsubs_tot > 0) indconf(1:nic, 1:nsubs_tot) = indconf_rd(1:nic, 1:nsubs_tot)
+    end block
     ndigits = max(1, int(log10(real(nic))) + 1)
     write (fmtstr, '(a,i0,a,i0,a)') '(a,i', ndigits, '.', ndigits, ')'
-
-    allocate (degen(1:nic))
-    allocate (newconf(1:nsubs_tot))
-    allocate (indconf(1:nic, 1:nsubs_tot))
-
-    do indcount = 1, nic
-      read (30, *) m, degen(indcount), indconf(indcount, 1:nsubs_tot)
-      if (m /= indcount) then
-        write (*, *) "Error in configuration numbering in OUTSOD. Aborting..."
-        stop 1
+    if (mode == 2) then
+      do i = 1, n_chosen
+        if (chosen_indices(i) > nic) then
+          write (*, '(A,I0,A,I0,A)') "Error: -choose index ", chosen_indices(i), &
+              " exceeds number of configurations (", nic, ")."
+          stop 1
+        end if
+      end do
+      gen_count = n_chosen
+      allocate(gen_indices(gen_count))
+      gen_indices(1:gen_count) = chosen_indices(1:gen_count)
+      write (*, '(A,I0,A,I0,A)') " > Generating ", gen_count, " selected configurations of ", nic, "."
+    else
+      gen_limit = nic
+      if (mode == 1) gen_limit = min(nic, max_generate)
+      gen_count = gen_limit
+      allocate(gen_indices(gen_count))
+      do ic = 1, gen_count
+        gen_indices(ic) = ic
+      end do
+      if (gen_count < nic) then
+        write (*, '(A,I0,A,I0,A)') " > Generating first ", gen_count, " of ", nic, " configurations."
       end if
-    end do
+    end if
 
-    close (30)
+    block
+      integer :: d, probe_status
+      character(len=20) :: probe_fmt, probe_str
+      do d = 1, 5
+        if (d == ndigits) cycle
+        write (probe_fmt, '(a,i0,a,i0,a)') '(i', d, '.', d, ')'
+        write (probe_str, probe_fmt) 1
+        call execute_command_line('test -d "' // trim(ndir_gulp) // '/c' // trim(probe_str) // '"', &
+                                  wait=.true., exitstat=probe_status)
+        if (probe_status == 0) then
+          write (*, '(A)') " Warning: " // trim(ndir_gulp) // &
+            " contains cXXX directories with different zero-padding (stale from a previous run)." // &
+            " Remove them to avoid confusion."
+          exit
+        end if
+      end do
+    end block
 
     select case (filer)
 
@@ -657,7 +601,8 @@ program genersod
       stop 1
     end if
 
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
@@ -1085,8 +1030,7 @@ program genersod
 
     ! --- Validate that force-field information is available ---
     if (.not. hasinline_ff .and. .not. haslibrary_gulp .and. .not. haskimmodel_gulp) then
-      write (*, *) "Error: template_input.gin has no inline force-field information, " // &
-                   "no library directive, and no kim_model directive. Aborting."
+      write (*, *) "Error: template_input.gin has no inline force-field or library information. Aborting."
       stop 1
     end if
 
@@ -1101,7 +1045,8 @@ program genersod
     end if
 
     ! --- Generate one configuration directory per configuration ---
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
@@ -1636,7 +1581,8 @@ program genersod
     end if
 
     ! --- Generate one configuration directory per configuration ---
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
@@ -1885,6 +1831,14 @@ program genersod
     title = 'vasp'
     call cell(cellvector, a, b, c, alpha, beta, gamma)
 
+    ! Check for INCAR file (required for VASP)
+    inquire(file='INCAR', exist=fileexists)
+    if (.not. fileexists) then
+      write (*, *) 'Error: INCAR file not found in current directory.'
+      write (*, *) 'VASP (FILER=11) requires an INCAR file at the same level as INSOD.'
+      stop 1
+    end if
+
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
 
     call execute_command_line('mkdir -p ' // trim(ndir_gulp), exitstat=ios)
@@ -1893,7 +1847,8 @@ program genersod
       stop 1
     end if
 
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
@@ -1902,6 +1857,12 @@ program genersod
       if (ios /= 0) then
         write (*, *) "Error: could not create directory ", trim(confdir_gulp)
         stop 1
+      end if
+
+      ! Copy INCAR to configuration directory
+      call execute_command_line('cp INCAR ' // trim(confdir_gulp) // '/', exitstat=ios)
+      if (ios /= 0) then
+        write (*, *) "Warning: could not copy INCAR to ", trim(confdir_gulp)
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/POSCAR'
@@ -2137,7 +2098,8 @@ program genersod
       stop 1
     end if
 
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount
@@ -2338,7 +2300,8 @@ program genersod
       stop 1
     end if
 
-    do indcount = 1, nic
+    do ic = 1, gen_count
+      indcount = gen_indices(ic)
       newconf(1:nsubs_tot) = indconf(indcount, 1:nsubs_tot)
 
       write (numstr, numfmt) indcount

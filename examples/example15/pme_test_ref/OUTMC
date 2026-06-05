@@ -1,0 +1,33 @@
+ =================================================================
+  SOD PME — Monte Carlo sampling summary
+ =================================================================
+  Sampler           : Metropolis
+  Symmetry mode     : reduced (symmetry representatives)
+  ENSEMBLE rows     : symmetry representatives
+  ENSEMBLE omega    : visits to representative, including rejected-step residence
+  Stats weighting   : Omega/sum(Omega) (Metropolis sample already energy-biased)
+  Level (nsubs)     : 12
+  Total sites       : 24
+  Temperature       :       300.0000 K
+  Equil. steps      : 2400
+  Production steps  : 24000
+  Stored configs    : 4837
+  Accepted (equil.) : 849  ( 35.4 %)
+  Accepted (prod.)  : 8456  ( 35.2 %)
+ -----------------------------------------------------------------
+  eps_low           :   0.000000   1.000000   1.000000   1.000000
+  eps_high          :   0.000000   1.000000   1.000000   1.000000
+  alpha (hybrid)    :   2.000000
+  eta   (hybrid)    :   0.000000
+ -----------------------------------------------------------------
+  E_min             =       -728.0548640971 eV
+  E_ave (sample)    =       -727.9510581657 eV
+  E_std             =          0.0501971014 eV
+ -----------------------------------------------------------------
+  Block-average SEM (standard error of the mean):
+  SEM ( 8 blocks)    =          0.0014136862 eV  (3000 steps/block)
+  SEM (16 blocks)    =          0.0013516374 eV  (1500 steps/block)
+  SEM (32 blocks)    =          0.0016047159 eV  (750 steps/block)
+  Note: if SEM(8) ~ SEM(16), blocks are independent; trust that estimate.
+        If SEM grows as n_blocks decreases, increase n_prod or n_equil.
+ =================================================================

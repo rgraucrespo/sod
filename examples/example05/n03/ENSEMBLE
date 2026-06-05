@@ -1,0 +1,11 @@
+Enumerated ensemble: 8 configurations; sum_degeneracies = 560
+16 Sn sites -> 3 Zr 13 Sn
+# Configuration  Degeneracy  Zr_positions
+1 32 17 18 19 
+2 48 17 18 21 
+3 96 17 18 22 
+4 192 17 18 24 
+5 96 17 18 28 
+6 16 17 24 29 
+7 48 17 24 30 
+8 32 17 25 28 

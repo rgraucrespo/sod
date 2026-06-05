@@ -28,6 +28,8 @@ program peaks2spec
   real(real64)  :: x, xmin, xmax, sigma, range, step, gaussian, spectrum
   integer :: i
   real(real64), dimension(:, :), allocatable :: peaks, spectra
+
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - peaks2spec"
   open (10, file='INP2S', status='OLD')
   open (11, file='PEAKS', status='OLD')
   open (12, file='SPECTRA')

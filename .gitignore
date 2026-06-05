@@ -2,16 +2,68 @@
 bin/combsod
 bin/genersod
 bin/gcstatsod
+bin/gqssod
 bin/invertOUTSOD
+bin/invertENSEMBLE
+bin/mcstatsod
+bin/mcsod
 bin/peaks2spec
-bin/spbesod
+bin/pmesod
+bin/sqssod
 bin/statsod
 
 # Fortran object and module files
 src/*.o
-src/*.mod
+bin/*.mod
+
+# Generated files (combsod/genersod outputs) - root level only
+/EQMATRIX
+/OPERATORS
+/job_sender
+/supercell.cif
+
+# cSGO is a pure combsod byproduct, never consumed as input - ignore everywhere
+cSGO
+
+# Auto-generated PME suggestion file - ignore everywhere
+# (deliberately committed copies in examples are already tracked and unaffected)
+INPME.tmp
+
+# PME/MC generated output directories - always generated on demand;
+# test references live in pme_test_ref/ instead
+PME0/
+PME1/
+PMEh/
+MCT_*/
+MCU/
+
+# Calculator output files - global ignore so users running calcs in example
+# dirs do not see hundreds of untracked files.
+# To commit a reference output file of these types (e.g. for extraction-script
+# tests), use 'git add -f' once; the file is tracked permanently after that.
+output.gout
+OUTCAR
+CONTCAR
+
+# VASP output files not covered above - root-anchored so that committed
+# reference copies in examples/ remain normally committable without force-add
+/vasprun.xml
+/OSZICAR
+/XDATCAR
+/DOSCAR
+/IBZKPT
+/EIGENVAL
+/ase_files/
+
+# Sphinx build output
+docs/_build/
+
+# Session notes
+/codex-session*.txt
+
+# Local agent/editor settings (never publish; release.sh rsyncs the work tree)
+.claude/
 
 # Miscellaneous
 *.swp
 .DS_Store
-docs/_build/

@@ -1,70 +1,102 @@
-## Version 0.44 (October 2018)
+## Version 0.80 (5 June 2026)
 
-- Added a simple pair-based extrapolation (spbe) calculator to predict energies for n>2 substitutions from the energies for n=0, 1, and 2 substitutions. 
-- Makefile added; just type ```make all``` from ROOTSOD to compile all the fortran code.
-- All scripts converted to bash; they are all in the ROOTSOD/bin folder, and have extension .sh
-- Resolved issue in scripts related to number of columns from ```ls -al``` command.
-- ```sod_stat``` now calculates thermodynamic properties at T=1K, 300K, 1000K and in the limit of a very high temperature, if the TEMPERATURES file does not exist.
+### New features 
 
-## Version 0.46 (November 2018)
+- **Periodic Motif Expansion (PME)**: new executable `pmesod` and wrapper `sod_pme.sh`.
+  Fits an effective Hamiltonian `E(c) = V0 + ε0 + ε1·T1(c) + … + εK·TK(c)` (up to 4-body
+  motif interactions) from ab initio reference energies at low substitution levels (n00–n0p,
+  low side) and/or high substitution levels (n(M-p)–nM, high side), then predicts energies
+  for all configurations at a chosen target level. `ε0` is an additive energy offset (eV,
+  default 0); `ε1`–`εK` are multiplicative scale factors per motif order (default 1). Three
+  variants: PME0 (low-side only), PME1 (high-side only), and PMEh (hybrid, blending both
+  sides with a piecewise power-law scheme controlled by `alpha` (sharpness, default 2.0) and
+  `eta` (log-scale asymmetry, default 0.0)). Building the Hamiltonian follows a two-phase workflow:
+  Phase 1 (referencing) runs DFT at boundary concentrations (low/high substitution),
+  calls `sod_pme.sh` to fit the V terms and produce `pme.model.tmp` with a
+  bisection-selected calibration list; Phase 2 (calibrating, optional) runs DFT for a
+  small set of configurations at the target concentration, then re-runs `sod_pme.sh` with
+  `pme.model` to fit the ε correction terms. Predicted energies are written to `nXX/PME0/ENERGIES`, `nXX/PME1/ENERGIES`,
+  and `nXX/PMEh/ENERGIES`; fitted ε values and RMSE (before → after calibration) are
+  reported on stdout.
 
-- Increased precision of reals in spbe to avoid numerical errors. 	
-- The spbe calculation can be corrected using two reference energies, via INSPBE file.   
-- Example 1 was changed to illustrate the spbe procedure (including rescaling).
+- **Monte Carlo (MC) sampling**: new executable `mcsod` and wrapper `sod_mc.sh`.
+  Samples configuration space at finite temperature using a PME Hamiltonian. Supports four
+  modes: Metropolis reduced (symmetry-deduplicated) and Metropolis full (explicit trajectory),
+  Uniform random reduced and Uniform random full. `sod_mc.sh` reads a `TEMPERATURES` file and
+  runs one single-temperature MC job per entry, writing output to `nXX/PMEx/MCT_TTTK/`.
+  `INMC` specifies the sampler, equilibration/production step counts, restart probability,
+  and starting configuration. Block-average standard error of the mean is reported for
+  reliability assessment. MC output (ENSEMBLE + ENERGIES) is compatible with `sod_stat.sh`
+  for thermodynamic post-processing.
 
-## Version 0.47 (January 2019)
-- spbe module creates INSPBE template (INSPBE.tmp) to make rescaling step easier. 
-- Bug that led to error message when running combinatorics with FILER=0 corrected. 
+- **Thermodynamic integration**: new executable `mcstatsod` and wrapper `sod_mcstat.sh`.
+  Integrates the MC internal energy U(T) over inverse temperature β to obtain the Helmholtz
+  free energy F and entropy S at each sampled temperature, using S(T→∞) = kB ln C(npos, lev)
+  as the high-temperature anchor. Output format matches `statsod` (T, E, F, S columns per
+  supercell). Run from `nXX/PMEx/` after completing a multi-temperature MC run.
 
-## Version 0.51 (September 2023)
-- Some memory issues in combinatorial generation sorted.
-- sod_gener.sh generates VASP or GULP input files from OUTSOD (and INSOD) without having to redo the combinatorics.
-- Grand-canonical analysis now posible using sod_gcstat.sh.
-- Stress-volume correction  in the grand-canonical analysis implemented.
-- Canonical analysis with sod_stat.sh now includes the full disorder limit.
-- Other minor improvements in format for statistical analysis. 
-- Statistics on spectra (both canonical and grand-canonical)
-- Input files for CASTEP can be created. 
+- **Special Quasirandom Structures (SQS)**: new executable `sqssod` and wrapper `sod_sqs.sh`.
+  Identifies the configurations at a given substitution level whose cluster 
+  correlations best match ideal random mixing. Controlled via `INSQS`; results ranked in
+  `OUTSQS`.
 
-## Version 0.52 (October 2023)
-- Made arrays allocatable in gcstatsod.f90, which fixes some issue with gfortran compilar in MacOS.
-- Added the sgo/ folder, which was missing in previous release by mistake. 
-
-## Version 0.62 (March 2026)
+- **Generalized Quasirandom Structures (GQS)**: new executable `gqssod` and wrapper
+  `sod_gqs.sh`. Extends SQS to finite temperature by computing Boltzmann-weighted thermal
+  averages of pair correlations from `ENERGIES` and `TEMPERATURES`; results written to
+  `OUTGQS`. Run `sod_gqs.sh` from SODPROJECT; requires `ENERGIES`.
 
 ### Removed
-- MAPPER feature removed from `combsod.f90`, `genersod.f90`, and all INSOD example files.
-- METADISE output (FILER=3) removed; LAMMPS is now FILER=2.
-- Classical-code block in INSOD (`ishell`, `newshell`, `genxtl`, `genarc`) removed from `combsod.f90` and `genersod.f90`. INSOD files no longer require this block.
-- `sod_bcs2sgo.sh` and `bcs2sgo.awk` deleted (obsolete).
 
-### New features
-- Template-based input generation for all calculators: `template_input.gin` (GULP), `template_in.lammps` (LAMMPS), `template_castep.cell` (CASTEP), `template_pw.in` (QE). VASP generates POSCAR directly.
-- Uniform `nXX/cYY/` directory structure for all calculators including CIF.
-- `# sod_type_map` lines in template files are parsed by SOD for type mapping and stripped from all generated input files.
-- Quantum ESPRESSO support (FILER=13): `genersod` inserts `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}` blocks.
-- Recursive enumeration: `nsubs_min` to `nsubs_max` range in INSOD; each level uses OUTSOD from the previous level.
-- Output filenames (e.g. `c01.gin`) now use minimum zero-padding for correct sorting, removing the previous 99999-configuration limit.
-- Five parallel `example1_*` examples (GULP, LAMMPS, VASP, CASTEP, QE): Ni/Mg in MgO rocksalt, nsubs=4.
+- **SPBE (simple pair-based extrapolation)** retired. The PME Hamiltonian supersedes it with
+  higher-order many-body terms, hybrid low/high fitting, and recalibration support.
+  `spbesod.f90` and `sod_spbe.sh` are no longer distributed.
 
 ### Bug fixes
-- Stress-volume correction in `gcstatsod.f90` now uses the correct second-order Birch-Murnaghan expression.
-- Monoclinic cell parameter `a` calculation in `sod_gulp_cell.sh` corrected (was dividing by uninitialised awk variables).
-- `sod_vasp_cell.sh` rewritten to support all lattice types, matching `sod_gulp_cell.sh`.
-- `sod_comb.sh` no longer performs `cd ..` when FILER=0.
-- `sod_gener.sh` `cd ..` outside FILER≠0 block corrected; dynamic zero-padding applied.
-- `Einf` uninitialised before accumulation in `statsod.f90` corrected.
-- `nat=sum(natsp(1:nsp))` fix in `genersod.f90` (previously summed uninitialised elements).
-- `sod_gcstat.sh` now copies `DATA` files alongside OUTSOD/ENERGIES.
-- Guard added to avoid `log(0)` when x=0 or x=1 in entropy calculations.
-- `example1_lammps/INSOD` had `sptarget=2` instead of `sptarget=1`.
-- `example5/INSOD` corrected (`natsp0` was `1 1 1` instead of `1 1 2`).
+
+- **`mcsod` — MC sampling counting (critical)**: rejected Metropolis moves were not counted
+  as samples of the current state, giving incorrect energy averages and ENSEMBLE weights. Now
+  all steps (accepted and rejected) accumulate correctly. The fix affects E_ave and all
+  derived thermodynamic quantities from Metropolis runs.
 
 ### Other improvements
-- `combsod` now only performs combinatorics; `sod_comb.sh` calls `genersod` automatically when FILER≠0.
-- GULP library reduction: sections with no relevant interactions are omitted from the copied library.
-- Makefile now cross-platform (macOS and Linux).
-- Hardcoded pi values replaced with `acos(-1.0)` throughout.
+
+- **OUTSOD renamed ENSEMBLE**: the configuration-list file is renamed from `OUTSOD` to
+  `ENSEMBLE` in all programs, shell scripts, Makefile, and examples. A new self-documenting
+  v3 format is introduced: line 1 names the ensemble type and records the configuration
+  count and sum of degeneracies; one target line per substitution target follows. The old v2
+  format (with or without `#` header) remains fully readable for backward compatibility.
+- **Continuous integration**: GitHub Actions workflow runs `make all && make test` on Ubuntu
+  and macOS on every push and pull request.
+- **Regression test suite** expanded to 28 tests covering combsod (examples 02–14), genersod
+  FILER variants (example01), statsod/gcstatsod (example05), pmesod/mcsod (example15),
+  sqssod/gqssod (example16), and pmesod PMEh (example17). The thermodynamics tools are now
+  covered end to end: thermodynamic integration (`mcstatsod`) over a multi-temperature MC
+  ladder (example15), exact canonical statistics (`statsod`) over the full
+  8043-configuration enumeration (example16), and a physics cross-check confirming that
+  Monte Carlo plus thermodynamic integration reproduces the exact free energy of the full
+  enumeration to within ~2 meV on the same PME Hamiltonian (example15).
+- **Robust INSOD reading**: all six programs that read INSOD now tolerate blank lines and
+  `#` comment lines anywhere in the file.
+- `example15` added: Si/Ge substitution in α-quartz 2×2×2 supercell (24 Si sites);
+  demonstrates PME fitting with low-side (n00–n03) and high-side (n21–n24) training data,
+  and Metropolis MC sampling at 300 K.
+- `example16` added: SQS/GQS workflow for 8 Ni/Mg substitutions in 2×2×2 MgO rocksalt
+  (8043 configurations); includes OUTSQS and OUTGQS reference outputs.
+- `example17` added: Al/Fe substitutions in LaFeO3 3×3×3 perovskite supercell (27 Fe sites);
+  demonstrates third-order PMEh for target level n04 with full DFT reference energies.
+
+## Version 0.71 (April 2026)
+
+### New features
+
+- **Multi-target multi-nary substitution**: multi-species and multi-nary substitution combined — each target site independently supports one or more new species. INSOD `nsubs` uses one line per target, each line with space-separated counts (e.g. site 1 `1 1` for ternary, site 2 `1` for binary). Joint configurations enumerated under full crystal symmetry.
+
+### Other improvements
+
+- `example13` added: 3-target multi-species example La₁₋ₓSrₓFe₁₋ᵧMnᵧO₃₋ᵤ in a 2×2×2 supercell (Pm-3m) — simultaneous binary substitution on La, Fe, and O sites (1 substitution per site), including an O vacancy (`%O` syntax); 6 inequivalent configurations from 1536 total. FILER=-1.
+- `example14` added: first multi-target multi-nary example — La₁₋ₓ₋ᵧSrₓBaᵧMnᵤFe₁₋ᵤO₃ in a 2×2×2 supercell (Pm-3m); ternary substitution on the La site (1 Sr + 1 Ba) combined with binary substitution on the Fe site (1 Mn); 3 inequivalent configurations from 448 total. FILER=-1.
+- `run_tests.sh` added: formal regression test suite (20 tests); runs in isolated temp directories and diffs against committed references: all n*/OUTSOD for examples 02–14 (combsod), one structure file per calculator for example01/FILER* (genersod), thermodynamics/DATA/SPECTRA averages for example05/n02 (statsod canonical), and thermodynamics/DATA/SPECTRA averages for example05/test_gcstat over n10–n16 (gcstatsod grand-canonical).
+- `example05` corrected: substitution direction changed from Sn-in-Zr (La₂Zr₂O₇ parent) to Zr-in-Sn (La₂Sn₂O₇ parent) to match the CASTEP calculations. All n00–n16 OUTSODs regenerated; ENERGIES/DATA/SPECTRA from DFT (archive) renumbered accordingly. Statistical analysis folders renamed to `x250` (x=0.25 Zr) and `x750` (x=0.75 Zr).
 
 ## Version 0.70 (April 2026)
 
@@ -108,15 +140,70 @@
 - `example11` added: equimolar NiCoFeCr Cantor subsystem alloy (2×2×2 FCC primitive cell, 8 atoms), 23 inequivalent configurations from 2520 total.
 - `example12` added: complex perovskite La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃ in a 2×2×2 supercell — multi-species example (binary on two sites simultaneously); 13 inequivalent configurations from 784 total; GULP input files (FILER=1).
 
-## Version 0.71 (April 2026)
+## Version 0.62 (March 2026)
+
+### Removed
+- MAPPER feature removed from `combsod.f90`, `genersod.f90`, and all INSOD example files.
+- METADISE output (FILER=3) removed; LAMMPS is now FILER=2.
+- Classical-code block in INSOD (`ishell`, `newshell`, `genxtl`, `genarc`) removed from `combsod.f90` and `genersod.f90`. INSOD files no longer require this block.
+- `sod_bcs2sgo.sh` and `bcs2sgo.awk` deleted (obsolete).
 
 ### New features
+- Template-based input generation for all calculators: `template_input.gin` (GULP), `template_in.lammps` (LAMMPS), `template_castep.cell` (CASTEP), `template_pw.in` (QE). VASP generates POSCAR directly.
+- Uniform `nXX/cYY/` directory structure for all calculators including CIF.
+- `# sod_type_map` lines in template files are parsed by SOD for type mapping and stripped from all generated input files.
+- Quantum ESPRESSO support (FILER=13): `genersod` inserts `CELL_PARAMETERS {angstrom}` and `ATOMIC_POSITIONS {crystal}` blocks.
+- Recursive enumeration: `nsubs_min` to `nsubs_max` range in INSOD; each level uses OUTSOD from the previous level.
+- Output filenames (e.g. `c01.gin`) now use minimum zero-padding for correct sorting, removing the previous 99999-configuration limit.
+- Five parallel `example1_*` examples (GULP, LAMMPS, VASP, CASTEP, QE): Ni/Mg in MgO rocksalt, nsubs=4.
 
-- **Multi-target multi-nary substitution**: multi-species and multi-nary substitution combined — each target site independently supports one or more new species. INSOD `nsubs` uses one line per target, each line with space-separated counts (e.g. site 1 `1 1` for ternary, site 2 `1` for binary). Joint configurations enumerated under full crystal symmetry.
+### Bug fixes
+- Stress-volume correction in `gcstatsod.f90` now uses the correct second-order Birch-Murnaghan expression.
+- Monoclinic cell parameter `a` calculation in `sod_gulp_cell.sh` corrected (was dividing by uninitialised awk variables).
+- `sod_vasp_cell.sh` rewritten to support all lattice types, matching `sod_gulp_cell.sh`.
+- `sod_comb.sh` no longer performs `cd ..` when FILER=0.
+- `sod_gener.sh` `cd ..` outside FILER≠0 block corrected; dynamic zero-padding applied.
+- `Einf` uninitialised before accumulation in `statsod.f90` corrected.
+- `nat=sum(natsp(1:nsp))` fix in `genersod.f90` (previously summed uninitialised elements).
+- `sod_gcstat.sh` now copies `DATA` files alongside OUTSOD/ENERGIES.
+- Guard added to avoid `log(0)` when x=0 or x=1 in entropy calculations.
+- `example1_lammps/INSOD` had `sptarget=2` instead of `sptarget=1`.
+- `example5/INSOD` corrected (`natsp0` was `1 1 1` instead of `1 1 2`).
 
 ### Other improvements
+- `combsod` now only performs combinatorics; `sod_comb.sh` calls `genersod` automatically when FILER≠0.
+- GULP library reduction: sections with no relevant interactions are omitted from the copied library.
+- Makefile now cross-platform (macOS and Linux).
+- Hardcoded pi values replaced with `acos(-1.0)` throughout.
 
-- `example13` added: 3-target multi-species example La₁₋ₓSrₓFe₁₋ᵧMnᵧO₃₋ᵤ in a 2×2×2 supercell (Pm-3m) — simultaneous binary substitution on La, Fe, and O sites (1 substitution per site), including an O vacancy (`%O` syntax); 6 inequivalent configurations from 1536 total. FILER=-1.
-- `example14` added: first multi-target multi-nary example — La₁₋ₓ₋ᵧSrₓBaᵧMnᵤFe₁₋ᵤO₃ in a 2×2×2 supercell (Pm-3m); ternary substitution on the La site (1 Sr + 1 Ba) combined with binary substitution on the Fe site (1 Mn); 3 inequivalent configurations from 448 total. FILER=-1.
-- `run_tests.sh` added: formal regression test suite (20 tests); runs in isolated temp directories and diffs against committed references: all n*/OUTSOD for examples 02–14 (combsod), one structure file per calculator for example01/FILER* (genersod), thermodynamics/DATA/SPECTRA averages for example05/n02 (statsod canonical), and thermodynamics/DATA/SPECTRA averages for example05/test_gcstat over n10–n16 (gcstatsod grand-canonical).
-- `example05` corrected: substitution direction changed from Sn-in-Zr (La₂Zr₂O₇ parent) to Zr-in-Sn (La₂Sn₂O₇ parent) to match the CASTEP calculations. All n00–n16 OUTSODs regenerated; ENERGIES/DATA/SPECTRA from DFT (archive) renumbered accordingly. Statistical analysis folders renamed to `x250` (x=0.25 Zr) and `x750` (x=0.75 Zr).
+## Version 0.52 (October 2023)
+- Made arrays allocatable in gcstatsod.f90, which fixes some issue with gfortran compilar in MacOS.
+- Added the sgo/ folder, which was missing in previous release by mistake. 
+
+## Version 0.51 (September 2023)
+- Some memory issues in combinatorial generation sorted.
+- sod_gener.sh generates VASP or GULP input files from OUTSOD (and INSOD) without having to redo the combinatorics.
+- Grand-canonical analysis now posible using sod_gcstat.sh.
+- Stress-volume correction  in the grand-canonical analysis implemented.
+- Canonical analysis with sod_stat.sh now includes the full disorder limit.
+- Other minor improvements in format for statistical analysis. 
+- Statistics on spectra (both canonical and grand-canonical)
+- Input files for CASTEP can be created. 
+
+## Version 0.47 (January 2019)
+- spbe module creates INSPBE template (INSPBE.tmp) to make rescaling step easier. 
+- Bug that led to error message when running combinatorics with FILER=0 corrected. 
+
+## Version 0.46 (November 2018)
+
+- Increased precision of reals in spbe to avoid numerical errors. 	
+- The spbe calculation can be corrected using two reference energies, via INSPBE file.   
+- Example 1 was changed to illustrate the spbe procedure (including rescaling).
+
+## Version 0.44 (October 2018)
+
+- Added a simple pair-based extrapolation (spbe) calculator to predict energies for n>2 substitutions from the energies for n=0, 1, and 2 substitutions. 
+- Makefile added; just type ```make all``` from ROOTSOD to compile all the fortran code.
+- All scripts converted to bash; they are all in the ROOTSOD/bin folder, and have extension .sh
+- Resolved issue in scripts related to number of columns from ```ls -al``` command.
+- ```sod_stat``` now calculates thermodynamic properties at T=1K, 300K, 1000K and in the limit of a very high temperature, if the TEMPERATURES file does not exist.

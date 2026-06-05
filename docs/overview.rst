@@ -19,11 +19,29 @@ What SOD does
 SOD supports a workflow in which a disordered crystalline solid is represented
 by an ensemble of ordered supercell configurations. Its main tasks are:
 
-- enumeration of symmetry-inequivalent configurations
-- calculation of configurational degeneracies
-- generation of calculator-specific input files for each configuration
-- post-processing of calculated energies or properties
-- statistical-mechanical analysis in canonical and grand-canonical ensembles
+- **Enumeration** of symmetry-inequivalent configurations under crystal symmetry
+- **Degeneracy calculation** for each inequivalent configuration
+- **Input generation** for external calculators (GULP, LAMMPS, VASP, CASTEP, QE)
+- **Energy and property extraction** from calculated results
+- **Statistical-mechanical analysis** in canonical and grand-canonical ensembles
+- **Periodic Motif Expansion (PME)** effective Hamiltonian fitting from ab initio training data
+- **Monte Carlo (MC)** sampling of configuration space at finite temperature using the PME Hamiltonian
+- **Special Quasirandom Structures (SQS)** identification for optimized short-range order
+- **Thermal averaging** of pair correlations (GQS)
+
+Substitution modes
+------------------
+
+SOD supports several substitution patterns:
+
+- **Binary**: one new species on a single site (e.g., Ni/Mg in MgO)
+- **Multi-nary**: multiple species simultaneously on one site (e.g., NiCoFeCr on Ti in BCC)
+- **Multi-target**: substitutions on multiple independent sites (e.g., Sr on La and Mn on Fe)
+- **Multi-target multi-nary**: combined multi-nary on each of multiple sites
+- **Molecules**: rigid molecular groups substituting at crystal sites (e.g., MA in perovskites)
+- **Vacancies**: removal of atoms (e.g., oxygen vacancies)
+
+These modes can be combined to handle complex disorder in real materials.
 
 Typical workflow
 ----------------
@@ -31,14 +49,15 @@ Typical workflow
 A standard SOD calculation proceeds as follows:
 
 1. Prepare the input files describing the parent structure, symmetry, and
-   substitutional disorder.
+   substitutional disorder pattern (``INSOD``, ``SGO``).
 2. Run ``sod_comb.sh`` to enumerate symmetry-inequivalent configurations.
-3. If required, let ``genersod`` generate calculator-specific input files and
-   directory trees for each configuration.
-4. Run external calculations for the generated configurations.
-5. Extract energies or other quantities with the appropriate wrapper scripts.
-6. Analyse the ensemble with ``statsod``, ``gcstatsod``, or SPBE-based tools,
-   depending on the problem.
+3. If calculator input files are needed, ``sod_comb.sh`` invokes ``genersod``
+   automatically.  To regenerate them after changing ``FILER`` or a template,
+   run ``sod_gener.sh``.
+4. Run external calculations (GULP, LAMMPS, VASP, etc.) for each configuration.
+5. Extract energies or other properties with the appropriate wrapper scripts.
+6. Analyse the ensemble with ``statsod`` (canonical) or ``gcstatsod``
+   (grand-canonical), or find Special Quasirandom Structures with ``sqssod``.
 
 Main executables
 ----------------
@@ -46,12 +65,16 @@ Main executables
 The release build provides the following core executables:
 
 - ``combsod``: enumerates inequivalent configurations and writes files such as
-  ``OUTSOD`` and ``EQMATRIX``
+  ``ENSEMBLE`` and ``EQMATRIX``
 - ``genersod``: generates configuration-specific input files and folder trees
-- ``statsod``: performs canonical statistical-mechanical analysis
+- ``statsod``: performs canonical statistical-mechanical analysis, including
+  Metropolis-sampled ENSEMBLE files when sampling metadata is present
 - ``gcstatsod``: performs grand-canonical statistical-mechanical analysis
-- ``spbesod``: performs simple point-based energy extrapolation
-- ``invertOUTSOD``: post-processes or transforms ``OUTSOD`` data
+- ``pmesod``: fits a periodic motif expansion Hamiltonian and evaluates energies
+- ``mcsod``: explores configuration space via Metropolis or Uniform Monte Carlo
+  using the PME Hamiltonian
+- ``sqssod`` / ``gqssod``: identify Special and Generalized Quasirandom Structures
+- ``invertENSEMBLE``: post-processes or transforms ``ENSEMBLE`` data
 - ``peaks2spec``: converts peak data into spectra
 
 Wrapper scripts
@@ -63,7 +86,9 @@ standard workflow. These include:
 - ``sod_comb.sh`` for configuration generation and workflow setup
 - ``sod_stat.sh`` for canonical statistics
 - ``sod_gcstat.sh`` for grand-canonical statistics
-- ``sod_spbe0.sh`` and ``sod_spbe1.sh`` for SPBE workflows
+- ``sod_pme.sh`` for periodic motif expansion (PME) fitting and evaluation
+- ``sod_mc.sh`` for Monte Carlo sampling using the PME Hamiltonian
+- ``sod_sqs.sh`` / ``sod_gqs.sh`` for SQS/GQS structure identification
 - calculator-specific extraction scripts such as
   ``sod_gulp_ener.sh``, ``sod_vasp_ener.sh``, ``sod_castep_ener.sh``, and
   ``sod_qe_ener.sh``
@@ -100,7 +125,6 @@ Generated calculations follow a consistent naming convention:
 - ``nXX/`` for a substitution level or composition
 - ``cYY/`` for an inequivalent configuration within that composition
 - ``x???/`` for grand-canonical analysis inputs
-- ``spbe0/`` and ``spbe1/`` for SPBE extrapolation branches
 
 These conventions are used by the wrapper scripts during post-processing and
 analysis.
@@ -124,6 +148,25 @@ repository root, run:
 .. code-block:: bash
 
    make all
+
+More information
+----------------
+
+The main SOD paper describes the underlying methodology and should be cited if
+you use SOD in your research:
+
+   Grau-Crespo, R., Hamad, S., Catlow, C. R. A., & De Leeuw, N. H. (2007).
+   *Symmetry-adapted configurational modelling of fractional site occupancy in
+   solids.* **Journal of Physics: Condensed Matter**, 19(25), 256201.
+
+The main ``README.md`` in the repository provides:
+
+- Comprehensive documentation of all input/output file formats
+- Detailed descriptions of each of the 14 worked examples
+- Guides for each supported calculator (GULP, LAMMPS, VASP, CASTEP, QE)
+- Extended workflow examples (PME, MC, SQS, GQS, etc.)
+
+For questions or issues, contact the SOD developers.
 
 Where to go next
 ----------------

@@ -8,7 +8,7 @@ Pyrochlore A2B2O7: B site substitution
 3
 
 # symbol(1:nsp): Atom symbols
-La Zr O
+La Sn O
 
 # natsp0(1:nsp): Number of atoms per species (asymmetric unit is sufficient, full cell ok too)
 1 1 2
@@ -28,12 +28,12 @@ La Zr O
 # nsubs: Substitution counts. One line per target site.
 #        One integer per new species (multiple for multi-nary, space-separated).
 #        Single site only: use X:Y to enumerate all levels from X to Y recursively.
-2
+0:16
 
 # newsymbol: One line per target site. Each line lists k new-species symbols
 #            followed by the remaining-species symbol (k+1 symbols total).
 #            Prefix @NAME for a molecule (reads NAME.xyz); % for a vacancy (site omitted).
-Sn Zr
+Zr Sn
 
 # FILER: -1 none | 0 CIF | 1 GULP | 2 LAMMPS | 11 VASP | 12 CASTEP | 13 QE
-12
+-1

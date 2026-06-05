@@ -20,6 +20,8 @@
 
 program combsod
   use iso_fortran_env, only: int64, real64
+  use insod_reader,    only: insod_t, read_insod
+  use ensemble_io,     only: write_ensemble
   implicit none
 
   integer, parameter :: nspmax = 10, natmax = 10000, nopmax = 10000, ncellmax = 1000
@@ -78,8 +80,8 @@ program combsod
 ! Stage 2: recursive enumeration variables
   integer :: nsubs_prev, ncand, ncand_max, ic, jpar, jj, k, j_remove, nic_prev, idummy, npos_check
   integer(int64) :: cand
-  logical :: going_upward, use_recursive
-  character(len=20) :: prev_outsod, prev_dir
+  logical :: going_upward, use_recursive, prev_is_v3
+  character(len=20) :: prev_ensemble, prev_dir
   integer, dimension(:, :), allocatable :: indconf_prev
   integer, dimension(:), allocatable :: degen_prev
 
@@ -102,20 +104,18 @@ program combsod
   character(len=3), dimension(nspmax) :: symbol
   character(len=5), dimension(ntargetmax, nkmax+1) :: newsymbol
   character(len=40) :: runtitle
+  type(insod_t) :: insod
 
 ! Input files
-
-  open (unit=9, file="INSOD")
   open (unit=12, file="SGO")
 
 ! Output files written once (not per substitution level)
 
   open (unit=26, file="EQMATRIX")
   open (unit=31, file="supercell.cif")
-  open (unit=43, file="filer")
   open (unit=46, file="OPERATORS")
 
-! Note: OUTSOD (unit 30) and cSGO (unit 47) are opened per level inside the loop below
+! Note: ENSEMBLE (unit 30) and cSGO (unit 47) are opened per level inside the loop below
 
 !
 ! DEFINITION OF VARIABLES:
@@ -129,587 +129,61 @@ program combsod
 ! sptarget            Number of the species to be substituted
 ! at0,at1,at          Indexes for the atoms in the asymmetric unit, unit cell and supercell
 ! nat0,nat1,nat       Total numbers of atoms in the asymmetric unit, unit cell and supercell
-! at1r,nat1r            Idem for the atoms in the redundant cell (with repeated positions)
-! atini,atfin           Initial and final atom indexes of the species to be substituted
+! at1r,nat1r          Idem for the atoms in the redundant cell (with repeated positions)
+! atini,atfin         Initial and final atom indexes of the species to be substituted
 ! pos                 Index for atomic positions of the target species
-! npos                      Number of atoms of the target species
+! npos                Number of atoms of the target species
 ! nsubs               Current number of substitutions (loop variable)
 ! nsubs_min           Minimum number of substitutions requested
 ! nsubs_max           Maximum number of substitutions requested
-! conf                      List of all configurations (direct) or candidate list (recursive)
-! count                     Index for the configurations (conf), used in direct mode
-! cand                      Index for candidates, used in recursive mode
+! conf                List of all configurations (direct) or candidate list (recursive)
+! count               Index for the configurations (conf), used in direct mode
+! cand                Index for candidates, used in recursive mode
 ! ntc                 Total number of configurations C(npos,nsubs), used in direct mode
 ! ncand               Number of candidates generated from parent level (recursive mode)
 ! indconf             List of independent configurations
 ! indcount            Index for the independent configurations
 ! nic                 Total number of independent configurations in indconf (indcount=1,nic)
-! equivconf           Temporary list containing the equivalent configurations at every step of the algorithm
-! equivcount          Index for the equivalent configurations (equivconf)
-! tol0                      General tolerance
-! tol1                      Tolerance used for correcting the x-FLOOR(x) function
-!
-!
+! equivcount          Running count of equivalent configurations found
+! tol0                General tolerance
 !
 
-  write (*, *) "============================================================================"
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.71"
-  write (*, *) ""
-  write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
-  write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
-  write (*, *) "============================================================================"
-  write (*, *) ""
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
   write (*, *) ""
 
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Reading the input file with the uc space group information: SGO
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  read (12, *)
-  read (12, *) op1
-  do while (op1 > 0)
-    do i = 1, 3
-      read (12, *) (mgroup1(op1, i, j), j=1, 3), vgroup1(op1, i)
-    end do
-    nop1 = op1
-    read (12, *) op1
-  end do
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Reading the INSOD file
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  read (9, *)
-
-  read (9, *) runtitle
-  read (9, *)
-  read (9, *)
-  read (9, *) a1, b1, c1, alpha, beta, gamma
-  read (9, *)
-  read (9, *)
-  read (9, *) nsp
-  read (9, *)
-  read (9, *)
-  read (9, *) (symbol(sp), sp=1, nsp)
-  read (9, *)
-  read (9, *)
-  read (9, *) (natsp0(sp), sp=1, nsp)
-  read (9, *)
-  read (9, *)
-
-  nat0 = 0
-  do sp = 1, nsp
-    nat0 = nat0 + natsp0(sp)
-  end do
+  call read_sgo()
+  call read_insod('INSOD', insod)
+  runtitle = insod%runtitle
+  a1 = insod%a1; b1 = insod%b1; c1 = insod%c1
+  alpha = insod%alpha; beta = insod%beta; gamma = insod%gamma
+  nsp = insod%nsp
+  symbol(1:nsp)  = insod%symbol
+  natsp0(1:nsp)  = insod%natsp0
+  nat0           = insod%nat0
   if (nat0 > natmax) then
-    write (*, '(a,i0,a,i0,a)') " Error: nat0 = ", nat0, " exceeds natmax = ", natmax, ". Increase natmax in combsod.f90."
+    write (*, '(a,i0,a,i0,a)') " Error: nat0 = ", nat0, &
+      " exceeds natmax = ", natmax, ". Increase natmax in combsod.f90."
     stop 1
   end if
+  coords0(1:nat0, 1:3) = insod%coords0
+  na = insod%na; nb = insod%nb; nc = insod%nc
+  ntarget        = insod%ntarget
+  sptarget(1:ntarget) = insod%sptarget(1:ntarget)
+  nk(1:ntarget)  = insod%nk(1:ntarget)
+  nsubs_t(1:ntarget, 1:nkmax) = insod%nsubs_t(1:ntarget, 1:nkmax)
+  nsubs_min      = insod%nsubs_min
+  nsubs_max      = insod%nsubs_max
+  newsymbol      = insod%newsymbol
+  filer          = insod%filer
 
-  do at0 = 1, nat0
-    read (9, *) (coords0(at0, i), i=1, 3)
-  end do
-  read (9, *)
-  read (9, *)
-  read (9, *) na, nb, nc
-  read (9, *)
-  read (9, *)
-! Read sptarget line: 1..ntargetmax species indices
-  read (9, '(A)') line_buffer
-  ntarget = 0
-  do t = 1, ntargetmax
-    read (line_buffer, *, IOSTAT=ierr) (sptarget(i), i=1,t)
-    if (ierr /= 0) exit
-    ntarget = t
-  end do
-  if (ntarget == 0) then
-    write (*, *) "Error: could not parse sptarget from: ", trim(line_buffer)
-    stop 1
-  end if
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *)
-! Read nsubs: one line per target site.
-! ntarget==1: single integer, space-separated integers (multi-nary), or colon range X:Y.
-! ntarget==2: first line for target 1, second line for target 2.
-  read (9, '(A)') line_buffer
-  nk(:) = 1
-  if (ntarget >= 2) then
-!   Multi-target: space-separated integers per line; 1 integer = binary, 2+ = multi-nary.
-    if (index(trim(line_buffer), '/') > 0) then
-      write (*, *) "Error: '/' separator in nsubs is no longer supported."
-      write (*, *) "  Use one line per target site instead (e.g. first line: 2, second line: 1)."
-      stop 1
-    end if
-!   Parse target 1 (line_buffer already read above)
-    nk(1) = 0
-    do j = 1, nkmax
-      read (line_buffer, *, IOSTAT=ierr) (nsubs_t(1,i), i=1,j)
-      if (ierr /= 0) exit
-      nk(1) = j
-    end do
-    if (nk(1) == 0) then
-      write (*, *) "Error: could not parse nsubs for target 1 from: ", trim(line_buffer)
-      stop 1
-    end if
-    if (nk(1) > 3) then
-      write (*, *) "Error: more than 3 species per site (k=", nk(1), ") not yet supported."
-      stop 1
-    end if
-    do j = 1, nk(1)
-      if (nsubs_t(1,j) < 0) then
-        write (*, *) "Error: number of substitutions must be >= 0"
-        stop 1
-      end if
-    end do
-!   Parse targets 2..ntarget
-    do t = 2, ntarget
-      read (9, '(A)') line_buffer
-      nk(t) = 0
-      do j = 1, nkmax
-        read (line_buffer, *, IOSTAT=ierr) (nsubs_t(t,i), i=1,j)
-        if (ierr /= 0) exit
-        nk(t) = j
-      end do
-      if (nk(t) == 0) then
-        write (*, '(a,i0,a,a)') "Error: could not parse nsubs for target ", t, " from: ", trim(line_buffer)
-        stop 1
-      end if
-      if (nk(t) > 3) then
-        write (*, *) "Error: more than 3 species per site (k=", nk(t), ") not yet supported."
-        stop 1
-      end if
-      do j = 1, nk(t)
-        if (nsubs_t(t,j) < 0) then
-          write (*, *) "Error: number of substitutions must be >= 0"
-          stop 1
-        end if
-      end do
-    end do
-    nsubs_min = nsubs_t(1,1)
-    nsubs_max = nsubs_t(1,1)
-  else if (index(trim(line_buffer), ':') > 0) then
-!   Colon range notation: nsubs_min:nsubs_max (single target only)
-    j = index(trim(line_buffer), ':')
-    read (line_buffer(1:j-1), *, IOSTAT=ierr) nsubs_min
-    if (ierr /= 0) then
-      write (*, *) "Error: could not parse nsubs_min from colon notation: ", trim(line_buffer)
-      stop 1
-    end if
-    read (line_buffer(j+1:), *, IOSTAT=ierr) nsubs_max
-    if (ierr /= 0) then
-      write (*, *) "Error: could not parse nsubs_max from colon notation: ", trim(line_buffer)
-      stop 1
-    end if
-    if (nsubs_min < 0) then
-      write (*, *) "Error: number of substitutions must be >= 0"
-      stop 1
-    end if
-    if (nsubs_max < nsubs_min) then
-      write (*, *) "Error: nsubs_max must be >= nsubs_min"
-      stop 1
-    end if
-  else
-!   Single integer or space-separated integers (binary, or multi-nary; single target)
-    nk(1) = 0
-    do j = 1, nkmax
-      read (line_buffer, *, IOSTAT=ierr) (nsubs_t(1,i), i=1,j)
-      if (ierr /= 0) exit
-      nk(1) = j
-    end do
-    if (nk(1) == 0) then
-      write (*, *) "Error: could not parse nsubs line: ", trim(line_buffer)
-      stop 1
-    end if
-    if (nk(1) > 3) then
-      write (*, *) "Error: more than 3 species per site (k=", nk(1), ") not yet supported."
-      write (*, *) "  Supported: k=1 (binary), k=2 and k=3 (multi-nary)."
-      stop 1
-    end if
-    do j = 1, nk(1)
-      if (nsubs_t(1,j) < 0) then
-        write (*, *) "Error: number of substitutions must be >= 0"
-        stop 1
-      end if
-    end do
-    nsubs_min = nsubs_t(1,1)
-    nsubs_max = nsubs_t(1,1)
-  end if
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *)
-  read (9, *) (newsymbol(1, j), j=1, nk(1)+1)
-  do t = 2, ntarget
-    read (9, *) (newsymbol(t, j), j=1, nk(t)+1)
-  end do
-  read (9, *)
-  read (9, *)
-  read (9, *) filer
+  call build_supercell()
 
-!cccccccccccccccccccccccccccccccccccc
-! Generating spat0 array
-!cccccccccccccccccccccccccccccccccccc
-
-  do at0 = 1, natsp0(1)
-    spat0(at0) = 1
-    cumnatsp = natsp0(1)
-  end do
-  do sp = 2, nsp
-    do at0 = cumnatsp + 1, cumnatsp + natsp0(sp)
-      spat0(at0) = sp
-    end do
-    cumnatsp = cumnatsp + natsp0(sp)
-  end do
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      First create the redundant unit cell from the asymmetric unit
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  write (*, *) ""
-  write (*, *) "Generating the supercell..."
-  write (*, *) ""
-
-  at1r = 0
-  do at0 = 1, nat0
-    do op1 = 1, nop1
-      at1r = at1r + 1
-      coords1r(at1r, 1:3) = matmul(mgroup1(op1, 1:3, 1:3), coords0(at0, 1:3)) + vgroup1(op1, 1:3)
-      coords1r(at1r, 1) = cc(coords1r(at1r, 1))
-      coords1r(at1r, 2) = cc(coords1r(at1r, 2))
-      coords1r(at1r, 3) = cc(coords1r(at1r, 3))
-      spat1r(at1r) = spat0(at0)
-    end do
-  end do
-  nat1r = at1r
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Get rid of the redundant atoms, to create the unit cell
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  coords1(1, :) = coords1r(1, :)
-  at1r = 1
-  at1 = 1
-  coords1(1, :) = coords1r(1, :)
-  spat1(1) = spat1r(1)
-  do at1r = 2, nat1r
-    found = .false.
-    do at1i = 1, at1
-      prod = dot_product(coords1r(at1r, :) - coords1(at1i, :), &
-                         coords1r(at1r, :) - coords1(at1i, :))
-      if (prod <= tol0) found = .true.
-    end do
-    if (.not. found) then
-      at1 = at1 + 1
-      coords1(at1, :) = coords1r(at1r, :)
-      spat1(at1) = spat1r(at1r)
-    end if
-  end do
-  nat1 = at1
-
-  do sp = 1, nsp
-    natsp1(sp) = 0
-  end do
-  do at1 = 1, nat1
-    natsp1(spat1(at1)) = natsp1(spat1(at1)) + 1
-  end do
-
-  natsp(:) = na*nb*nc*natsp1(:)
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Create the traslation vectors of the supercell
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  t = 0
-  do ina = 0, na - 1
-    do inb = 0, nb - 1
-      do inc = 0, nc - 1
-        t = t + 1
-        vt(t, 1) = real(ina)/real(na)
-        vt(t, 2) = real(inb)/real(nb)
-        vt(t, 3) = real(inc)/real(nc)
-      end do
-    end do
-  end do
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Create the traslation vectors of the supercell
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  do op1 = 1, nop1
-    op1good(op1) = 1
-  end do
-
-  if (.not. (na == nb .and. na == nc)) then
-    if (na == nb) then
-      do op1 = 1, nop1
-        do i = 1, 3
-          if ((mgroup1(op1, 1, 3) /= 0) .or. (mgroup1(op1, 3, 1) /= 0) .or. &
-              (mgroup1(op1, 2, 3) /= 0) .or. (mgroup1(op1, 3, 2) /= 0)) then
-            op1good(op1) = 0
-          end if
-        end do
-      end do
-    else
-      if (na == nc) then
-        do op1 = 1, nop1
-          do i = 1, 3
-            if ((mgroup1(op1, 1, 2) /= 0) .or. (mgroup1(op1, 2, 1) /= 0) .or. &
-                (mgroup1(op1, 3, 2) /= 0) .or. (mgroup1(op1, 2, 3) /= 0)) then
-              op1good(op1) = 0
-            end if
-          end do
-        end do
-      end if
-      if (nb == nc) then
-        do op1 = 1, nop1
-          do i = 1, 3
-            if ((mgroup1(op1, 2, 1) /= 0) .or. (mgroup1(op1, 1, 2) /= 0) .or. &
-                (mgroup1(op1, 3, 1) /= 0) .or. (mgroup1(op1, 1, 3) /= 0)) then
-              op1good(op1) = 0
-            end if
-          end do
-        end do
-      end if
-      if ((nb /= nc) .and. (na /= nc)) then
-        do op1 = 1, nop1
-          do i = 1, 3
-            if ((mgroup1(op1, 2, 1) /= 0) .or. (mgroup1(op1, 1, 2) /= 0) .or. &
-                (mgroup1(op1, 3, 1) /= 0) .or. (mgroup1(op1, 1, 3) /= 0) .or. &
-                (mgroup1(op1, 3, 2) /= 0) .or. (mgroup1(op1, 2, 3) /= 0)) then
-              op1good(op1) = 0
-            end if
-          end do
-        end do
-      end if
-    end if
-  end if
-
-  op1new = 0
-  do op1 = 1, nop1
-    if (op1good(op1) == 1) then
-      op1new = op1new + 1
-      mgroup1new(op1new, :, :) = mgroup1(op1, :, :)
-      vgroup1new(op1new, :) = vgroup1(op1, :)
-    end if
-  end do
-  nop1new = op1new
-
-  nop1 = nop1new
-  do op1 = 1, nop1
-    mgroup1(op1, :, :) = mgroup1new(op1, :, :)
-    vgroup1(op1, :) = vgroup1new(op1, :)
-  end do
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Generate the supercell coordinates, by applying these vectors
-!      to the unit cell. Also calculate the supercell parameters.
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  a = na*a1
-  b = nb*b1
-  c = nc*c1
-
-  at = 0
-  do at1 = 1, nat1
-    do t = 1, na*nb*nc
-      at = at + 1
-      coords(at, 1) = vt(t, 1) + coords1(at1, 1)/na
-      coords(at, 2) = vt(t, 2) + coords1(at1, 2)/nb
-      coords(at, 3) = vt(t, 3) + coords1(at1, 3)/nc
-      spat(at) = spat1(at1)
-    end do
-  end do
-  nat = at
-
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-! Write supercell.cif with P1 symmetry; atom order matches OUTSOD indices
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  write (31, '(a)') "data_supercell"
-  write (31, '(a)') " "
-  write (31, '(a, f12.6)') "_cell_length_a     ", a
-  write (31, '(a, f12.6)') "_cell_length_b     ", b
-  write (31, '(a, f12.6)') "_cell_length_c     ", c
-  write (31, '(a, f12.6)') "_cell_angle_alpha  ", alpha
-  write (31, '(a, f12.6)') "_cell_angle_beta   ", beta
-  write (31, '(a, f12.6)') "_cell_angle_gamma  ", gamma
-  write (31, '(a)') " "
-  write (31, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
-  write (31, '(a)') "_symmetry_Int_Tables_number      1"
-  write (31, '(a)') " "
-  write (31, '(a)') "loop_"
-  write (31, '(a)') "_symmetry_equiv_pos_as_xyz"
-  write (31, '(a)') "'x, y, z'"
-  write (31, '(a)') " "
-  write (31, '(a)') "loop_"
-  write (31, '(a)') "_atom_site_label"
-  write (31, '(a)') "_atom_site_type_symbol"
-  write (31, '(a)') "_atom_site_fract_x"
-  write (31, '(a)') "_atom_site_fract_y"
-  write (31, '(a)') "_atom_site_fract_z"
-  atsp = 0
-  do at = 1, nat
-    if (at == 1 .or. spat(at) /= spat(at - 1)) atsp = 0
-    atsp = atsp + 1
-    write (31, '(a, i0, 2x, a, 3(2x, f11.7))') trim(symbol(spat(at))), atsp, &
-          trim(symbol(spat(at))), coords(at, 1), coords(at, 2), coords(at, 3)
-  end do
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Calculate the supercell operators
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  op = 0
-  do op1 = 1, nop1
-    do t = 1, na*nb*nc
-      op = op + 1
-      mgroup(op, :, :) = mgroup1(op1, :, :)
-      vgroup(op, 1) = vgroup1(op1, 1)/na + vt(t, 1)
-      vgroup(op, 2) = vgroup1(op1, 2)/nb + vt(t, 2)
-      vgroup(op, 3) = vgroup1(op1, 3)/nc + vt(t, 3)
-    end do
-  end do
-
-  nop = op
-
-  allocate (fulleqmatrix(1:nop, 1:nat), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory (fulleqmatrix)"
-    stop 1
-  end if
-
-  write (46, *) nop
-  do op = 1, nop
-    write (46, *) "Operator number ", op
-    do i = 1, 3
-      write (46, *) mgroup(op, i, 1:3), vgroup(op, i)
-    end do
-  end do
-
-  write (*, *) " > Composition of the parent supercell:"
-  do sp = 1, nsp
-    write (*, '(a, a, i10)') "    - ", symbol(sp), natsp(sp)
-  end do
-  write (*, *) ""
-  write (*, '(a, i10)') " > Number of symmetry operators in the supercell: ", nop
-  write (*, *) ""
-
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Create Full Equivalence Matrix
-!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  coordstemp(:) = matmul(mgroup(1, :, :), coords(1, :)) + vgroup(1, :)
-
-  do op = 1, nop
-    do at = 1, nat
-      coordstemp(:) = matmul(mgroup(op, :, :), coords(at, :)) + vgroup(op, :)
-      coordstemp(1) = cc(coordstemp(1))
-      coordstemp(2) = cc(coordstemp(2))
-      coordstemp(3) = cc(coordstemp(3))
-      found = .false.
-      attmp = 0
-      do while ((.not. found) .and. (attmp < nat))
-        attmp = attmp + 1
-        if ((abs(coordstemp(1) - coords(attmp, 1)) < tol0) .and. &
-            (abs(coordstemp(2) - coords(attmp, 2)) < tol0) .and. &
-            (abs(coordstemp(3) - coords(attmp, 3)) < tol0)) &
-          found = .true.
-      end do
-      if ((attmp == nat) .and. (.not. found)) then
-        write (*, *) "Error!!! Operator", &
-          op, "applied on atom", at, "does not produce another atom in the list!!!"
-        attmp = 0
-      end if
-
-      fulleqmatrix(op, at) = attmp
-
-    end do
-  end do
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!       Calculate the initial and final nat of the target species
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-! Compute atini/atfin and eqmt for all target species
-
-  do t_A = 1, ntarget
-    atini_t(t_A) = 1
-    do sp = 1, sptarget(t_A) - 1
-      atini_t(t_A) = atini_t(t_A) + natsp(sp)
-    end do
-    atfin_t(t_A) = atini_t(t_A) + natsp(sptarget(t_A)) - 1
-    npos_t(t_A) = natsp(sptarget(t_A))
-  end do
-
-! Scalar aliases for ntarget==1 code paths
-  atini = atini_t(1)
-  atfin = atfin_t(1)
-  npos  = npos_t(1)
-
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!         Obtain the Equivalence Matrix for the target species from the Full Equivalence Matrix
-!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  npos_max = maxval(npos_t(1:ntarget))
-  allocate (eqmt(1:ntarget, 1:npos_max, 1:nop), stat=ierr)
-  if (ierr /= 0) then
-    write (*, *) "Error: problem too large for SOD - insufficient memory (eqmt)"
-    stop 1
-  end if
-  do t = 1, ntarget
-    do op = 1, nop
-      att = 0
-      do at = atini_t(t), atfin_t(t)
-        att = att + 1
-        eqmt(t, att, op) = fulleqmatrix(op, at) - atini_t(t) + 1
-      end do
-    end do
-    write (26, *) nop, npos_t(t)
-    do op = 1, nop
-      write (26, *) (eqmt(t, pos, op), pos=1, npos_t(t))
-    end do
-  end do
-
-  deallocate (fulleqmatrix)
-
-  if (ntarget == 1 .and. nk(1) >= 2) then
-!   Multi-nary: check total substitutions against available sites
-    if (sum(nsubs_t(1, 1:nk(1))) > npos_t(1)) then
-      write (*, *) "Error: total substitutions (", sum(nsubs_t(1, 1:nk(1))), &
-        ") exceed available sites (", npos_t(1), ")"
-      stop 1
-    end if
-  else if (nsubs_max > npos_t(1)) then
-    write (*, *) "Error: nsubs_max (", nsubs_max, ") exceeds number of available sites (", npos_t(1), ")"
-    stop 1
-  end if
-  do t = 2, ntarget
-    if (sum(nsubs_t(t, 1:nk(t))) > npos_t(t)) then
-      write (*, '(a,i0,a,i0,a,i0,a)') "Error: total nsubs for target ", t, &
-        " (", sum(nsubs_t(t, 1:nk(t))), ") exceeds available sites (", npos_t(t), ")"
-      stop 1
-    end if
-  end do
-
-! Direction selection: only for binary substitution (single new-species range)
-  if (ntarget == 1 .and. nk(1) == 1) then
-    going_upward = (nsubs_min <= npos - nsubs_max)
-    if (nsubs_min < nsubs_max) then
-      if (going_upward) then
-        write (*, '(a,i0,a)') " > Direction: UPWARD (starting at nsubs = ", nsubs_min, ")"
-      else
-        write (*, '(a,i0,a)') " > Direction: DOWNWARD (starting at nsubs = ", nsubs_max, ")"
-      end if
-    end if
-  end if
+  call write_supercell_cif()
+  call build_symmetry()
+  call setup_targets()
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         Loop over substitution levels
@@ -734,8 +208,7 @@ program combsod
     call system_clock(t_start_level)
     write (nxx_dir, '("n", i2.2)') nsubs
     call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
-    open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
-    write (30, '(a)') "# SOD OUTSOD format version 2"
+    open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
     open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
     write (*, *) "----------------------------------------------------------------------------"
@@ -760,13 +233,21 @@ program combsod
       write (*, *) " "
       write (*, '(a)') "       Number of inequivalent configurations: 1"
       write (*, *) " "
-      write (30, *) nsubs, " substitutions in ", npos, "sites"
-      write (30, *) 1, " configurations"
-      if (nsubs == 0) then
-        write (30, '(i6, 1x, i6)') 1, 1
-      else
-        write (30, '(i6, 1x, i6, *(1x, i4))') 1, 1, (pos + atini - 1, pos=1, npos)
-      end if
+      block
+        integer, allocatable :: triv_ic(:,:)
+        integer :: triv_dg(1), k_
+        triv_dg(1) = 1
+        if (nsubs == 0) then
+          allocate(triv_ic(1, 0))
+        else
+          allocate(triv_ic(1, npos))
+          do k_ = 1, npos
+            triv_ic(1, k_) = k_
+          end do
+        end if
+        call write_ensemble(30, 1, [1], [nsubs], [npos], [atini], 1, triv_ic, triv_dg, &
+                            'enumerated', [symbol(sptarget(1))], newsymbol(1:1, 1:2))
+      end block
       close (30)
       close (47)
       cycle
@@ -783,7 +264,7 @@ program combsod
     end do
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!         Check for adjacent OUTSOD to decide direct vs recursive path
+!         Check for adjacent ENSEMBLE to decide direct vs recursive path
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
     if (going_upward) then
@@ -791,22 +272,64 @@ program combsod
     else
       write (prev_dir, '("n", i2.2)') nsubs + 1
     end if
-    prev_outsod = trim(prev_dir) // "/OUTSOD"
+    prev_ensemble = trim(prev_dir) // "/ENSEMBLE"
 
-    open (unit=50, file=trim(prev_outsod), status='old', IOSTAT=ierr)
+    open (unit=50, file=trim(prev_ensemble), status='old', IOSTAT=ierr)
     use_recursive = (ierr == 0)
 
     if (use_recursive) then
-! Read header line 1: "N substitutions in M sites" (skip any leading # comment lines)
+! Read header: detect v2 ("N substitutions in M sites") or v3 ("... ensemble: N configurations")
+      prev_is_v3 = .false.
       do
         read (50, '(A)') line_buffer
         if (line_buffer(1:1) /= '#') exit
       end do
-      read (line_buffer, *) nsubs_prev
-      k = index(line_buffer, ' in ')
-      read (line_buffer(k + 4:), *) npos_check
+      if (index(line_buffer, 'substitutions') > 0) then
+        ! v2 format: "nsubs_prev substitutions in npos_check sites"
+        read (line_buffer, *) nsubs_prev
+        k = index(line_buffer, ' in ')
+        read (line_buffer(k + 4:), *) npos_check
+      else
+        ! v3 format: line 1 = "... ensemble: nic_prev configurations"
+        prev_is_v3 = .true.
+        block
+          integer :: tmp_buf(20), tmp_n, iv, pos_, len_s, ios_
+          character(len=64) :: tok
+          len_s = index(line_buffer, 'configurations') - 1
+          pos_ = 1; tmp_n = 0
+          do while (pos_ <= len_s .and. tmp_n < 20)
+            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) == ' '); pos_ = pos_ + 1; end do
+            if (pos_ > len_s) exit
+            k = pos_
+            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) /= ' '); pos_ = pos_ + 1; end do
+            tok = line_buffer(k:pos_-1)
+            read(tok, *, iostat=ios_) iv
+            if (ios_ == 0) then; tmp_n = tmp_n + 1; tmp_buf(tmp_n) = iv; end if
+          end do
+          if (tmp_n > 0) nic_prev = tmp_buf(tmp_n)
+        end block
+        ! target line: "<npos_check> <orig_sym> sites -> <nsubs_prev> <sym> <nrem> <sym>"
+        read (50, '(A)') line_buffer
+        read (line_buffer, *) npos_check
+        k = index(line_buffer, '->')
+        block
+          integer :: iv, pos_, len_s, ios_
+          character(len=64) :: tok
+          len_s = len_trim(line_buffer); pos_ = k + 2
+          do while (pos_ <= len_s)
+            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) == ' '); pos_ = pos_ + 1; end do
+            if (pos_ > len_s) exit
+            k = pos_
+            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) /= ' '); pos_ = pos_ + 1; end do
+            tok = line_buffer(k:pos_-1)
+            read(tok, *, iostat=ios_) iv
+            if (ios_ == 0) then; nsubs_prev = iv; exit; end if  ! first integer after '->'
+          end do
+        end block
+        read (50, '(A)') line_buffer  ! skip column-header comment line
+      end if
       if (npos_check /= npos) then
-        write (*, *) "Warning: npos in adjacent OUTSOD (", npos_check, &
+        write (*, *) "Warning: npos in adjacent ENSEMBLE (", npos_check, &
                      ") does not match current npos (", npos, "). Falling back to direct."
         use_recursive = .false.
         close (50)
@@ -814,9 +337,11 @@ program combsod
     end if
 
     if (use_recursive) then
-! Read header line 2: "K configurations"
-      read (50, '(A)') line_buffer
-      read (line_buffer, *) nic_prev
+      if (.not. prev_is_v3) then
+        ! v2: nic is on a separate line
+        read (50, '(A)') line_buffer
+        read (line_buffer, *) nic_prev
+      end if
       allocate (indconf_prev(1:nic_prev, 1:nsubs_prev))
       allocate (degen_prev(1:nic_prev))
       if (nsubs_prev == 0) then
@@ -827,11 +352,11 @@ program combsod
         do ic = 1, nic_prev
           read (50, *) idummy, degen_prev(ic), (indconf_prev(ic, j), j=1, nsubs_prev)
         end do
-        ! OUTSOD stores global atom indices; convert to local (1..npos) for the expansion
+        ! ENSEMBLE stores global atom indices; convert to local (1..npos) for the expansion
         indconf_prev(1:nic_prev, 1:nsubs_prev) = indconf_prev(1:nic_prev, 1:nsubs_prev) - atini + 1
       end if
       close (50)
-      write (*, *) "Using recursive generation from ", trim(prev_outsod), &
+      write (*, *) "Using recursive generation from ", trim(prev_ensemble), &
                    " (", nic_prev, " parents)"
     else
       write (*, *) "Generating the complete configurational space..."
@@ -1031,7 +556,6 @@ program combsod
       write (*, '(a, f7.2, a)')  " > Supercell captures                           ", perc, "% of ideal entropy"
       write (*, *) ""
 
-!!!!!!!!Allocating array sizes
 ! conf(ntc, nsubs) is NOT allocated; configurations are generated one at a time via ksubset.
 ! indconf is allocated at ntc (safe upper bound on the number of independent configs).
 
@@ -1175,8 +699,6 @@ program combsod
 
     end if  ! use_recursive / direct
 
-!!!!!!!!End of search for independent configurations
-
 ! Trim indconf and degen to the actual number of independent configurations
     block
       integer, dimension(:, :), allocatable :: tmp2d
@@ -1192,14 +714,10 @@ program combsod
     write (*, '(a,i0)') "  > Number of inequivalent configurations: ", nic
     write (*, *) ""
 
-    write (30, *) nsubs, " substitutions in ", npos, "sites"
-    write (30, *) nic, " configurations"
-    do indcount = 1, nic
-      write (30, 330) indcount, degen(indcount), indconf(indcount, 1:nsubs) + atini - 1
-    end do
-330 format(i6, 1x, i6, *(1x, i4))
+    call write_ensemble(30, 1, [1], [nsubs], [npos], [atini], int(nic), &
+                        indconf(1:nic, 1:nsubs), degen(1:nic), &
+                        'enumerated', [symbol(sptarget(1))], newsymbol(1:1, 1:2))
 
-!!!!!!!Deallocating arrays
     deallocate (newconf)
     deallocate (degen)
     deallocate (indconf)
@@ -1228,8 +746,7 @@ program combsod
 ! Build directory name: n01_04/ etc.
   write (nxx_dir, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2)
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
-  open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
-  write (30, '(a)') "# SOD OUTSOD format version 2"
+  open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
   write (*, *) " "
@@ -1495,12 +1012,9 @@ program combsod
   write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
   write (*, *) " "
 
-! Write OUTSOD header and data (absolute positions)
-  write (30, *) nsubs_t(1,1), nsubs_t(1,2), " substitutions in ", npos, "sites"
-  write (30, *) nic, " configurations"
-  do indcount = 1, nic
-    write (30, 331) indcount, degen(indcount), indconf(indcount, 1:nsubs) + atini - 1
-  end do
+  call write_ensemble(30, 1, [2], nsubs_t(1, 1:2), [npos], [atini], int(nic), &
+                      indconf(1:nic, 1:nsubs), degen(1:nic), &
+                      'enumerated', [symbol(sptarget(1))], newsymbol(1:1, 1:3))
 
   deallocate (as_A, as_B, newconf_A, newconf_B, new_as_B)
   deallocate (degen)
@@ -1524,8 +1038,7 @@ program combsod
 ! Build directory name: n01_02_03/ etc.
   write (nxx_dir, '("n", i2.2, "_", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3)
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
-  open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
-  write (30, '(a)') "# SOD OUTSOD format version 2"
+  open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
   write (*, *) " "
@@ -1898,12 +1411,9 @@ program combsod
   write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
   write (*, *) " "
 
-! Write OUTSOD header and data (absolute positions)
-  write (30, *) nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3), " substitutions in ", npos, "sites"
-  write (30, *) nic, " configurations"
-  do indcount = 1, nic
-    write (30, 331) indcount, degen(indcount), indconf(indcount, 1:nsubs) + atini - 1
-  end do
+  call write_ensemble(30, 1, [3], nsubs_t(1, 1:3), [npos], [atini], int(nic), &
+                      indconf(1:nic, 1:nsubs), degen(1:nic), &
+                      'enumerated', [symbol(sptarget(1))], newsymbol(1:1, 1:4))
 
   deallocate (as_A, as_B, as_C, newconf_A, newconf_B, newconf_C)
   deallocate (new_as_B, new_as_C, as_notB_tmp, new_notB_tmp)
@@ -1930,8 +1440,7 @@ program combsod
     write (nxx_dir, '(a, "_", i2.2)') trim(nxx_dir), nsubs_t(t,1)
   end do
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
-  open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
-  write (30, '(a)') "# SOD OUTSOD format version 2"
+  open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
   write (*, *) "----------------------------------------------------------------------------"
@@ -2033,7 +1542,7 @@ program combsod
     do i = 1, nsubs_t(t,1)
       as_t(t, i) = i
     end do
-    mores_t(t) = (nsubs_t(t,1) < npos_t(t))
+    mores_t(t) = (nsubs_t(t,1) > 0) .and. (nsubs_t(t,1) < npos_t(t))
   end do
 
   main_loop: do
@@ -2126,7 +1635,7 @@ program combsod
           do i = 1, nsubs_t(tt,1)
             as_t(tt, i) = i
           end do
-          mores_t(tt) = (nsubs_t(tt,1) < npos_t(tt))
+          mores_t(tt) = (nsubs_t(tt,1) > 0) .and. (nsubs_t(tt,1) < npos_t(tt))
         end do
         exit
       else if (t == 1) then
@@ -2154,18 +1663,10 @@ program combsod
   write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
   write (*, *) " "
 
-  write (30, *) (nsubs_t(t,1), t=1,ntarget), " substitutions in ", (npos_t(t), t=1,ntarget), "sites"
-  write (30, *) nic, " configurations"
-  do indcount = 1, nic
-    offset = 0
-    do t = 1, ntarget
-      tmp_conf(offset+1:offset+nsubs_t(t,1)) = &
-        indconf(indcount, offset+1:offset+nsubs_t(t,1)) + atini_t(t) - 1
-      offset = offset + nsubs_t(t,1)
-    end do
-    write (30, 331) indcount, degen(indcount), tmp_conf(1:nsubs_tot)
-  end do
-331 format(i6, 1x, i6, *(1x, i4))
+  call write_ensemble(30, ntarget, nk(1:ntarget), nsubs_t(1:ntarget, 1), &
+                      npos_t(1:ntarget), atini_t(1:ntarget), int(nic), indconf(1:nic, 1:nsubs_tot), degen(1:nic), &
+                      'enumerated', symbol(sptarget(1:ntarget)), &
+                      newsymbol(1:ntarget, 1:maxval(nk(1:ntarget))+1))
 
   deallocate (newconf_t, as_t, tmp_conf)
   deallocate (degen)
@@ -2202,8 +1703,7 @@ program combsod
     end do
   end do
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
-  open (unit=30, file=trim(nxx_dir) // "/OUTSOD")
-  write (30, '(a)') "# SOD OUTSOD format version 2"
+  open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
 
   write (*, *) "----------------------------------------------------------------------------"
@@ -2595,19 +2095,11 @@ program combsod
   write (*, '(a,i0)') "       Number of inequivalent configurations: ", nic
   write (*, *) " "
 
-! OUTSOD: per-target nsubs counts, then per-target npos
-  write (30, *) ((nsubs_t(t,j), j=1,nk(t)), t=1,ntarget), &
-                " substitutions in ", (npos_t(t), t=1,ntarget), "sites"
-  write (30, *) nic, " configurations"
-  do indcount = 1, nic
-    offset = 0
-    do t = 1, ntarget
-      tmp_conf(offset+1:offset+nsubs_tot_t(t)) = &
-        indconf(indcount, offset+1:offset+nsubs_tot_t(t)) + atini_t(t) - 1
-      offset = offset + nsubs_tot_t(t)
-    end do
-    write (30, 331) indcount, degen(indcount), tmp_conf(1:nsubs_tot)
-  end do
+  call write_ensemble(30, ntarget, nk(1:ntarget), &
+                      [((nsubs_t(t,j), j=1,nk(t)), t=1,ntarget)], &
+                      npos_t(1:ntarget), atini_t(1:ntarget), int(nic), indconf(1:nic, 1:nsubs_tot), degen(1:nic), &
+                      'enumerated', symbol(sptarget(1:ntarget)), &
+                      newsymbol(1:ntarget, 1:maxval(nk(1:ntarget))+1))
 
   deallocate (binom_pos_t, binom_col_t)
   deallocate (as_pos_t, as_col1_t, as_col2_t, notcol1_t)
@@ -2619,14 +2111,11 @@ program combsod
 
   end if  ! ntarget == 1 / ntarget >= 2
 
-!!!!!!! Write FILER to file, to be read by the shell script
-  write (43, *) filer
 ! Calculation input file generation is handled by genersod,
 ! called automatically by sod_comb.sh when FILER is not -1.
 
   deallocate (eqmt)
 
-!!!!!!!Reporting the end
   call system_clock(t_now)
   elapsed_total = real(t_now - t_start_total, real64) / real(clock_rate, real64)
   write (*, *) " "
@@ -2646,6 +2135,348 @@ program combsod
   write (*, *) ""
 
 contains
+
+  ! ---------------------------------------------------------------------------
+  ! Read unit-cell symmetry operators from SGO file (unit 12).
+  ! ---------------------------------------------------------------------------
+  subroutine read_sgo()
+    read (12, *)
+    read (12, *) op1
+    do while (op1 > 0)
+      do i = 1, 3
+        read (12, *) (mgroup1(op1, i, j), j=1, 3), vgroup1(op1, i)
+      end do
+      nop1 = op1
+      read (12, *) op1
+    end do
+  end subroutine read_sgo
+
+  ! ---------------------------------------------------------------------------
+  ! Build the supercell: spat0 array, redundant UC, dedup UC, filter symmetry
+  ! operators for non-cubic expansion, translation vectors, supercell coords.
+  ! ---------------------------------------------------------------------------
+  subroutine build_supercell()
+    write (*, *) ""
+    write (*, *) "Generating the supercell..."
+    write (*, *) ""
+
+    do at0 = 1, natsp0(1)
+      spat0(at0) = 1
+      cumnatsp = natsp0(1)
+    end do
+    do sp = 2, nsp
+      do at0 = cumnatsp + 1, cumnatsp + natsp0(sp)
+        spat0(at0) = sp
+      end do
+      cumnatsp = cumnatsp + natsp0(sp)
+    end do
+
+    at1r = 0
+    do at0 = 1, nat0
+      do op1 = 1, nop1
+        at1r = at1r + 1
+        coords1r(at1r, 1:3) = matmul(mgroup1(op1, 1:3, 1:3), coords0(at0, 1:3)) + vgroup1(op1, 1:3)
+        coords1r(at1r, 1) = cc(coords1r(at1r, 1))
+        coords1r(at1r, 2) = cc(coords1r(at1r, 2))
+        coords1r(at1r, 3) = cc(coords1r(at1r, 3))
+        spat1r(at1r) = spat0(at0)
+      end do
+    end do
+    nat1r = at1r
+
+    coords1(1, :) = coords1r(1, :)
+    at1r = 1
+    at1 = 1
+    coords1(1, :) = coords1r(1, :)
+    spat1(1) = spat1r(1)
+    do at1r = 2, nat1r
+      found = .false.
+      do at1i = 1, at1
+        prod = dot_product(coords1r(at1r, :) - coords1(at1i, :), &
+                           coords1r(at1r, :) - coords1(at1i, :))
+        if (prod <= tol0) found = .true.
+      end do
+      if (.not. found) then
+        at1 = at1 + 1
+        coords1(at1, :) = coords1r(at1r, :)
+        spat1(at1) = spat1r(at1r)
+      end if
+    end do
+    nat1 = at1
+
+    do sp = 1, nsp
+      natsp1(sp) = 0
+    end do
+    do at1 = 1, nat1
+      natsp1(spat1(at1)) = natsp1(spat1(at1)) + 1
+    end do
+    natsp(:) = na*nb*nc*natsp1(:)
+
+    t = 0
+    do ina = 0, na - 1
+      do inb = 0, nb - 1
+        do inc = 0, nc - 1
+          t = t + 1
+          vt(t, 1) = real(ina)/real(na)
+          vt(t, 2) = real(inb)/real(nb)
+          vt(t, 3) = real(inc)/real(nc)
+        end do
+      end do
+    end do
+
+    do op1 = 1, nop1
+      op1good(op1) = 1
+    end do
+
+    if (.not. (na == nb .and. na == nc)) then
+      if (na == nb) then
+        do op1 = 1, nop1
+          do i = 1, 3
+            if ((mgroup1(op1, 1, 3) /= 0) .or. (mgroup1(op1, 3, 1) /= 0) .or. &
+                (mgroup1(op1, 2, 3) /= 0) .or. (mgroup1(op1, 3, 2) /= 0)) then
+              op1good(op1) = 0
+            end if
+          end do
+        end do
+      else
+        if (na == nc) then
+          do op1 = 1, nop1
+            do i = 1, 3
+              if ((mgroup1(op1, 1, 2) /= 0) .or. (mgroup1(op1, 2, 1) /= 0) .or. &
+                  (mgroup1(op1, 3, 2) /= 0) .or. (mgroup1(op1, 2, 3) /= 0)) then
+                op1good(op1) = 0
+              end if
+            end do
+          end do
+        end if
+        if (nb == nc) then
+          do op1 = 1, nop1
+            do i = 1, 3
+              if ((mgroup1(op1, 2, 1) /= 0) .or. (mgroup1(op1, 1, 2) /= 0) .or. &
+                  (mgroup1(op1, 3, 1) /= 0) .or. (mgroup1(op1, 1, 3) /= 0)) then
+                op1good(op1) = 0
+              end if
+            end do
+          end do
+        end if
+        if ((nb /= nc) .and. (na /= nc)) then
+          do op1 = 1, nop1
+            do i = 1, 3
+              if ((mgroup1(op1, 2, 1) /= 0) .or. (mgroup1(op1, 1, 2) /= 0) .or. &
+                  (mgroup1(op1, 3, 1) /= 0) .or. (mgroup1(op1, 1, 3) /= 0) .or. &
+                  (mgroup1(op1, 3, 2) /= 0) .or. (mgroup1(op1, 2, 3) /= 0)) then
+                op1good(op1) = 0
+              end if
+            end do
+          end do
+        end if
+      end if
+    end if
+
+    op1new = 0
+    do op1 = 1, nop1
+      if (op1good(op1) == 1) then
+        op1new = op1new + 1
+        mgroup1new(op1new, :, :) = mgroup1(op1, :, :)
+        vgroup1new(op1new, :) = vgroup1(op1, :)
+      end if
+    end do
+    nop1new = op1new
+
+    nop1 = nop1new
+    do op1 = 1, nop1
+      mgroup1(op1, :, :) = mgroup1new(op1, :, :)
+      vgroup1(op1, :) = vgroup1new(op1, :)
+    end do
+
+    a = na*a1
+    b = nb*b1
+    c = nc*c1
+
+    at = 0
+    do at1 = 1, nat1
+      do t = 1, na*nb*nc
+        at = at + 1
+        coords(at, 1) = vt(t, 1) + coords1(at1, 1)/na
+        coords(at, 2) = vt(t, 2) + coords1(at1, 2)/nb
+        coords(at, 3) = vt(t, 3) + coords1(at1, 3)/nc
+        spat(at) = spat1(at1)
+      end do
+    end do
+    nat = at
+  end subroutine build_supercell
+
+  ! ---------------------------------------------------------------------------
+  ! Write supercell.cif with P1 symmetry to unit 31.
+  ! ---------------------------------------------------------------------------
+  subroutine write_supercell_cif()
+    write (31, '(a)') "data_supercell"
+    write (31, '(a)') " "
+    write (31, '(a, f12.6)') "_cell_length_a     ", a
+    write (31, '(a, f12.6)') "_cell_length_b     ", b
+    write (31, '(a, f12.6)') "_cell_length_c     ", c
+    write (31, '(a, f12.6)') "_cell_angle_alpha  ", alpha
+    write (31, '(a, f12.6)') "_cell_angle_beta   ", beta
+    write (31, '(a, f12.6)') "_cell_angle_gamma  ", gamma
+    write (31, '(a)') " "
+    write (31, '(a)') "_symmetry_space_group_name_H-M  'P 1'"
+    write (31, '(a)') "_symmetry_Int_Tables_number      1"
+    write (31, '(a)') " "
+    write (31, '(a)') "loop_"
+    write (31, '(a)') "_symmetry_equiv_pos_as_xyz"
+    write (31, '(a)') "'x, y, z'"
+    write (31, '(a)') " "
+    write (31, '(a)') "loop_"
+    write (31, '(a)') "_atom_site_label"
+    write (31, '(a)') "_atom_site_type_symbol"
+    write (31, '(a)') "_atom_site_fract_x"
+    write (31, '(a)') "_atom_site_fract_y"
+    write (31, '(a)') "_atom_site_fract_z"
+    atsp = 0
+    do at = 1, nat
+      if (at == 1 .or. spat(at) /= spat(at - 1)) atsp = 0
+      atsp = atsp + 1
+      write (31, '(a, i0, 2x, a, 3(2x, f11.7))') trim(symbol(spat(at))), atsp, &
+            trim(symbol(spat(at))), coords(at, 1), coords(at, 2), coords(at, 3)
+    end do
+  end subroutine write_supercell_cif
+
+  ! ---------------------------------------------------------------------------
+  ! Compute supercell symmetry operators (→ OPERATORS unit 46), build the
+  ! full equivalence matrix, derive per-target eqmt (→ EQMATRIX unit 26),
+  ! and set atini_t/atfin_t/npos_t/atini/atfin/npos for all target species.
+  ! ---------------------------------------------------------------------------
+  subroutine build_symmetry()
+    op = 0
+    do op1 = 1, nop1
+      do t = 1, na*nb*nc
+        op = op + 1
+        mgroup(op, :, :) = mgroup1(op1, :, :)
+        vgroup(op, 1) = vgroup1(op1, 1)/na + vt(t, 1)
+        vgroup(op, 2) = vgroup1(op1, 2)/nb + vt(t, 2)
+        vgroup(op, 3) = vgroup1(op1, 3)/nc + vt(t, 3)
+      end do
+    end do
+    nop = op
+
+    allocate (fulleqmatrix(1:nop, 1:nat), stat=ierr)
+    if (ierr /= 0) then
+      write (*, *) "Error: problem too large for SOD - insufficient memory (fulleqmatrix)"
+      stop 1
+    end if
+
+    write (46, *) nop
+    do op = 1, nop
+      write (46, *) "Operator number ", op
+      do i = 1, 3
+        write (46, *) mgroup(op, i, 1:3), vgroup(op, i)
+      end do
+    end do
+
+    write (*, *) " > Composition of the parent supercell:"
+    do sp = 1, nsp
+      write (*, '(a, a, i10)') "    - ", symbol(sp), natsp(sp)
+    end do
+    write (*, *) ""
+    write (*, '(a, i10)') " > Number of symmetry operators in the supercell: ", nop
+    write (*, *) ""
+
+    coordstemp(:) = matmul(mgroup(1, :, :), coords(1, :)) + vgroup(1, :)
+
+    do op = 1, nop
+      do at = 1, nat
+        coordstemp(:) = matmul(mgroup(op, :, :), coords(at, :)) + vgroup(op, :)
+        coordstemp(1) = cc(coordstemp(1))
+        coordstemp(2) = cc(coordstemp(2))
+        coordstemp(3) = cc(coordstemp(3))
+        found = .false.
+        attmp = 0
+        do while ((.not. found) .and. (attmp < nat))
+          attmp = attmp + 1
+          if ((abs(coordstemp(1) - coords(attmp, 1)) < tol0) .and. &
+              (abs(coordstemp(2) - coords(attmp, 2)) < tol0) .and. &
+              (abs(coordstemp(3) - coords(attmp, 3)) < tol0)) &
+            found = .true.
+        end do
+        if ((attmp == nat) .and. (.not. found)) then
+          write (*, *) "Error!!! Operator", &
+            op, "applied on atom", at, "does not produce another atom in the list!!!"
+          attmp = 0
+        end if
+        fulleqmatrix(op, at) = attmp
+      end do
+    end do
+
+    do t_A = 1, ntarget
+      atini_t(t_A) = 1
+      do sp = 1, sptarget(t_A) - 1
+        atini_t(t_A) = atini_t(t_A) + natsp(sp)
+      end do
+      atfin_t(t_A) = atini_t(t_A) + natsp(sptarget(t_A)) - 1
+      npos_t(t_A) = natsp(sptarget(t_A))
+    end do
+
+    atini = atini_t(1)
+    atfin = atfin_t(1)
+    npos  = npos_t(1)
+
+    npos_max = maxval(npos_t(1:ntarget))
+    allocate (eqmt(1:ntarget, 1:npos_max, 1:nop), stat=ierr)
+    if (ierr /= 0) then
+      write (*, *) "Error: problem too large for SOD - insufficient memory (eqmt)"
+      stop 1
+    end if
+    do t = 1, ntarget
+      do op = 1, nop
+        att = 0
+        do at = atini_t(t), atfin_t(t)
+          att = att + 1
+          eqmt(t, att, op) = fulleqmatrix(op, at) - atini_t(t) + 1
+        end do
+      end do
+      write (26, *) nop, npos_t(t)
+      do op = 1, nop
+        write (26, *) (eqmt(t, pos, op), pos=1, npos_t(t))
+      end do
+    end do
+
+    deallocate (fulleqmatrix)
+  end subroutine build_symmetry
+
+  ! ---------------------------------------------------------------------------
+  ! Validate substitution counts against available sites and choose
+  ! enumeration direction (upward/downward) for binary single-target runs.
+  ! ---------------------------------------------------------------------------
+  subroutine setup_targets()
+    if (ntarget == 1 .and. nk(1) >= 2) then
+      if (sum(nsubs_t(1, 1:nk(1))) > npos_t(1)) then
+        write (*, *) "Error: total substitutions (", sum(nsubs_t(1, 1:nk(1))), &
+          ") exceed available sites (", npos_t(1), ")"
+        stop 1
+      end if
+    else if (nsubs_max > npos_t(1)) then
+      write (*, *) "Error: nsubs_max (", nsubs_max, ") exceeds number of available sites (", npos_t(1), ")"
+      stop 1
+    end if
+    do t = 2, ntarget
+      if (sum(nsubs_t(t, 1:nk(t))) > npos_t(t)) then
+        write (*, '(a,i0,a,i0,a,i0,a)') "Error: total nsubs for target ", t, &
+          " (", sum(nsubs_t(t, 1:nk(t))), ") exceeds available sites (", npos_t(t), ")"
+        stop 1
+      end if
+    end do
+
+    if (ntarget == 1 .and. nk(1) == 1) then
+      going_upward = (nsubs_min <= npos - nsubs_max)
+      if (nsubs_min < nsubs_max) then
+        if (going_upward) then
+          write (*, '(a,i0,a)') " > Direction: UPWARD (starting at nsubs = ", nsubs_min, ")"
+        else
+          write (*, '(a,i0,a)') " > Direction: DOWNWARD (starting at nsubs = ", nsubs_max, ")"
+        end if
+      end if
+    end if
+  end subroutine setup_targets
 
   ! ---------------------------------------------------------------------------
   ! Helper: combinatorial rank of sorted subset as(1:nchoose) ⊆ {1..nelem}.

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran make
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install gcc make
+        # Homebrew's gcc bottle installs a versioned gfortran-NN but no plain
+        # 'gfortran' symlink, which the Makefile expects. Expose one on PATH.
+        gfbin="$(ls "$(brew --prefix)"/bin/gfortran-* 2>/dev/null | sort -V | tail -1)"
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$gfbin" "$HOME/.local/bin/gfortran"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Build
+      run: make all
+
+    - name: Run tests
+      run: bin/sod_run_tests.sh

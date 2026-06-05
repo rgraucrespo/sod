@@ -1,0 +1,7 @@
+Enumerated ensemble: 3 configurations; sum_degeneracies = 448
+8 La sites -> 1 Sr 1 Ba 6 La
+8 Fe sites -> 1 Mn 7 Fe
+# Configuration  Degeneracy  Sr_positions  Ba_positions  Mn_positions
+1 192 1 2 9 
+2 192 1 4 9 
+3 64 1 8 9 

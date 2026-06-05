@@ -1,4 +1,4 @@
-!v*******************************************************************************
+!*******************************************************************************
 !    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
 !
 !    This file is part of the SOD package.
@@ -21,9 +21,10 @@
 program gcstatsod
 
   use iso_fortran_env, only: real64
+  use ensemble_io,     only: read_energies_file
   implicit none
 
-  integer, parameter :: nconfmax = 1000000, ncolmax = 10, npointsmax = 800, ntempmax = 1000, noutsodsmax = 1000, nbismax = 1000
+  integer, parameter :: nconfmax = 1000000, ncolmax = 10, npointsmax = 800, ntempmax = 1000, nensemblesmax = 1000, nbismax = 1000
   real(real64), parameter :: kb = 8.61734e-5_real64, tolprob = 1.0e-12_real64, tolminspec = 1.0e-6_real64, eva3togpa = 160.2176621_real64
   integer :: m, auxm, ncol, col, tt, ntt, nsubs, nbis, npoints, point
   integer :: memin, nsubsemin, iostatus
@@ -41,39 +42,35 @@ program gcstatsod
   logical :: temperatures_exists, data_exists, ingc_exists, spectra_exists, booldata, boolspec
   real(real64) :: xormuvalue, x, xeq, mu, nx, oldmu
   character(len=2) :: xormu
-  character(len=9) :: filenameout
+  character(len=11) :: filenameout
+  integer :: kpos_gc, kpos2_gc
   character(len=15) :: auxstring
   character(len=11) :: filenameene
-  character(len=200) :: outsod_line
+  character(len=200) :: ensemble_line
   character(len=9), dimension(:), allocatable :: filenamedat
   character(len=12), dimension(:), allocatable :: filenamespec
-  integer :: nsubsread, npos
+  integer :: nsubsread, npos, n_missing
+  logical :: ene_ok
   integer, dimension(:, :), allocatable :: omega
   real(real64), dimension(:, :), allocatable :: ene, enemun, enemunrel
   integer, dimension(:), allocatable:: mm
-!REAL (kind=8),DIMENSION(0:NOUTSODSMAX,NCONFMAX,NTEMPMAX)  :: p
+!REAL (kind=8),DIMENSION(0:NENSEMBLESMAX,NCONFMAX,NTEMPMAX)  :: p
   real(real64), dimension(:, :, :), allocatable  :: p
-  real(real64), dimension(0:noutsodsmax, ntempmax)  :: pn
+  real(real64), dimension(0:nensemblesmax, ntempmax)  :: pn
   integer :: omegasum
   real(real64)  :: naver, eneaver, epsilona, epsilonb, epsilon, e0
   real(real64)  :: a0, a1, a2, b0, b1, b2
   real(real64)  :: momentaa0, momentaa1, momentaa2, momentab0, momentab1, momentab2
   real(real64)  :: a11, a12, a21, a22, bb1, bb2, alpha, beta
-  real(real64), dimension(0:noutsodsmax)  :: qn, c, tau
+  real(real64), dimension(0:nensemblesmax)  :: qn, c, tau
   real(real64), dimension(:, :), allocatable  :: pinf
   real(real64), parameter :: tolmu = 1.0e-10, tolq = 1.0e-10
   real(real64) valpolynom, qtest
   real(real64) valpolynomnew, r1, r2, qa, qb, q, va, vb
   real(real64) lambda, v0, v1, bv, bm0, bm1, bb, vol, bm, voln, xn, eta
-  real(real64), dimension(0:noutsodsmax)  :: evsc
+  real(real64), dimension(0:nensemblesmax)  :: evsc
 
-  write (*, *) "============================================================================"
-  write (*, *) "         SOD (Site Occupancy Disorder) version 0.71"
-  write (*, *) ""
-  write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
-  write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
-  write (*, *) "============================================================================"
-  write (*, *) ""
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - gcstatsod"
   write (*, *) " > Grand-canonical statistical analysis..."
   write (*, *) ""
 
@@ -158,38 +155,80 @@ program gcstatsod
   allocate (mm(0:nsubsmax))
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  !      Read the OUTSOD_xx files
+  !      Read the ENSEMBLE_xx files
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   do nsubs = nsubsmin, nsubsmax
     if (nsubs < 10) then
-      write (filenameout, "(a8,I1)") "OUTSOD_0", nsubs
+      write (filenameout, "(a10,I1)") "ENSEMBLE_0", nsubs
       open (unit=100 + nsubs, file=trim(filenameout), status='old')
     else
-      write (filenameout, "(a7,I2)") "OUTSOD_", nsubs
+      write (filenameout, "(a9,I2)") "ENSEMBLE_", nsubs
       open (unit=100 + nsubs, file=trim(filenameout), status='old')
     end if
   end do
 
   do nsubs = nsubsmin, nsubsmax
 
+    ! Read first non-blank line to detect v2 vs v3 format
     do
-      read (100 + nsubs, '(a)') outsod_line
-      if (outsod_line(1:1) /= '#') exit
+      read (100 + nsubs, '(a)') ensemble_line
+      if (len_trim(ensemble_line) > 0) exit
     end do
-    read (outsod_line, *) nsubsread, auxstring
-    if (trim(auxstring) /= 'substitutions') then
-      write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
-      write (*, *) '       Multi-species or multi-nary OUTSOD detected. Aborting.'
-      stop 1
-    end if
-    read (outsod_line, *) nsubsread, auxstring, auxstring, npos
-    if (nsubsread /= nsubs) then
-      write (*, *) 'ERROR: nsubsread.ne.nsubs'
-      stop 1
+
+    if (ensemble_line(1:1) == '#') then
+      ! v2: skip comment lines
+      do while (ensemble_line(1:1) == '#')
+        read (100 + nsubs, '(a)') ensemble_line
+      end do
+      read (ensemble_line, *) nsubsread, auxstring
+      if (trim(auxstring) /= 'substitutions') then
+        write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
+        write (*, *) '       Multi-target or multi-nary ENSEMBLE detected. Aborting.'
+        stop 1
+      end if
+      read (ensemble_line, *) nsubsread, auxstring, auxstring, npos
+      if (nsubsread /= nsubs) then
+        write (*, *) 'ERROR: nsubsread.ne.nsubs'
+        stop 1
+      end if
+      read (100 + nsubs, *) mm(nsubs)
+    else
+      ! v3: first line is "... ensemble ...: nic configurations"
+      kpos_gc  = index(ensemble_line, ':', back=.true.)
+      kpos2_gc = index(ensemble_line, 'configurations')
+      if (kpos_gc > 0 .and. kpos2_gc > kpos_gc) then
+        read (ensemble_line(kpos_gc+1:kpos2_gc-1), *, iostat=iostatus) mm(nsubs)
+        if (iostatus /= 0) then
+          write (*, *) 'ERROR: could not parse ENSEMBLE_xx configuration count.'
+          stop 1
+        end if
+      end if
+      ! Read target line(s) and column-header comment; abort if multi-target
+      nsubsread = -1
+      npos = -1
+      do
+        read (100 + nsubs, '(a)', iostat=iostatus) ensemble_line
+        if (iostatus /= 0) exit
+        if (len_trim(ensemble_line) == 0) cycle
+        if (ensemble_line(1:1) == '#') exit   ! column-header comment — file now at first data row
+        if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
+          if (nsubsread >= 0) then
+            write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
+            write (*, *) '       Multi-target ENSEMBLE detected. Aborting.'
+            stop 1
+          end if
+          read (ensemble_line, *, iostat=iostatus) npos
+          kpos_gc = index(ensemble_line, '->')
+          read (ensemble_line(kpos_gc+2:), *, iostat=iostatus) nsubsread
+        end if
+      end do
+      if (nsubsread /= nsubs) then
+        write (*, *) 'ERROR: ENSEMBLE_xx nsubs mismatch or multi-nary substitution detected.'
+        stop 1
+      end if
     end if
 
-    read (100 + nsubs, *) mm(nsubs)
     write (*, '(a, i4, a, i10)') "   - Level nsubs =", nsubs, ": ", mm(nsubs), " independent configurations"
   end do
 
@@ -224,18 +263,19 @@ program gcstatsod
   do nsubs = nsubsmin, nsubsmax
     if (nsubs < 10) then
       write (filenameene, "(a10,I1)") "ENERGIES_0", nsubs
-      open (unit=200 + nsubs, file=trim(filenameene), status='old')
     else
       write (filenameene, "(a9,I2)") "ENERGIES_", nsubs
-      open (unit=200 + nsubs, file=trim(filenameene), status='old')
     end if
-  end do
-
-  do nsubs = nsubsmin, nsubsmax
-    do m = 1, mm(nsubs)
-      read (200 + nsubs, *) ene(nsubs, m)
-    end do
-    close (200 + nsubs)
+    call read_energies_file(trim(filenameene), mm(nsubs), ene(nsubs, :), ene_ok, n_missing)
+    if (.not. ene_ok) then
+      write (*, '(A,A)') "Error: could not open or read ", trim(filenameene)
+      stop 1
+    end if
+    if (n_missing > 0) then
+      write (*, '(A,I0,A,A)') "Error: missing energies for ", n_missing, &
+        " configuration(s) in ", trim(filenameene)
+      stop 1
+    end if
   end do
 
   !Reading DATA_xx files
@@ -874,4 +914,3 @@ program gcstatsod
   write (*, *) ""
 
 end
-

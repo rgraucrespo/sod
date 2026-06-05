@@ -1,0 +1,25 @@
+# MC sampler (1 = Metropolis, 2 = Uniform)
+1
+
+# Symmetry reduction (0 = off, 1 = on)
+1
+
+# Production steps (recommended: ~1000 * nsites, where nsites = substitution positions)
+24000
+
+# Starting configuration ('random' or space-separated site indices)
+random
+
+# Write trace (0 = off, 1 = write MCT_TTTK/MCTRACE with equil + production steps)
+0
+
+# --- Metropolis-only parameters (not read if sampler = 2) ---
+
+# Equilibration steps (recommended: ~100 * nsites)
+2400
+
+# Restart probability (recommended: 0.01 to 0.05)
+0.01
+
+# Random seed (-1 = system clock, >0 = fixed integer for reproducibility)
+12345

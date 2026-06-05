@@ -1,9 +1,11 @@
 Explanation of examples:
 ------------------------
 
-The example01_* series all use the same physical system — Ni/Mg substitutions in a 2×2×2
+The example01/* series all use the same physical system — Ni/Mg substitutions in a 2×2×2
 supercell of rocksalt MgO (space group Fm-3m) — and illustrate how to generate input
 files for five different calculators using the same INSOD file (apart from the FILER value).
+The top-level example01/ directory holds the shared INSOD (FILER=-1) for combinatorics only;
+each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
 
 - example01:
 
@@ -29,7 +31,7 @@ files for five different calculators using the same INSOD file (apart from the F
 - example02:         Al/Fe substitution in magnetite Fe3O4 (1×1×1 cubic spinel unit cell,
                     space group Fd-3m). Al substitutions from 0 to 16 across 24 mixed-occupancy
                     Fe sites (8 tetrahedral + 16 octahedral) are enumerated (FILER=-1); the
-                    n04/ folder contains the OUTSOD for the 4-substitution case (99 inequivalent
+                    n04/ folder contains the ENSEMBLE for the 4-substitution case (99 inequivalent
                     configurations). The complexity arises because the substituted species (Fe)
                     occupies two structurally distinct sites.
 
@@ -37,7 +39,7 @@ files for five different calculators using the same INSOD file (apart from the F
                     Starting from a generic MO2 parent structure, 8 M(IV) sites are replaced
                     by equal numbers of Fe(III) and Sb(V), giving 180 inequivalent configurations
                     out of a total of 12870 (FILER=-1; no calculation input files generated).
-                    The OUTSOD is pre-computed in n08/.
+                    The ENSEMBLE is pre-computed in n08/.
                     See Grau-Crespo et al. Chem. Mater. 2004:
                     https://pubs.acs.org/doi/abs/10.1021/cm035271y
 
@@ -115,3 +117,31 @@ files for five different calculators using the same INSOD file (apart from the F
                     Target 2 (8 Fe sites): binary — 1 Mn (nsubs line 2: "1").
                     3 inequivalent configurations from 448 total. FILER=-1.
 
+- example15:         Si/Ge substitution in a 2×2×2 supercell of α-quartz (space group P3_221,
+                    24 Si sites). Demonstrates the PME+MC workflow: a Periodic Motif Expansion
+                    Hamiltonian is fitted using low-side reference data (n00–n03) and high-side
+                    reference data (n21–n24), then Metropolis sampling at 300 K explores the
+                    target substitution level (n12). The committed INMC uses reduced symmetry
+                    storage and requests 5000 symmetry representatives; OUTMC documents the
+                    sampler, symmetry mode, ENSEMBLE row type, Omega meaning, and statsod
+                    weighting rule. FILER=-1. Run with sod_pme.sh followed by sod_mc.sh.
+
+- example16:         SQS/GQS workflow: 8 Ni/Mg substitutions in a 2×2×2 supercell of rocksalt
+                    MgO (space group Fm-3m, 32 Mg sites), giving 8043 inequivalent
+                    configurations. Demonstrates Special Quasirandom Structure identification
+                    (sqssod → OUTSQS) and thermally weighted Generalized Quasirandom Structure
+                    selection (gqssod → OUTGQS) using pre-computed ENERGIES and TEMPERATURES.
+                    GULP input files (FILER=1) for all 8043 configurations are pre-generated.
+                    Run with sod_sqs.sh or sod_gqs.sh.
+
+- example17:         Al/Fe substitution in a 3×3×3 supercell of cubic LaFeO3 perovskite
+                    (space group Pm-3m, 27 Fe sites). Demonstrates the PME-only workflow
+                    (without MC): a Periodic Motif Expansion Hamiltonian is calibrated from
+                    low-side reference data (n00–n03, 0–3 Al substitutions; 1, 1, 3, 10
+                    inequivalent configurations) and high-side reference data (n24–n27,
+                    24–27 Al substitutions; 10, 3, 1, 1 configurations), then used to predict
+                    ordering energies at target compositions n04 (34 configs), n05 (105 configs),
+                    and n06 (321 configs). All three PME modes (PME0 low-side only, PME1
+                    high-side only, PMEh hybrid) are pre-computed in each target folder for
+                    comparison. FILER=-1. Set the target composition in INSOD and run with 
+                    sod_pme.sh.

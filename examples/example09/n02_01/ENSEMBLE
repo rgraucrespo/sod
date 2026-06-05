@@ -1,0 +1,11 @@
+Enumerated ensemble: 7 configurations; sum_degeneracies = 672
+8 La sites -> 2 Mg 6 La
+24 O sites -> 1 %O 23 O
+# Configuration  Degeneracy  Mg_positions  %O_positions
+1 96 1 2 17 
+2 96 1 2 25 
+3 96 1 2 29 
+4 192 1 4 17 
+5 48 1 4 25 
+6 48 1 4 29 
+7 96 1 8 17 

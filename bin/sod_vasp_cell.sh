@@ -14,25 +14,35 @@
 #mon  a b c beta V
 #tri  a b c alpha beta gamma V
 
-rm -f cell.dat a.dat b.dat c.dat
+extract_vasp_cell() {
+  local f="$1"
+  printf 'final parameters\n' > _sod_cell_tmp
+  head -5 "$f" | tail -3 >> _sod_cell_tmp
+  awk '($1=="final") && ($2=="parameters") {getline; print $0}'             _sod_cell_tmp >> a.dat
+  awk '($1=="final") && ($2=="parameters") {getline; getline; print $0}'    _sod_cell_tmp >> b.dat
+  awk '($1=="final") && ($2=="parameters") {getline; getline; getline; print $0}' _sod_cell_tmp >> c.dat
+  rm _sod_cell_tmp
+}
 
-n_columns_ls=$(ls -l | tail -1 | awk '{ FS = "|" } ; { print NF}')
+rm -f cell.dat a.dat b.dat c.dat
 
 if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
   # Called from MAIN/: loop over all nXX/cYY/CONTCAR
-  ls -l n*/c*/CONTCAR | awk -v nc=$n_columns_ls '{print "cellvasp.sh", $nc}' > rungetcell
+  for f in $(ls n*/c*/CONTCAR 2>/dev/null | sort); do
+    extract_vasp_cell "$f"
+  done
 elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
   # Called from nXX/: loop over cYY/CONTCAR in current folder
-  ls -l c*/CONTCAR | awk -v nc=$n_columns_ls '{print "cellvasp.sh", $nc}' > rungetcell
+  for f in $(ls c*/CONTCAR 2>/dev/null | sort); do
+    extract_vasp_cell "$f"
+  done
 else
   echo "Error: run sod_vasp_cell.sh from MAIN/ or from an nXX/ folder."
   exit 1
 fi
 
-chmod +x rungetcell
-./rungetcell
 paste a.dat b.dat c.dat > cell.dat
-rm rungetcell a.dat b.dat c.dat
+rm a.dat b.dat c.dat
 
 # Convert raw Cartesian lattice vectors to a, b, c, alpha, beta, gamma, V
 # cell.dat columns: ax ay az bx by bz cx cy cz

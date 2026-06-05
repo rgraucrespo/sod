@@ -1,0 +1,6 @@
+Enumerated ensemble: 3 configurations; sum_degeneracies = 56
+8 Fe sites -> 3 Al 5 Fe
+# Configuration  Degeneracy  Al_positions
+1 24 9 10 11 
+2 24 9 10 15 
+3 8 9 12 14 

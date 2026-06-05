@@ -1,0 +1,11 @@
+# Maximum cluster order
+4
+
+# Cutoff radii (Angstroms) for orders 2..MaxOrder
+8.0 6.0 4.0
+
+# Weights for orders 2..MaxOrder
+1.0 1.0 1.0
+
+# omega and eps_tol for van de Walle scoring
+10  1.0E-8

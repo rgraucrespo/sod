@@ -11,10 +11,10 @@ nlen=$(basename "$sample" | tr -cd '0-9' | wc -c | tr -d ' ')
 [ -z "$nlen" ] || [ "$nlen" -lt 2 ] && nlen=2
 fmt="%0${nlen}d"
 
-# Copy the required OUTSOD and ENERGIES files
+# Copy the required ENSEMBLE and ENERGIES files
 for ((i=nsubsmin; i<=nsubsmax; i++)); do
     tag=$(printf "$fmt" $i)
-    cp -n ../n${tag}/OUTSOD   OUTSOD_${tag}
+    cp -n ../n${tag}/ENSEMBLE   ENSEMBLE_${tag}
     cp -n ../n${tag}/ENERGIES ENERGIES_${tag}
     cp -n ../n${tag}/DATA     DATA_${tag}   2>/dev/null || true
     cp -n ../n${tag}/SPECTRA  SPECTRA_${tag} 2>/dev/null || true
@@ -23,4 +23,4 @@ done
 
 gcstatsod
 
-rm -f OUTSOD* ENERGIES* SPEC* DATA*
+rm -f ENSEMBLE* ENERGIES* SPEC* DATA*

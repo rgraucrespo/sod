@@ -6,7 +6,7 @@ if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
     rm -f "${ndir}ENERGIES"
     for cdir in $(ls -d "${ndir}"c*/ 2>/dev/null | sort); do
       if [ -f "${cdir}output.gout" ]; then
-        freegulp.sh "${cdir}output.gout"
+        awk '($1=="Final") && ($2=="free") && ($3=="energy") {print $5}' "${cdir}output.gout" >> ENERGIES
       fi
     done
   done
@@ -15,7 +15,7 @@ elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
   rm -f ENERGIES
   for cdir in $(ls -d c*/ 2>/dev/null | sort); do
     if [ -f "${cdir}output.gout" ]; then
-      freegulp.sh "${cdir}output.gout"
+      awk '($1=="Final") && ($2=="free") && ($3=="energy") {print $5}' "${cdir}output.gout" >> ENERGIES
     fi
   done
 else

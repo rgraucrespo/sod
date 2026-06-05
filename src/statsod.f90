@@ -21,15 +21,19 @@
 program stats
 
   use iso_fortran_env, only: real64
+  use ensemble_io,     only: read_energies_file
   implicit none
 
   integer, parameter :: nconfmax = 1000000, ncolmax = 10, npointsmax = 800, ntempmax = 1000
   real(real64), parameter :: kb = 8.61734e-5_real64, tolprob = 1.0e-12_real64, tolminspec = 1.0e-6_real64
-  integer :: m, auxm, mm, ncol, npoints, col, tt, ntt, nsubs, point, ios
-  integer :: memin, memax
+  integer :: m, auxm, mm, ncol, npoints, col, tt, ntt, point, ios
+  integer :: colon_pos, kpos, kpos2
+  integer :: memin, memax, n_missing
+  logical :: ene_ok
   real(real64)  :: emin, emax, maxspec
   real(real64), dimension(ntempmax) :: z, e, f, s, t
   real(real64) :: zinf, einf, sinf
+  real(real64) :: tsampling, sum_omega
   real(real64), dimension(nconfmax) :: ene, erel
   real(real64), dimension(:,:), allocatable :: p
   real(real64), dimension(nconfmax) :: pinf
@@ -41,10 +45,13 @@ program stats
   real(real64), dimension(ncolmax) :: avedatainf
   real(real64), dimension(npointsmax) :: xspec, avespecinf
   character(len=30) fmtemplist
-  character(len=200) :: outsod_line
+  character(len=200) :: ensemble_line
   character(len=20) :: arg
   logical :: temperatures_exists, data_exists, spectra_exists, quiet
+  logical :: metropolis_sample
 
+  tsampling = -1.0_real64
+  metropolis_sample = .false.
   quiet = .false.
   if (command_argument_count() > 0) then
     call get_command_argument(1, arg)
@@ -52,13 +59,7 @@ program stats
   end if
 
   if (.not. quiet) then
-    write (*, *) "============================================================================"
-    write (*, *) "         SOD (Site Occupancy Disorder) version 0.71"
-    write (*, *) ""
-    write (*, *) "         Authors: R. Grau-Crespo and S. Hamad"
-    write (*, *) "         Contact: <r.grau-crespo@qmul.ac.uk>"
-    write (*, *) "============================================================================"
-    write (*, *) ""
+    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - statsod"
   end if
   write (*, *) " > Statistical mechanics analysis..."
   write (*, *) ""
@@ -71,8 +72,7 @@ program stats
     open (unit=10, file="TEMPERATURES")
   end if
 
-  open (unit=11, file="OUTSOD")
-  open (unit=12, file="ENERGIES")
+  open (unit=11, file="ENSEMBLE")
 
   inquire (file="DATA", exist=data_exists)
   if (data_exists) then
@@ -101,41 +101,124 @@ program stats
     open (unit=23, file="ave_spectra.dat")
   end if
 
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  !      Read the ENSEMBLE file (supports v2 and v3 formats)
+  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+  ! Read first non-blank line
+  do
+    read (11, '(a)', iostat=ios) ensemble_line
+    if (ios /= 0) then
+      write (*, *) "Error: could not read ENSEMBLE."
+      stop 1
+    end if
+    if (len_trim(ensemble_line) > 0) exit
+  end do
+
+  if (ensemble_line(1:1) == '#') then
+    ! v2: first non-blank line starts with '#'
+    do while (ensemble_line(1:1) == '#')
+      if (index(ensemble_line, 'Sampling temperature') > 0) then
+        colon_pos = index(ensemble_line, ':')
+        if (colon_pos > 0 .and. colon_pos < len_trim(ensemble_line)) then
+          read (ensemble_line(colon_pos+1:), *, iostat=ios) tsampling
+          if (ios /= 0) tsampling = -1.0_real64
+        end if
+      end if
+      read (11, '(a)', iostat=ios) ensemble_line
+      if (ios /= 0) then
+        write (*, *) "Error: could not read ENSEMBLE."
+        stop 1
+      end if
+    end do
+    ! ensemble_line is "N substitutions in M sites" — skip it, read nic next
+    read (11, *) mm
+    do m = 1, mm
+      read (11, *) auxm, omega(m)
+    end do
+  else
+    ! v3: first line is "<Type> ensemble [...]: nic configurations"
+    if (index(ensemble_line, 'Metropolis') > 0) then
+      kpos  = index(ensemble_line, '(')
+      kpos2 = index(ensemble_line, 'K)')
+      if (kpos > 0 .and. kpos2 > kpos) then
+        read (ensemble_line(kpos+1:kpos2-1), *, iostat=ios) tsampling
+        if (ios /= 0) tsampling = -1.0_real64
+      end if
+    end if
+    colon_pos = index(ensemble_line, ':', back=.true.)
+    kpos      = index(ensemble_line, 'configurations')
+    if (colon_pos > 0 .and. kpos > colon_pos) then
+      read (ensemble_line(colon_pos+1:kpos-1), *, iostat=ios) mm
+      if (ios /= 0) then
+        write (*, *) "Error: could not parse ENSEMBLE configuration count."
+        stop 1
+      end if
+    else
+      write (*, *) "Error: could not parse ENSEMBLE header."
+      stop 1
+    end if
+    ! Skip target lines (contain 'sites' and '->') and column-header comment ('#')
+    do
+      read (11, '(a)', iostat=ios) ensemble_line
+      if (ios /= 0) then
+        write (*, *) "Error: could not read ENSEMBLE data."
+        stop 1
+      end if
+      if (len_trim(ensemble_line) == 0) cycle
+      if (ensemble_line(1:1) == '#') cycle
+      if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) cycle
+      exit
+    end do
+    ! ensemble_line holds first data row; read omega(1) from it, then continue
+    read (ensemble_line, *, iostat=ios) auxm, omega(1)
+    if (ios /= 0) then
+      write (*, *) "Error: could not read ENSEMBLE data row."
+      stop 1
+    end if
+    do m = 2, mm
+      read (11, *, iostat=ios) auxm, omega(m)
+      if (ios /= 0) then
+        write (*, *) "Error: could not read ENSEMBLE data row."
+        stop 1
+      end if
+    end do
+  end if
+  close (11)
+
+  metropolis_sample = (tsampling >= 0.0_real64)
+
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Read the TEMPERATURES files
+!      Read the TEMPERATURES file, unless ENSEMBLE is already Metropolis biased
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  if (temperatures_exists) then
-    tt = 1
-    do
-      read (10, *, iostat=ios) t(tt)
-      if (ios /= 0) exit
-      tt = tt + 1
-    end do
-    ntt = tt - 1
-    close (10)
+  if (metropolis_sample) then
+    if (temperatures_exists) then
+      close (10)
+      write (*, *) "Warning: Metropolis ENSEMBLE detected; TEMPERATURES is ignored."
+    end if
+    t(1) = tsampling
+    ntt = 1
+    write (*, *) " > Metropolis ENSEMBLE detected."
+    write (*, *) " > statsod probabilities use Omega/sum(Omega) at Tsampling = ", tsampling, " K."
   else
-    t(1) = 0.0_real64
-    t(2) = 300.0_real64
-    t(3) = 1000.0_real64
-    ntt = 3
+    if (temperatures_exists) then
+      tt = 1
+      do
+        read (10, *, iostat=ios) t(tt)
+        if (ios /= 0) exit
+        tt = tt + 1
+      end do
+      ntt = tt - 1
+      close (10)
+    else
+      t(1) = 0.0_real64
+      t(2) = 300.0_real64
+      t(3) = 1000.0_real64
+      ntt = 3
+    end if
   end if
 
-  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  !      Read the OUTSOD file, which is the output from SOD,
-  !      giving configuration numbers and degeneracies
-  !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-  do
-    read (11, '(a)') outsod_line
-    if (outsod_line(1:1) /= '#') exit
-  end do
-  read (outsod_line, *) nsubs
-  read (11, *) mm
-  do m = 1, mm
-    read (11, *) auxm, omega(m)
-  end do
-  close (11)
   allocate (p(mm, ntt))
   allocate (data(ncolmax, mm))
 
@@ -143,10 +226,15 @@ program stats
   !      Read ENERGIES
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  do m = 1, mm
-    read (12, *) ene(m)
-  end do
-  close (12)
+  call read_energies_file("ENERGIES", mm, ene, ene_ok, n_missing)
+  if (.not. ene_ok) then
+    write (*, *) "Error: could not open or read ENERGIES."
+    stop 1
+  end if
+  if (n_missing > 0) then
+    write (*, '(A,I0,A)') "Error: missing energies for ", n_missing, " configuration(s) in ENERGIES."
+    stop 1
+  end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   !      Read the data file, DATA
@@ -189,6 +277,9 @@ program stats
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   write (21, *) "      T/K            E/eV            F/eV         S/(eV/K)"
+  if (metropolis_sample) then
+    write (21, *) "# Metropolis-sampled ENSEMBLE: probabilities use Omega/sum(Omega); F and S are not evaluated."
+  end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   !       Start writing ave_data.dat file
@@ -203,7 +294,11 @@ program stats
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   if (spectra_exists) then
-    write (23, *) "x   ", t(1:ntt), "    Infinity"
+    if (metropolis_sample) then
+      write (23, *) "x   ", t(1:ntt)
+    else
+      write (23, *) "x   ", t(1:ntt), "    Infinity"
+    end if
   end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -230,6 +325,11 @@ program stats
   write (20, *) "Configuration with minimum energy: ", memin
   write (20, *) "Configuration with maximum energy: ", memax
   write (20, *)
+  if (metropolis_sample) then
+    write (20, *) "Metropolis sampling temperature (K): ", tsampling
+    write (20, *) "Probabilities use Omega/sum(Omega); ENERGIES are not Boltzmann-weighted again."
+    write (20, *)
+  end if
 
   do m = 1, mm
     erel(m) = ene(m) - emin
@@ -241,7 +341,52 @@ program stats
 
   do tt = 1, ntt
 
-    if (t(tt) == 0.0_real64) then
+    if (metropolis_sample) then
+
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!          Metropolis-sampled ENSEMBLE: the sample already contains energy bias
+!cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+      sum_omega = sum(real(omega(1:mm), real64))
+      if (sum_omega <= 0.0_real64) then
+        write (*, *) "Error: non-positive total Omega in ENSEMBLE."
+        stop 1
+      end if
+
+      do m = 1, mm
+        p(m, tt) = real(omega(m), real64)/sum_omega
+      end do
+
+      e(tt) = 0.0_real64
+      do m = 1, mm
+        e(tt) = e(tt) + ene(m)*p(m, tt)
+      end do
+
+      f(tt) = e(tt)
+      s(tt) = 0.0_real64
+
+      if (data_exists) then
+        avedata(1:ncol, tt) = 0.0_real64
+        do col = 1, ncol
+          do m = 1, mm
+            avedata(col, tt) = avedata(col, tt) + data(col, m)*p(m, tt)
+          end do
+        end do
+      end if
+
+      if (spectra_exists) then
+        avespec(1:npoints, tt) = 0.0_real64
+        do point = 1, npoints
+          do m = 1, mm
+            avespec(point, tt) = avespec(point, tt) + spec(point, m)*p(m, tt)
+          end do
+          if (avespec(point, tt)/maxspec < tolminspec) then
+            avespec(point, tt) = 0.0
+          end if
+        end do
+      end if
+
+    else if (t(tt) == 0.0_real64) then
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !          T=0 K: trivial case — all probability on the lowest-energy config
@@ -367,52 +512,54 @@ program stats
   !       Calculating results in the limit of infinite temperature
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  zinf = 0.0
-  einf = 0.0
-  do m = 1, mm
-    zinf = zinf + omega(m)
-  end do
+  if (.not. metropolis_sample) then
+    zinf = 0.0
+    einf = 0.0
+    do m = 1, mm
+      zinf = zinf + omega(m)
+    end do
 
-  do m = 1, mm
-    pinf(m) = omega(m)/zinf
-  end do
+    do m = 1, mm
+      pinf(m) = omega(m)/zinf
+    end do
 
-  do m = 1, mm
-    einf = einf + ene(m)*pinf(m)
-  end do
+    do m = 1, mm
+      einf = einf + ene(m)*pinf(m)
+    end do
 
-  sinf = kb*log(zinf)
+    sinf = kb*log(zinf)
 
-  write (20, *) "Infinite Temperature Limit"
-  write (20, *) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
-  do m = 1, mm
-    write (20, 101) m, omega(m), erel(m), pinf(m), pinf(m)/omega(m)
-  end do
+    write (20, *) "Infinite Temperature Limit"
+    write (20, *) "        m  omega(m)   Erel(m)/eV       p(m)      p(m)/omega(m)"
+    do m = 1, mm
+      write (20, 101) m, omega(m), erel(m), pinf(m), pinf(m)/omega(m)
+    end do
 
-  write (21, 300) "Infinite", einf, " - ", sinf
+    write (21, 300) "Infinite", einf, " - ", sinf
 300 format(a10, 2x, f14.4, 8x, a3, 7x, e12.6)
 
-  if (data_exists) then
-    avedatainf(1:ncol) = 0.0
-    do m = 1, mm
-      do col = 1, ncol
-        avedatainf(col) = avedatainf(col) + data(col, m)*pinf(m)
-      end do
-    end do
-    write (22, 301) adjustr("Infinite"), avedatainf(1:ncol)
-301 format(a10, 2x, 10(f10.4, 2x))
-  end if
-
-  if (spectra_exists) then
-    avespecinf(1:npoints) = 0.0
-    do point = 1, npoints
+    if (data_exists) then
+      avedatainf(1:ncol) = 0.0
       do m = 1, mm
-        avespecinf(point) = avespecinf(point) + spec(point, m)*pinf(m)
+        do col = 1, ncol
+          avedatainf(col) = avedatainf(col) + data(col, m)*pinf(m)
+        end do
       end do
-      if (avespecinf(point)/maxspec < tolminspec) then
-        avespecinf(point) = 0.0
-      end if
-    end do
+      write (22, 301) adjustr("Infinite"), avedatainf(1:ncol)
+301   format(a10, 2x, 10(f10.4, 2x))
+    end if
+
+    if (spectra_exists) then
+      avespecinf(1:npoints) = 0.0
+      do point = 1, npoints
+        do m = 1, mm
+          avespecinf(point) = avespecinf(point) + spec(point, m)*pinf(m)
+        end do
+        if (avespecinf(point)/maxspec < tolminspec) then
+          avespecinf(point) = 0.0
+        end if
+      end do
+    end if
   end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -420,10 +567,17 @@ program stats
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   if (spectra_exists) then
-    write (fmtemplist, '(a,i0,a)') '(f10.3,2x,', ntt + 1, '(e12.6,2x))'
-    do point = 1, npoints
-      write (23, fmtemplist) xspec(point), avespec(point, 1:ntt), avespecinf(point)
-    end do
+    if (metropolis_sample) then
+      write (fmtemplist, '(a,i0,a)') '(f10.3,2x,', ntt, '(e12.6,2x))'
+      do point = 1, npoints
+        write (23, fmtemplist) xspec(point), avespec(point, 1:ntt)
+      end do
+    else
+      write (fmtemplist, '(a,i0,a)') '(f10.3,2x,', ntt + 1, '(e12.6,2x))'
+      do point = 1, npoints
+        write (23, fmtemplist) xspec(point), avespec(point, 1:ntt), avespecinf(point)
+      end do
+    end if
   end if
 
   close (20)
@@ -435,4 +589,3 @@ program stats
   write (*, *) ""
 
 end
-

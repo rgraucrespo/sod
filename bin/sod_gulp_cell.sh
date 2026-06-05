@@ -18,14 +18,26 @@ if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
   # Called from MAIN/: loop over all nXX/cYY/
   for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
     if [ -f "${dir}output.gout" ]; then
-      cellgulp.sh "${dir}output.gout"
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;             print $2}' "${dir}output.gout" >> a.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;     print $2}' "${dir}output.gout" >> b.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> c.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> alpha.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> beta.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> gamma.dat
+      awk '$1=="Non-primitive" {print $5}' "${dir}output.gout" >> volume.dat
     fi
   done
 elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
   # Called from nXX/: loop over cYY/ in current folder
   for dir in $(ls -d c*/ 2>/dev/null | sort); do
     if [ -f "${dir}output.gout" ]; then
-      cellgulp.sh "${dir}output.gout"
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;             print $2}' "${dir}output.gout" >> a.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;     print $2}' "${dir}output.gout" >> b.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> c.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> alpha.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> beta.dat
+      awk '($1=="Final") && ($2=="cell") {getline;getline;getline;getline;getline;getline;getline;getline; print $2}' "${dir}output.gout" >> gamma.dat
+      awk '$1=="Non-primitive" {print $5}' "${dir}output.gout" >> volume.dat
     fi
   done
 else

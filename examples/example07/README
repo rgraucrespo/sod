@@ -31,8 +31,9 @@ Files provided
   supercell.cif      P1 CIF of the 1x1x3 supercell (168 sites)
   template_input.gin GULP template with catlow.lib
   catlow.lib         Lewis-Catlow force-field library
-  n04/               Pre-computed output: OUTSOD, ENERGIES, and
-                     GULP input/output files for all 29 configurations
+  n04/               Pre-computed output: ENSEMBLE and ENERGIES for all
+                     29 configurations (per-configuration GULP input
+                     files are not shipped; regenerate with genersod)
 
 How to run
 ----------
