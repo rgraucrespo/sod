@@ -1,0 +1,67 @@
+Example 18: MAPbI3-MAPbBr3 solid solution (MA as a parent molecule)
+===================================================================
+
+Physical system
+---------------
+Methylammonium lead halide perovskites MAPbX3 (X = I, Br) form a
+continuous MAPbI3-MAPbBr3 solid solution by mixing on the halide
+X-site, tuning the optical band gap for photovoltaic and LED
+applications. Here the cubic perovskite (Pm-3m) is modelled with the
+methylammonium cation MA (CH3NH3+) on every A-site and I/Br disorder
+on the X-site.
+
+Unlike example08 (where MA *substitutes* for Cs on a fraction of the
+A-sites), in this example MA is part of the *parent structure*: every
+A-site is occupied by MA. MA is a near-free rotor at room temperature,
+so it is dynamically isotropic and is represented in the parent by a
+single spherical placeholder species, which is a point that obeys the
+Pm-3m site symmetry and the inequivalent-configuration enumeration. The
+molecule is declared simply by writing the parent species with an @NAME
+prefix in the INSOD symbol list - the same @NAME convention used for
+substituted molecules - so the parent symbol line reads:
+
+    # symbol(1:nsp): Atom symbols
+    @MA Pb I
+
+SOD strips the @, treats the site as an ordinary "MA" placeholder
+species, and materialises MA.xyz only when genersod writes the explicit
+calculation inputs.
+
+This example uses a 2x2x2 supercell with 24 halide sites and substitutes
+2 of them with Br (composition MAPbI(2.75)Br(0.25), the I-rich end of the
+solid solution), enumerating all inequivalent configurations under Pm-3m
+symmetry. The configurational disorder (sptarget: 3) is on the halide
+site only; the spherical MA placeholders and the Pb sub-lattice are
+framework. Output is VASP POSCAR files (FILER=11) for DFT calculations.
+
+The MA molecule is read from MA.xyz (8 atoms: C, N, 6H). genersod places
+its centre of mass at each A-site with an independent random orientation
+(Shoemake uniform quaternion sampling), the same treatment as a
+substituted molecule. combsod never sees the molecule - the symmetry
+analysis is performed on the spherical "MA" placeholder.
+
+Files
+-----
+  INSOD                SOD input (FILER=11, VASP; @MA parent molecule in symbol list)
+  SGO                  Symmetry operations for Pm-3m (space group 221)
+  supercell.cif        2x2x2 placeholder supercell in P1 (40 sites: 8 MA, 8 Pb, 24 I)
+  MA.xyz               Methylammonium geometry (DFT-PBE optimised, Angstrom)
+
+How to run
+----------
+1. Run combsod:   ../../bin/combsod
+2. Run genersod:  ../../bin/genersod
+3. VASP POSCAR files appear in n02/cXX/POSCAR
+
+Supply INCAR, KPOINTS and POTCAR (Vegard-scaled lattice for other Br
+fractions) before running VASP; genersod copies an INCAR into each
+configuration directory if one is present in the working directory.
+
+Expected output
+---------------
+7 inequivalent configurations out of C(24,2) = 276 total arrangements.
+
+Each POSCAR contains 96 atoms:
+  8 MA molecules (8 C + 8 N + 48 H) + 8 Pb + 22 I + 2 Br
+(every A-site placeholder expanded into an 8-atom MA molecule).
+MA orientations are random and differ between genersod runs.

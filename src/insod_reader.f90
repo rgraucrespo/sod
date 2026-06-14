@@ -42,6 +42,12 @@ module insod_reader
     integer                       :: nsubs_min, nsubs_max
     character(len=5)              :: newsymbol(insod_ntargetmax, insod_nkmax+1)
     integer                       :: filer
+    ! Parent molecules (optional): a parent species written as @NAME in the
+    ! symbol list is a placeholder expanded to a rigid molecule (NAME.xyz) at
+    ! write time. Empty (n_parentmol == 0) when no symbol carries an @ prefix.
+    integer                       :: n_parentmol
+    character(len=3), allocatable :: parentmol_sym(:)   ! (n_parentmol) placeholder species
+    character(len=4), allocatable :: parentmol_name(:)  ! (n_parentmol) molecule name (NAME.xyz)
   end type insod_t
 
   public :: read_insod
@@ -51,8 +57,9 @@ contains
   subroutine read_insod(filename, d)
     character(len=*), intent(in)  :: filename
     type(insod_t),    intent(out) :: d
-    integer :: unit_in, ios, at0, t, j, k, pos_colon
+    integer :: unit_in, ios, at0, t, j, k, pos_colon, ip
     character(len=512) :: line
+    character(len=8), allocatable :: rawsym(:)
     logical :: ok
 
     open(newunit=unit_in, file=trim(filename), status='old', action='read', iostat=ios)
@@ -85,15 +92,37 @@ contains
       stop 1
     end if
 
-    ! symbol(1:nsp)
+    ! symbol(1:nsp). A symbol written as @NAME is a parent-molecule placeholder:
+    ! the @ is stripped so downstream code sees the ordinary species label NAME,
+    ! and NAME is recorded as a molecule to be materialised (from NAME.xyz) at
+    ! write time. Read into a wide buffer first so a multi-character NAME after
+    ! the @ is not truncated by the len=3 symbol field.
     allocate(d%symbol(d%nsp))
+    allocate(rawsym(d%nsp))
     call next_data_line(unit_in, line, ok)
     if (.not. ok) then; write(*, *) 'Error: malformed INSOD (missing symbol list).'; stop 1; end if
-    read(line, *, iostat=ios) d%symbol(1:d%nsp)
+    read(line, *, iostat=ios) rawsym(1:d%nsp)
     if (ios /= 0) then
       write(*, *) 'Error: could not parse species symbols from INSOD: ', trim(line)
       stop 1
     end if
+    d%n_parentmol = count(rawsym(1:d%nsp)(1:1) == '@')
+    if (d%n_parentmol > 0) then
+      allocate(d%parentmol_sym(d%n_parentmol))
+      allocate(d%parentmol_name(d%n_parentmol))
+    end if
+    ip = 0
+    do j = 1, d%nsp
+      if (rawsym(j)(1:1) == '@') then
+        ip = ip + 1
+        d%symbol(j)            = rawsym(j)(2:)   ! species label, @ stripped
+        d%parentmol_sym(ip)    = d%symbol(j)
+        d%parentmol_name(ip)   = rawsym(j)(2:)   ! molecule file NAME (NAME.xyz)
+      else
+        d%symbol(j) = rawsym(j)
+      end if
+    end do
+    deallocate(rawsym)
 
     ! natsp0(1:nsp)
     allocate(d%natsp0(d%nsp))
@@ -168,8 +197,12 @@ contains
         write(*, *) 'Error: could not parse nsubs_max from colon notation: ', trim(line)
         stop 1
       end if
-      if (d%nsubs_max == 0) then
-        write(*, *) 'Error: illegal number of substitutions (nsubs_max=0).'
+      if (d%nsubs_min < 0 .or. d%nsubs_max < 0) then
+        write(*, *) 'Error: number of substitutions must be >= 0 (colon range): ', trim(line)
+        stop 1
+      end if
+      if (d%nsubs_min > d%nsubs_max) then
+        write(*, *) 'Error: nsubs_min > nsubs_max in colon range: ', trim(line)
         stop 1
       end if
     else if (d%ntarget == 1) then
@@ -187,8 +220,8 @@ contains
         write(*, *) 'Error: more than 3 species per site (k=', d%nk(1), ') not yet supported.'
         stop 1
       end if
-      if (d%nk(1) == 1 .and. d%nsubs_t(1,1) == 0) then
-        write(*, *) 'Error: illegal number of substitutions (nsubs=0).'
+      if (d%nk(1) == 1 .and. d%nsubs_t(1,1) < 0) then
+        write(*, *) 'Error: number of substitutions must be >= 0: ', trim(line)
         stop 1
       end if
       d%nsubs_min = d%nsubs_t(1,1)

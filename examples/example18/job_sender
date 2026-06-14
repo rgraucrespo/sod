@@ -1,0 +1,5 @@
+#!/bin/bash
+for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
+  echo " > Calculating: $dir"
+  (cd "$dir" && ${SOD_VASP:-vasp})
+done

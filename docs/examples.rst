@@ -15,7 +15,7 @@ Example layout
 The examples directory contains:
 
 - ``README``
-- ``example01`` through ``example17``
+- ``example01`` through ``example18``
 
 The ``example01`` family demonstrates the same substitution problem with
 different calculator backends. The remaining examples cover a broader range of

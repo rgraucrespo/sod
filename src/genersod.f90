@@ -78,6 +78,10 @@ program genersod
   logical :: is_mol1_t2, is_mol2_t2, is_vac1_t2, is_vac2_t2
   integer :: mol_idx1_t2, mol_idx2_t2
   logical :: has_molecules, has_vacancies
+! Parent-structure molecules: placeholder species expanded to a rigid molecule
+  logical :: sp_is_mol(nspmax)
+  integer :: sp_mol_idx(nspmax)
+  integer :: ip, sp_loc
 ! Expanded atom list (used for all filers when molecules/vacancies present)
   integer :: nat_exp, nsp_exp, isp_exp
   character(len=3), dimension(natmax) :: sym_exp
@@ -257,6 +261,10 @@ program genersod
   end if
   has_molecules = is_mol1 .or. is_mol2 .or. is_mol1_t2 .or. is_mol2_t2
   has_vacancies = is_vac1 .or. is_vac2 .or. is_vac1_t2 .or. is_vac2_t2
+! Parent-structure molecules (see mapping block at end of INSOD)
+  sp_is_mol(:) = .false.
+  sp_mol_idx(:) = 0
+  has_molecules = has_molecules .or. (insod%n_parentmol > 0)
 ! Multi-nary: mol/vac support not yet implemented for nk>=2; issue error if detected
   if (ntarget == 1 .and. nk(1) >= 2) then
     if (has_molecules .or. has_vacancies) then
@@ -348,46 +356,7 @@ program genersod
 
   do i = 1, 2
     if (newsymbol(1,i)(1:1) /= '@') cycle
-    ! Check if this molecule name is already loaded
-    imt = 0
-    do m = 1, nmol_types
-      if (trim(mol_name(m)) == trim(newsymbol(1,i)(2:))) then
-        imt = m
-        exit
-      end if
-    end do
-    if (imt == 0) then
-      ! Load new molecule
-      nmol_types = nmol_types + 1
-      if (nmol_types > nmoltypes) then
-        write (*, *) "Error: too many molecule types (max ", nmoltypes, "). Aborting."
-        stop 1
-      end if
-      imt = nmol_types
-      mol_name(imt) = trim(newsymbol(1,i)(2:))
-      open (unit=32, file=trim(mol_name(imt)) // '.xyz', status='old', iostat=ios)
-      if (ios /= 0) then
-        write (*, *) "Error: ", trim(mol_name(imt)), ".xyz not found. Aborting."
-        stop 1
-      end if
-      read (32, *) mol_natoms(imt)
-      if (mol_natoms(imt) > nmolmax_atoms) then
-        write (*, *) "Error: ", trim(mol_name(imt)), ".xyz has more atoms than nmolmax_atoms =", &
-                     nmolmax_atoms, ". Aborting."
-        stop 1
-      end if
-      read (32, '(a)') gulpline_buf   ! comment line
-      do im = 1, mol_natoms(imt)
-        read (32, *) mol_sym_arr(imt, im), &
-                     mol_xyz_arr(imt, im, 1), mol_xyz_arr(imt, im, 2), mol_xyz_arr(imt, im, 3)
-      end do
-      close (32)
-      ! Shift to CoM = origin
-      call shift_to_com(imt)
-      write (*, '(a,a,a,i0,a)') " Molecule @", trim(mol_name(imt)), &
-                                  " read from ", mol_natoms(imt), &
-                                  " atoms in " // trim(mol_name(imt)) // ".xyz"
-    end if
+    call get_molecule(newsymbol(1,i)(2:), imt)
     if (i == 1) mol_idx1 = imt
     if (i == 2) mol_idx2 = imt
   end do
@@ -395,47 +364,34 @@ program genersod
   if (ntarget == 2) then
     do i = 1, 2
       if (newsymbol(2,i)(1:1) /= '@') cycle
-      imt = 0
-      do m = 1, nmol_types
-        if (trim(mol_name(m)) == trim(newsymbol(2,i)(2:))) then
-          imt = m
-          exit
-        end if
-      end do
-      if (imt == 0) then
-        nmol_types = nmol_types + 1
-        if (nmol_types > nmoltypes) then
-          write (*, *) "Error: too many molecule types (max ", nmoltypes, "). Aborting."
-          stop 1
-        end if
-        imt = nmol_types
-        mol_name(imt) = trim(newsymbol(2,i)(2:))
-        open (unit=32, file=trim(mol_name(imt)) // '.xyz', status='old', iostat=ios)
-        if (ios /= 0) then
-          write (*, *) "Error: ", trim(mol_name(imt)), ".xyz not found. Aborting."
-          stop 1
-        end if
-        read (32, *) mol_natoms(imt)
-        if (mol_natoms(imt) > nmolmax_atoms) then
-          write (*, *) "Error: ", trim(mol_name(imt)), ".xyz has more atoms than nmolmax_atoms =", &
-                       nmolmax_atoms, ". Aborting."
-          stop 1
-        end if
-        read (32, '(a)') gulpline_buf
-        do im = 1, mol_natoms(imt)
-          read (32, *) mol_sym_arr(imt, im), &
-                       mol_xyz_arr(imt, im, 1), mol_xyz_arr(imt, im, 2), mol_xyz_arr(imt, im, 3)
-        end do
-        close (32)
-        call shift_to_com(imt)
-        write (*, '(a,a,a,i0,a)') " Molecule @", trim(mol_name(imt)), &
-                                    " read from ", mol_natoms(imt), &
-                                    " atoms in " // trim(mol_name(imt)) // ".xyz"
-      end if
+      call get_molecule(newsymbol(2,i)(2:), imt)
       if (i == 1) mol_idx1_t2 = imt
       if (i == 2) mol_idx2_t2 = imt
     end do
   end if
+
+! Load molecules for parent-structure placeholder species (@NAME parent mapping)
+  do ip = 1, insod%n_parentmol
+    sp_loc = 0
+    do sp = 1, nsp
+      if (trim(symbol(sp)) == trim(insod%parentmol_sym(ip))) then
+        sp_loc = sp; exit
+      end if
+    end do
+    if (sp_loc == 0) then
+      write (*, *) "Error: parent-molecule placeholder '", trim(insod%parentmol_sym(ip)), &
+                   "' is not a species listed in INSOD. Aborting."
+      stop 1
+    end if
+    if (any(sp_loc == sptarget(1:ntarget))) then
+      write (*, *) "Error: parent-molecule placeholder '", trim(insod%parentmol_sym(ip)), &
+                   "' is also a substitution target; a site cannot be both. Aborting."
+      stop 1
+    end if
+    call get_molecule(insod%parentmol_name(ip), imt)
+    sp_is_mol(sp_loc) = .true.
+    sp_mol_idx(sp_loc) = imt
+  end do
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!    GENERATE INPUT FILES !!!!!!!!!!!!!!
@@ -642,6 +598,19 @@ program genersod
       nat_exp = 0
       do at = 1, nat
         sp = spat(at)
+        if (sp_is_mol(sp)) then
+          ! Parent-structure molecule: expand placeholder into rigid molecule
+          call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                               cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+          do im = 1, mol_natoms(sp_mol_idx(sp))
+            nat_exp = nat_exp + 1
+            write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                  trim(mol_sym_arr(sp_mol_idx(sp), im)), nat_exp, &
+                  trim(mol_sym_arr(sp_mol_idx(sp), im)), &
+                  mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
+          end do
+          cycle
+        end if
         if (.not. any(sp == sptarget(1:ntarget))) then
           nat_exp = nat_exp + 1
           write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
@@ -835,8 +804,12 @@ program genersod
     all_nsp_gulp = 0
     do ssp = 1, nsp
       if (ssp < sptarget(1)) then
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = symbol(ssp)
+        if (sp_is_mol(ssp)) then
+          call add_mol_types(sp_mol_idx(ssp))
+        else
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = symbol(ssp)
+        end if
       else if (ssp == sptarget(1)) then
         ! newsymbol(1,1)
         if (is_mol1) then
@@ -927,8 +900,12 @@ program genersod
           end if
         end if
       else
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = symbol(ssp)
+        if (sp_is_mol(ssp)) then
+          call add_mol_types(sp_mol_idx(ssp))
+        else
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = symbol(ssp)
+        end if
       end if
     end do
 
@@ -1070,6 +1047,30 @@ program genersod
 
           do at = 1, nat
             sp = spat(at)
+            if (sp_is_mol(sp)) then
+              ! Parent-structure molecule: expand placeholder into rigid molecule
+              call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                                   cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+              do im = 1, mol_natoms(sp_mol_idx(sp))
+                gtype_buf = mol_sym_arr(sp_mol_idx(sp), im)
+                do m = 1, all_nsp_gulp
+                  if (trim(all_sym(m)) == trim(mol_sym_arr(sp_mol_idx(sp), im))) then
+                    gtype_buf = all_gulptype_arr(m)
+                    exit
+                  end if
+                end do
+                write (72, 331) trim(gtype_buf), "core", &
+                                mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                do m = 1, all_nsp_gulp
+                  if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                    write (72, 331) trim(gtype_buf), "shel", &
+                                    mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                    exit
+                  end if
+                end do
+              end do
+              cycle
+            end if
             if (.not. any(sp == sptarget(1:ntarget))) then
               gtype_buf = symbol(sp)
               do m = 1, all_nsp_gulp
@@ -1402,8 +1403,12 @@ program genersod
     all_nsp_gulp = 0
     do ssp = 1, nsp
       if (ssp /= sptarget(1) .and. (ntarget == 1 .or. ssp /= sptarget(2))) then
-        all_nsp_gulp = all_nsp_gulp + 1
-        all_sym(all_nsp_gulp) = symbol(ssp)
+        if (sp_is_mol(ssp)) then
+          call add_mol_types(sp_mol_idx(ssp))
+        else
+          all_nsp_gulp = all_nsp_gulp + 1
+          all_sym(all_nsp_gulp) = symbol(ssp)
+        end if
       else if (ssp == sptarget(1)) then
         if (is_mol1) then
           do im = 1, mol_natoms(mol_idx1)
@@ -1601,6 +1606,30 @@ program genersod
 
       do at = 1, nat
         sp = spat(at)
+        if (sp_is_mol(sp)) then
+          ! Parent-structure molecule: expand placeholder into rigid molecule
+          call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                               cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+          mol_id_lammps = mol_id_lammps + 1
+          do im = 1, mol_natoms(sp_mol_idx(sp))
+            nat_exp = nat_exp + 1
+            sym_exp(nat_exp) = mol_sym_arr(sp_mol_idx(sp), im)
+            coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+            lammps_sym_idx = 0
+            do lmp_i = 1, all_nsp_gulp
+              if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(sp_mol_idx(sp), im))) then
+                lammps_sym_idx = lmp_i; exit
+              end if
+            end do
+            exp_sym_idx(nat_exp) = lammps_sym_idx
+            exp_mol_id(nat_exp) = mol_id_lammps
+            exp_has_shell(nat_exp) = .false.
+            exp_shell_id(nat_exp) = 0
+            atom_id_lammps = atom_id_lammps + 1
+            exp_core_id(nat_exp) = atom_id_lammps
+          end do
+          cycle
+        end if
         if (.not. any(sp == sptarget(1:ntarget))) then
           ! Framework atom
           lammps_sym_cur = symbol(sp)
@@ -1831,12 +1860,12 @@ program genersod
     title = 'vasp'
     call cell(cellvector, a, b, c, alpha, beta, gamma)
 
-    ! Check for INCAR file (required for VASP)
+    ! Check for INCAR file (recommended for VASP, but not required)
     inquire(file='INCAR', exist=fileexists)
     if (.not. fileexists) then
-      write (*, *) 'Error: INCAR file not found in current directory.'
-      write (*, *) 'VASP (FILER=11) requires an INCAR file at the same level as INSOD.'
-      stop 1
+      write (*, *) 'Warning: INCAR file not found in current directory.'
+      write (*, *) 'VASP input files will be created without an INCAR; place one'
+      write (*, *) 'in each c* directory before running VASP.'
     end if
 
     write (numfmt, '(a,i0,a,i0,a)') '(i', ndigits, '.', ndigits, ')'
@@ -1859,10 +1888,12 @@ program genersod
         stop 1
       end if
 
-      ! Copy INCAR to configuration directory
-      call execute_command_line('cp INCAR ' // trim(confdir_gulp) // '/', exitstat=ios)
-      if (ios /= 0) then
-        write (*, *) "Warning: could not copy INCAR to ", trim(confdir_gulp)
+      ! Copy INCAR to configuration directory (only if present)
+      if (fileexists) then
+        call execute_command_line('cp INCAR ' // trim(confdir_gulp) // '/', exitstat=ios)
+        if (ios /= 0) then
+          write (*, *) "Warning: could not copy INCAR to ", trim(confdir_gulp)
+        end if
       end if
 
       inpfile_gulp = trim(confdir_gulp) // '/POSCAR'
@@ -1879,6 +1910,17 @@ program genersod
       nat_exp = 0
       do at = 1, nat
         sp = spat(at)
+        if (sp_is_mol(sp)) then
+          ! Parent-structure molecule: expand placeholder into rigid molecule
+          call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                               cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+          do im = 1, mol_natoms(sp_mol_idx(sp))
+            nat_exp = nat_exp + 1
+            sym_exp(nat_exp) = mol_sym_arr(sp_mol_idx(sp), im)
+            coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+          end do
+          cycle
+        end if
         if (.not. any(sp == sptarget(1:ntarget))) then
           nat_exp = nat_exp + 1
           sym_exp(nat_exp) = symbol(sp)
@@ -2127,6 +2169,16 @@ program genersod
 337       format(a3, 3(f11.7, 2x))
           do at = 1, nat
             sp = spat(at)
+            if (sp_is_mol(sp)) then
+              ! Parent-structure molecule: expand placeholder into rigid molecule
+              call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                                   cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+              do im = 1, mol_natoms(sp_mol_idx(sp))
+                write (72, 337) mol_sym_arr(sp_mol_idx(sp), im), &
+                                mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+              end do
+              cycle
+            end if
             if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
@@ -2327,6 +2379,16 @@ program genersod
           write (72, '(a)') "ATOMIC_POSITIONS {crystal}"
           do at = 1, nat
             sp = spat(at)
+            if (sp_is_mol(sp)) then
+              ! Parent-structure molecule: expand placeholder into rigid molecule
+              call mol_rotate_frac(sp_mol_idx(sp), coords(at,1), coords(at,2), coords(at,3), &
+                                   cellvector, mol_frac_buf, mol_natoms(sp_mol_idx(sp)))
+              do im = 1, mol_natoms(sp_mol_idx(sp))
+                write (72, 337) mol_sym_arr(sp_mol_idx(sp), im), &
+                                mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+              end do
+              cycle
+            end if
             if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
@@ -2461,6 +2523,73 @@ program genersod
   write (*, *) ""
 
 contains
+
+!---------------------------------------------------------------------------
+! Return the molecule-type index for NAME, loading NAME.xyz on first request.
+  subroutine get_molecule(name, imt_out)
+    character(len=*), intent(in) :: name
+    integer, intent(out) :: imt_out
+    integer :: m_loc, im_loc, ios_loc
+    character(len=200) :: comment_loc
+    ! Already loaded?
+    do m_loc = 1, nmol_types
+      if (trim(mol_name(m_loc)) == trim(name)) then
+        imt_out = m_loc
+        return
+      end if
+    end do
+    ! Load a new molecule type
+    nmol_types = nmol_types + 1
+    if (nmol_types > nmoltypes) then
+      write (*, *) "Error: too many molecule types (max ", nmoltypes, "). Aborting."
+      stop 1
+    end if
+    imt_out = nmol_types
+    mol_name(imt_out) = trim(name)
+    open (unit=32, file=trim(mol_name(imt_out)) // '.xyz', status='old', iostat=ios_loc)
+    if (ios_loc /= 0) then
+      write (*, *) "Error: ", trim(mol_name(imt_out)), ".xyz not found. Aborting."
+      stop 1
+    end if
+    read (32, *) mol_natoms(imt_out)
+    if (mol_natoms(imt_out) > nmolmax_atoms) then
+      write (*, *) "Error: ", trim(mol_name(imt_out)), ".xyz has more atoms than nmolmax_atoms =", &
+                   nmolmax_atoms, ". Aborting."
+      stop 1
+    end if
+    read (32, '(a)') comment_loc   ! comment line
+    do im_loc = 1, mol_natoms(imt_out)
+      read (32, *) mol_sym_arr(imt_out, im_loc), &
+                   mol_xyz_arr(imt_out, im_loc, 1), mol_xyz_arr(imt_out, im_loc, 2), &
+                   mol_xyz_arr(imt_out, im_loc, 3)
+    end do
+    close (32)
+    ! Shift to CoM = origin
+    call shift_to_com(imt_out)
+    write (*, '(a,a,a,i0,a)') " Molecule @", trim(mol_name(imt_out)), &
+                                " read from ", mol_natoms(imt_out), &
+                                " atoms in " // trim(mol_name(imt_out)) // ".xyz"
+  end subroutine get_molecule
+
+!---------------------------------------------------------------------------
+! Append the (unique) atom types of molecule MIDX to the all_sym registry.
+  subroutine add_mol_types(midx)
+    integer, intent(in) :: midx
+    integer :: im_loc, m_loc
+    logical :: found_loc
+    do im_loc = 1, mol_natoms(midx)
+      found_loc = .false.
+      do m_loc = 1, all_nsp_gulp
+        if (trim(all_sym(m_loc)) == trim(mol_sym_arr(midx, im_loc))) then
+          found_loc = .true.; exit
+        end if
+      end do
+      if (.not. found_loc) then
+        all_nsp_gulp = all_nsp_gulp + 1
+        all_sym(all_nsp_gulp) = mol_sym_arr(midx, im_loc)
+      end if
+    end do
+  end subroutine add_mol_types
 
 !---------------------------------------------------------------------------
   subroutine shift_to_com(imt)

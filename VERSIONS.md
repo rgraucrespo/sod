@@ -1,3 +1,12 @@
+## Version 0.81 (14 June 2026)
+
+Minor release.
+
+- **Parent-structure molecules (`@NAME`)**: a molecule can now be part of the parent structure, not only a substitution — mark a parent site `@NAME` in the INSOD `symbol` list and `genersod` materialises `NAME.xyz` (independent random orientation per site) in the calculation inputs. New `example18` (MAPbI3–MAPbBr3 solid solution with a methylammonium parent).
+- **Geometry-only uniform MC sampling**: `mcsod` sampler 2 now runs with no PME Hamiltonian or reference energies, writing just the configuration ensemble — the practical route to build large SQS/GQS candidate sets before any DFT.
+- **MC output layout reorganised** (sampling method first, Hamiltonian variant second): Metropolis output is now `nXX/MCT_TTTK/PMEx/` and uniform output `nXX/MCU/` (per-variant energies under `nXX/MCU/PMEx/`); `sod_mcstat.sh` is now run from `nXX/`.
+- **Minor**: `combsod` accepts `nsubs = 0` (parent) and `nsubs = Nsites` (fully substituted); a missing `INCAR` is now a warning rather than a fatal error for VASP output.
+
 ## Version 0.80 (5 June 2026)
 
 ### New features 
@@ -23,7 +32,11 @@
   Samples configuration space at finite temperature using a PME Hamiltonian. Supports four
   modes: Metropolis reduced (symmetry-deduplicated) and Metropolis full (explicit trajectory),
   Uniform random reduced and Uniform random full. `sod_mc.sh` reads a `TEMPERATURES` file and
-  runs one single-temperature MC job per entry, writing output to `nXX/PMEx/MCT_TTTK/`.
+  runs one single-temperature MC job per entry. Output follows a sampling-method-first layout:
+  Metropolis writes `nXX/MCT_TTTK/PMEx/`, while uniform sampling writes its (Hamiltonian-
+  independent) geometry sample to `nXX/MCU/` and, when reference energies are available, the
+  per-variant energies to `nXX/MCU/PMEx/`. Uniform sampling runs geometry-only without any PME
+  training data.
   `INMC` specifies the sampler, equilibration/production step counts, restart probability,
   and starting configuration. Block-average standard error of the mean is reported for
   reliability assessment. MC output (ENSEMBLE + ENERGIES) is compatible with `sod_stat.sh`
@@ -33,7 +46,9 @@
   Integrates the MC internal energy U(T) over inverse temperature β to obtain the Helmholtz
   free energy F and entropy S at each sampled temperature, using S(T→∞) = kB ln C(npos, lev)
   as the high-temperature anchor. Output format matches `statsod` (T, E, F, S columns per
-  supercell). Run from `nXX/PMEx/` after completing a multi-temperature MC run.
+  supercell). Run from `nXX/` after completing a multi-temperature MC run (it reads
+  `../TEMPERATURES` and each `MCT_*K/PMEx/` directory, with `PMEx` taken from `../pme.model`,
+  defaulting to `PMEh`).
 
 - **Special Quasirandom Structures (SQS)**: new executable `sqssod` and wrapper `sod_sqs.sh`.
   Identifies the configurations at a given substitution level whose cluster 

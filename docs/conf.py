@@ -1,6 +1,6 @@
 project = "SOD"
 author = "Ricardo Grau-Crespo, Said Hamad, and contributors"
-release = "0.80"
+release = "0.81"
 
 extensions = []
 templates_path = ["_templates"]

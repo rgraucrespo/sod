@@ -96,7 +96,7 @@ program sqssod
   ! ================================================================
   ! Main program
   ! ================================================================
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - sqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - sqssod"
 
   call read_insqs()
   call read_eqmatrix()

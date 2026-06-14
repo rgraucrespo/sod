@@ -84,6 +84,11 @@ module pmemod
   logical, save :: v_loaded_from_cache = .false.
   character(len=256), save :: pme_model_filename = 'pme.model'
 
+  ! Set .false. when the model is initialised geometry-only (uniform sampling
+  ! without reference ENERGIES). The V expansion is not built, so energies must
+  ! not be evaluated.
+  logical, save :: pme_energies_avail = .true.
+
   ! INSOD data cache — populated once by build_target_layout_from_inputs
   logical, save :: insod_cache_valid = .false.
   integer, save :: insod_filer_cache = -1
@@ -96,6 +101,7 @@ module pmemod
   public :: pme_write_level_outputs, pme_print_model_summary, pme_evaluate_configuration
   public :: pme_get_npos, pme_get_max_low_order, pme_get_max_high_order
   public :: pme_has_high_side
+  public :: pme_energies_available
   public :: pme_preload_recalibration
   public :: pme_get_target_atini, pme_get_v0
   public :: pme_get_epsilon
@@ -108,13 +114,23 @@ module pmemod
   public :: compute_config_degeneracy
   public :: format_level_directory, write_pme_model_template, write_pme_model_calibrated
   public :: pme_set_model_filename
+  public :: pme_variant_dir_from_model
   public :: pme_get_newsymbol
 
 contains
 
-  subroutine pme_initialize_model(target_level)
+  subroutine pme_initialize_model(target_level, energy_optional)
+    !  Build the PME effective Hamiltonian for the given target level.
+    !  If energy_optional is present and .true. (uniform sampling) and the
+    !  low-side reference ENERGIES are absent, initialise geometry only:
+    !  the V expansion is skipped and pme_energies_avail is set .false., so
+    !  the caller can sample configurations without evaluating energies.
     integer, intent(in) :: target_level
-    logical :: v_ok, recon_ok
+    logical, intent(in), optional :: energy_optional
+    logical :: v_ok, recon_ok, opt
+
+    opt = .false.
+    if (present(energy_optional)) opt = energy_optional
 
     call pme_finalize_model()
     pme_target_level = target_level
@@ -128,6 +144,14 @@ contains
       write(error_unit,'(A,I0,A,I0,A)') 'Error: requested level ', target_level, ' is outside 0..', npos, '.'
       stop 1
     end if
+
+    ! Geometry-only mode: no Hamiltonian to build, no energies to evaluate.
+    if (opt .and. .not. low_side_refs_present()) then
+      pme_energies_avail = .false.
+      model_initialized  = .true.
+      return
+    end if
+    pme_energies_avail = .true.
 
     call read_pme_model_v_block(trim(pme_model_filename), v_ok)
 
@@ -186,6 +210,7 @@ contains
     nv1_low  = 0;  nv2_low  = 0;  nv3_low  = 0;  nv4_low  = 0
     nv1_high = 0;  nv2_high = 0;  nv3_high = 0;  nv4_high = 0
     v_loaded_from_cache = .false.
+    pme_energies_avail = .true.
     nop = 0
     npos = 0
     target_species = 0
@@ -233,6 +258,30 @@ contains
   logical function pme_has_high_side() result(value)
     value = high_base_loaded
   end function pme_has_high_side
+
+  logical function pme_energies_available() result(value)
+    !  .false. when the model was initialised geometry-only (uniform sampling
+    !  without reference ENERGIES); callers must not evaluate configuration
+    !  energies in that case.
+    value = pme_energies_avail
+  end function pme_energies_available
+
+  logical function low_side_refs_present() result(present_all)
+    !  The minimal references required to build the low-side expansion are
+    !  n00/ENERGIES, n01/ENERGIES and n02/ENERGIES (see load_low_side_model).
+    character(len=32) :: dir
+    logical :: ex
+    integer :: lvl
+    present_all = .true.
+    do lvl = 0, 2
+      call format_level_directory(lvl, dir)
+      inquire(file=trim(dir)//'/ENERGIES', exist=ex)
+      if (.not. ex) then
+        present_all = .false.
+        return
+      end if
+    end do
+  end function low_side_refs_present
 
   integer function pme_get_choice() result(value)
     value = pme_choice
@@ -289,6 +338,12 @@ contains
     write(*,'(A,I6)')   '    Target sites   (npos) : ', npos
     write(*,'(A,I6)')   '    Symmetry ops   (nop)  : ', nop
     write(*,*)
+    if (.not. pme_energies_avail) then
+      write(*,'(A)') '    Geometry-only: no PME Hamiltonian built (uniform sampling'
+      write(*,'(A)') '    without reference ENERGIES). Energies will not be evaluated.'
+      write(*,*)
+      return
+    end if
     write(*,'(A)')      '    LOW-SIDE expansion  (x → 0):'
     write(*,'(A,F22.10,A)') '      V₀_low               : ', v0_low, ' eV'
     write(*,'(A,I2)')   '      Maximum motif order: ', max_low_order
@@ -805,6 +860,32 @@ contains
       dirname = 'PMEh'
     end select
   end subroutine pme_variant_directory
+
+  subroutine pme_variant_dir_from_model(filename, dirname, ok)
+    !  Read just the PME choice (first data line) from a pme.model file and
+    !  return the corresponding variant directory name ('PME0'/'PME1'/'PMEh').
+    !  Lets standalone tools (e.g. mcstatsod) locate the variant subdirectory
+    !  without building the full Hamiltonian.  ok = .false. if the file is
+    !  missing or the choice line is unreadable (dirname defaults to 'PMEh').
+    character(len=*), intent(in)  :: filename
+    character(len=*), intent(out) :: dirname
+    logical,          intent(out) :: ok
+    integer :: unit_in, ios, choice
+    character(len=512) :: line
+    logical :: lk
+
+    ok = .false.
+    dirname = 'PMEh'
+    open(newunit=unit_in, file=trim(filename), status='old', action='read', iostat=ios)
+    if (ios /= 0) return
+    call next_data_line(unit_in, line, lk)
+    close(unit_in)
+    if (.not. lk) return
+    read(line, *, iostat=ios) choice
+    if (ios /= 0 .or. choice < 0 .or. choice > 2) return
+    call pme_variant_directory(choice, dirname)
+    ok = .true.
+  end subroutine pme_variant_dir_from_model
 
   subroutine pme_evaluate_configuration(conf_row, level, energy, energy_low, energy_high, low_terms, high_terms)
     integer, intent(in) :: conf_row(:)

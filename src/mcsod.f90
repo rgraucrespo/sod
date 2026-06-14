@@ -1,15 +1,18 @@
 !*******************************************************************************
 !    mcsod — Monte Carlo sampling with SOD effective Hamiltonian (PME).
 !
+!    Directory layout: sampling method first, Hamiltonian variant second.
 !    Metropolis MC: runs one MC chain at the temperature supplied as a
-!    positional argument and writes output to nXX/PMEx/MCT_TTTK/.
-!    Uniform MC: runs a single uniform-random sampling pass; writes output
-!    to nXX/PMEx/MCU/.
+!    positional argument; writes output to nXX/MCT_TTTK/PMEx/.
+!    Uniform MC: runs a single uniform-random sampling pass; the geometry sample
+!    is Hamiltonian-independent, so it writes ENSEMBLE to nXX/MCU/ and (when
+!    reference energies are available) ENERGIES to nXX/MCU/PMEx/.
 !
-!    Required input files: INMC, INSOD, EQMATRIX, SGO, n00/ENERGIES, …
-!    Metropolis also requires: mcsod <temperature/K>
+!    Required input files: INMC, INSOD, EQMATRIX, SGO; Metropolis also needs the
+!    PME training data (n00/ENERGIES, …) and a temperature: mcsod <temperature/K>.
+!    Uniform sampling runs geometry-only without the PME training data.
 !
-!    Part of the SOD package (v0.80) — GNU GPL v3+.
+!    Part of the SOD package (v0.81) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcsod
@@ -27,9 +30,9 @@ program mcsod
   character(len=32) :: seed_label, arg_text, level_dir, pme_variant, temp_dir
   integer :: unit_in
   character(len=256) :: line, start_config_line, model_filename_arg
-  character(len=256) :: output_dir, pme_dir
+  character(len=256) :: output_dir, energies_dir
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - mcsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - mcsod"
 
   ! --- Read INMC ---
   open(newunit=unit_in, file='INMC', status='old', action='read', iostat=ios)
@@ -216,39 +219,51 @@ program mcsod
   end if
 
   ! --- Initialize PME model ---
+  ! Uniform sampling does not use energies to decide moves, so it may run
+  ! geometry-only when reference ENERGIES are absent (energy_optional = .true.).
   call pme_get_target_level_from_insod(target_level)
-  call pme_initialize_model(target_level)
+  call pme_initialize_model(target_level, energy_optional = .not. use_metropolis)
   recal_ok = .true.
-  call pme_preload_recalibration(target_level, recal_ok)
+  if (pme_energies_available()) call pme_preload_recalibration(target_level, recal_ok)
   call pme_print_model_summary()
 
   call format_level_directory(target_level, level_dir)
   call format_pme_variant_directory(pme_get_choice(), pme_variant)
-  pme_dir = trim(level_dir)//'/'//trim(pme_variant)
-  call execute_command_line('mkdir -p '//trim(pme_dir), exitstat=mkdir_status)
+
+  ! Directory layout: sampling method first, Hamiltonian variant second.
+  !   Uniform   : nXX/MCU/ENSEMBLE        (geometry; Hamiltonian-independent)
+  !               nXX/MCU/PMEx/ENERGIES   (per-variant energies, when available)
+  !   Metropolis: nXX/MCT_TK/PMEx/{ENSEMBLE,ENERGIES}  (walk is Hamiltonian-driven)
+  if (use_metropolis) then
+    call format_metropolis_directory(requested_temperature, temp_dir)
+    output_dir   = trim(level_dir)//'/'//trim(temp_dir)//'/'//trim(pme_variant)
+    energies_dir = output_dir
+  else
+    output_dir   = trim(level_dir)//'/MCU'
+    energies_dir = trim(output_dir)//'/'//trim(pme_variant)
+  end if
+
+  call execute_command_line('mkdir -p '//trim(output_dir), exitstat=mkdir_status)
   if (mkdir_status /= 0) then
-    write(error_unit,'(A,A)') ' Error: could not create PME directory ', trim(pme_dir)
+    write(error_unit,'(A,A)') ' Error: could not create output directory ', trim(output_dir)
     stop 1
   end if
-  call execute_command_line('cp INMC '//trim(pme_dir)//'/INMC', exitstat=copy_status)
+  call execute_command_line('cp INMC '//trim(output_dir)//'/INMC', exitstat=copy_status)
   if (copy_status /= 0) then
-    write(*,'(A,A)') ' Warning: could not copy INMC to ', trim(pme_dir)
+    write(*,'(A,A)') ' Warning: could not copy INMC to ', trim(output_dir)
   end if
 
   ! --- Run MC ---
   if (use_metropolis) then
-    call format_metropolis_directory(requested_temperature, temp_dir)
-    output_dir = trim(pme_dir)//'/'//trim(temp_dir)
     write(*, '(A,F10.2,A)') '  Running Metropolis MC at ', requested_temperature, ' K'
     write(*, *)
     call run_mc(target_level, requested_temperature, n_equil, n_prod, restart_prob_in, &
                 use_metropolis, use_symmetry_reduction, write_trace, &
-                start_config_line, output_dir)
+                start_config_line, output_dir, energies_dir)
   else
-    output_dir = trim(pme_dir)//'/MCU'
     call run_mc(target_level, 0.0_real64, 0, n_prod, 0.0_real64, &
                 use_metropolis, use_symmetry_reduction, write_trace, &
-                start_config_line, output_dir)
+                start_config_line, output_dir, energies_dir)
   end if
 
   ! --- Cleanup ---
@@ -290,16 +305,19 @@ contains
 
   subroutine run_mc(target_level, temperature, n_equil, n_prod, restart_prob, &
                     use_metropolis, use_symmetry_reduction, write_trace, &
-                    start_config_line, output_dir)
+                    start_config_line, output_dir, energies_dir)
     !  Runs n_equil equilibration steps (chain advances, no storage) followed by
     !  n_prod production steps (configurations stored, contribute to averages).
     !  For Uniform sampling: n_equil = 0, restart_prob unused, temperature unused.
-    !  Writes output_dir/ENSEMBLE, output_dir/ENERGIES, output_dir/OUTMC.
+    !  Writes output_dir/ENSEMBLE, output_dir/OUTMC and energies_dir/ENERGIES.
     !  Optionally writes output_dir/MCTRACE (equil + prod steps, phase-labelled).
+    !  energies_dir == output_dir for Metropolis; for uniform it is the PMEx
+    !  subdirectory (output_dir/PMEx), since the geometry sample is Hamiltonian-
+    !  independent but the energies belong to a specific variant.
     integer,          intent(in) :: target_level, n_equil, n_prod, write_trace
     real(real64),     intent(in) :: temperature, restart_prob
     logical,          intent(in) :: use_metropolis, use_symmetry_reduction
-    character(len=*), intent(in) :: start_config_line, output_dir
+    character(len=*), intent(in) :: start_config_line, output_dir, energies_dir
 
     real(real64), parameter :: kB = 8.617333262e-5_real64  ! eV/K
 
@@ -343,8 +361,10 @@ contains
     real(real64) :: block_mean_e, block_mean_bar, block_ss
     logical :: do_block_sem
     integer(int64) :: total_omega
+    logical :: have_energy
 
     lev       = target_level
+    have_energy = pme_energies_available()
     npos_val  = pme_get_npos()
     atini_val = pme_get_target_atini()
     max_lo    = pme_get_max_low_order()
@@ -444,9 +464,14 @@ contains
       end if
     end block
 
-    call pme_evaluate_configuration(subset(1:lev), lev, &
-      energy, energy_low, energy_high, low_terms, high_terms)
-    call apply_epsilon_energy(lev, low_terms, high_terms, energy)
+    if (have_energy) then
+      call pme_evaluate_configuration(subset(1:lev), lev, &
+        energy, energy_low, energy_high, low_terms, high_terms)
+      call apply_epsilon_energy(lev, low_terms, high_terms, energy)
+    else
+      energy = 0.0_real64; energy_low = 0.0_real64; energy_high = 0.0_real64
+      low_terms = 0.0_real64; high_terms = 0.0_real64
+    end if
 
     n_accepted_equil = 0
     n_accepted_prod  = 0
@@ -556,9 +581,14 @@ contains
         call mc_random_subset(npos_val, lev, trial_subset)
       end if
 
-      call pme_evaluate_configuration(trial_subset(1:lev), lev, &
-        trial_energy, trial_low, trial_high, low_terms, high_terms)
-      call apply_epsilon_energy(lev, low_terms, high_terms, trial_energy)
+      if (have_energy) then
+        call pme_evaluate_configuration(trial_subset(1:lev), lev, &
+          trial_energy, trial_low, trial_high, low_terms, high_terms)
+        call apply_epsilon_energy(lev, low_terms, high_terms, trial_energy)
+      else
+        trial_energy = 0.0_real64; trial_low = 0.0_real64; trial_high = 0.0_real64
+        low_terms = 0.0_real64; high_terms = 0.0_real64
+      end if
 
       if (use_metropolis) then
         delta_e = trial_energy - energy
@@ -632,7 +662,7 @@ contains
     ! === Block-average SEM estimation from production energy trajectory ===
     ! SEM = std(block_means) / sqrt(n_blocks); blocks must be >> autocorrelation time.
     ! If SEM converges as n_blocks decreases (block size grows), the estimate is reliable.
-    do_block_sem = (n_prod >= block_sizes(n_block_sizes))
+    do_block_sem = have_energy .and. (n_prod >= block_sizes(n_block_sizes))
     if (do_block_sem) then
       do i_b = 1, n_block_sizes
         n_bs = block_sizes(i_b)
@@ -677,46 +707,55 @@ contains
     write(*, '(A)') ' ---------------------------------------------------------------------------'
     write(*, *)
 
-    ! === Compute final calibrated energies for stored rows ===
-    do i = 1, n_unique
-      call apply_epsilon_energy(lev, unique_low(:, i), unique_high(:, i), unique_e(i))
-    end do
-
-    ! === Canonical ensemble average (degeneracy-weighted mean for both samplers) ===
-    total_deg = sum(degeneracy(1:n_unique))
-    sum_e  = 0.0_real64
-    sum_ge = 0.0_real64
-    do i = 1, n_unique
-      sum_e  = sum_e  + real(degeneracy(i), real64) * unique_e(i)
-      sum_ge = sum_ge + real(degeneracy(i), real64) * unique_e(i)**2
-    end do
-    mean_e = sum_e / real(total_deg, real64)
-    std_e  = sqrt(max(0.0_real64, sum_ge / real(total_deg, real64) - mean_e**2))
-
-    best_unique_idx = 1
-    do i = 2, n_unique
-      if (unique_e(i) < unique_e(best_unique_idx)) best_unique_idx = i
-    end do
-    best_energy = unique_e(best_unique_idx)
-    best_subset = unique_subsets(:, best_unique_idx)
-
-    write(*, '(A)') ' --- Results ----------------------------------------------------------------'
-    write(*, '(A,F22.10,A)') '  E_min             = ', best_energy, ' eV'
-    write(*, '(A,F22.10,A)') '  E_ave (sample)    = ', mean_e,      ' eV'
-    write(*, '(A,F22.10,A)') '  E_std             = ', std_e,       ' eV'
-    if (do_block_sem) then
-      write(*, '(A)') ' --- Block-average SEM ------------------------------------------------------'
-      do i_b = 1, n_block_sizes
-        n_bs         = block_sizes(i_b)
-        n_block_steps = n_prod / n_bs
-        write(*, '(A,I2,A,F22.10,A,I0,A)') &
-          '  SEM (', n_bs, ' blocks)    = ', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
+    ! === Compute final calibrated energies and report (skipped without energies) ===
+    if (have_energy) then
+      do i = 1, n_unique
+        call apply_epsilon_energy(lev, unique_low(:, i), unique_high(:, i), unique_e(i))
       end do
-      write(*, '(A)') '  Note: if SEM(8) ≈ SEM(16), blocks are independent; trust that estimate.'
-      write(*, '(A)') '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
+
+      ! === Canonical ensemble average (degeneracy-weighted mean for both samplers) ===
+      total_deg = sum(degeneracy(1:n_unique))
+      sum_e  = 0.0_real64
+      sum_ge = 0.0_real64
+      do i = 1, n_unique
+        sum_e  = sum_e  + real(degeneracy(i), real64) * unique_e(i)
+        sum_ge = sum_ge + real(degeneracy(i), real64) * unique_e(i)**2
+      end do
+      mean_e = sum_e / real(total_deg, real64)
+      std_e  = sqrt(max(0.0_real64, sum_ge / real(total_deg, real64) - mean_e**2))
+
+      best_unique_idx = 1
+      do i = 2, n_unique
+        if (unique_e(i) < unique_e(best_unique_idx)) best_unique_idx = i
+      end do
+      best_energy = unique_e(best_unique_idx)
+      best_subset = unique_subsets(:, best_unique_idx)
+
+      write(*, '(A)') ' --- Results ----------------------------------------------------------------'
+      write(*, '(A,F22.10,A)') '  E_min             = ', best_energy, ' eV'
+      write(*, '(A,F22.10,A)') '  E_ave (sample)    = ', mean_e,      ' eV'
+      write(*, '(A,F22.10,A)') '  E_std             = ', std_e,       ' eV'
+      if (do_block_sem) then
+        write(*, '(A)') ' --- Block-average SEM ------------------------------------------------------'
+        do i_b = 1, n_block_sizes
+          n_bs         = block_sizes(i_b)
+          n_block_steps = n_prod / n_bs
+          write(*, '(A,I2,A,F22.10,A,I0,A)') &
+            '  SEM (', n_bs, ' blocks)    = ', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
+        end do
+        write(*, '(A)') '  Note: if SEM(8) ≈ SEM(16), blocks are independent; trust that estimate.'
+        write(*, '(A)') '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
+      end if
+      write(*, '(A)') ' ---------------------------------------------------------------------------'
+      write(*, *)
+    else
+      write(*, '(A)') ' --- Results ----------------------------------------------------------------'
+      write(*, '(A)') '  Energies not evaluated (no reference ENERGIES; geometry-only uniform run).'
+      write(*, '(A)') '  Compute DFT energies for the configurations in ENSEMBLE, then build the'
+      write(*, '(A)') '  PME model to obtain energy statistics.'
+      write(*, '(A)') ' ---------------------------------------------------------------------------'
+      write(*, *)
     end if
-    write(*, '(A)') ' ---------------------------------------------------------------------------'
-    write(*, *)
 
     ! === Write ENSEMBLE ===
     block
@@ -724,7 +763,7 @@ contains
       integer :: unit_ensemble, unit_energies
 
       ensemble_path = trim(output_dir)//'/ENSEMBLE'
-      energies_path = trim(output_dir)//'/ENERGIES'
+      energies_path = trim(energies_dir)//'/ENERGIES'
 
       open(newunit=unit_ensemble, file=trim(ensemble_path), status='replace', action='write')
       block
@@ -753,12 +792,24 @@ contains
       end block
       close(unit_ensemble)
 
-      ! === Write ENERGIES ===
-      open(newunit=unit_energies, file=trim(energies_path), status='replace', action='write')
-      do i = 1, n_unique
-        write(unit_energies,'(I0,2X,F22.10)') i, unique_e(i)
-      end do
-      close(unit_energies)
+      ! === Write ENERGIES (only when a Hamiltonian was available) ===
+      ! For uniform runs the energies live in the PMEx subdirectory, which may
+      ! not exist yet (the geometry sample is written to output_dir).
+      if (have_energy) then
+        block
+          integer :: mkdir_e_status
+          call execute_command_line('mkdir -p '//trim(energies_dir), exitstat=mkdir_e_status)
+          if (mkdir_e_status /= 0) then
+            write(error_unit,'(A,A)') ' Error: could not create directory ', trim(energies_dir)
+            stop 1
+          end if
+        end block
+        open(newunit=unit_energies, file=trim(energies_path), status='replace', action='write')
+        do i = 1, n_unique
+          write(unit_energies,'(I0,2X,F22.10)') i, unique_e(i)
+        end do
+        close(unit_energies)
+      end if
 
     end block
 
@@ -790,37 +841,42 @@ contains
         '  (', 100.0_real64 * real(n_accepted_prod, real64) / real(max(1, n_prod), real64), ' %)'
     end if
     write(unit_out,'(A)') ' -----------------------------------------------------------------'
-    write(unit_out,'(A)',advance='no') '  eps_low           :'
-    do k = 0, max(1, max_lo)
-      write(unit_out,'(1X,F10.6)',advance='no') mu_lo(k)
-    end do
-    write(unit_out,*)
-    if (has_high) then
-      write(unit_out,'(A)',advance='no') '  eps_high          :'
-      do k = 0, max(1, max_hi)
-        write(unit_out,'(1X,F10.6)',advance='no') mu_hi(k)
+    if (have_energy) then
+      write(unit_out,'(A)',advance='no') '  eps_low           :'
+      do k = 0, max(1, max_lo)
+        write(unit_out,'(1X,F10.6)',advance='no') mu_lo(k)
       end do
       write(unit_out,*)
-      write(unit_out,'(A,F10.6)')       '  alpha (hybrid)    : ', alpha_hybrid_val
-      write(unit_out,'(A,F10.6)')       '  eta   (hybrid)    : ', eta_hybrid_val
-    end if
-    write(unit_out,'(A)') ' -----------------------------------------------------------------'
-    write(unit_out,'(A,F22.10,A)') '  E_min             =', best_energy, ' eV'
-    write(unit_out,'(A,F22.10,A)') '  E_ave (sample)    =', mean_e,      ' eV'
-    write(unit_out,'(A,F22.10,A)') '  E_std             =', std_e,       ' eV'
-    if (do_block_sem) then
+      if (has_high) then
+        write(unit_out,'(A)',advance='no') '  eps_high          :'
+        do k = 0, max(1, max_hi)
+          write(unit_out,'(1X,F10.6)',advance='no') mu_hi(k)
+        end do
+        write(unit_out,*)
+        write(unit_out,'(A,F10.6)')       '  alpha (hybrid)    : ', alpha_hybrid_val
+        write(unit_out,'(A,F10.6)')       '  eta   (hybrid)    : ', eta_hybrid_val
+      end if
       write(unit_out,'(A)') ' -----------------------------------------------------------------'
-      write(unit_out,'(A)') '  Block-average SEM (standard error of the mean):'
-      do i_b = 1, n_block_sizes
-        n_bs          = block_sizes(i_b)
-        n_block_steps = n_prod / n_bs
-        write(unit_out,'(A,I2,A,F22.10,A,I0,A)') &
-          '  SEM (', n_bs, ' blocks)    =', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
-      end do
-      write(unit_out,'(A)') &
-        '  Note: if SEM(8) ~ SEM(16), blocks are independent; trust that estimate.'
-      write(unit_out,'(A)') &
-        '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
+      write(unit_out,'(A,F22.10,A)') '  E_min             =', best_energy, ' eV'
+      write(unit_out,'(A,F22.10,A)') '  E_ave (sample)    =', mean_e,      ' eV'
+      write(unit_out,'(A,F22.10,A)') '  E_std             =', std_e,       ' eV'
+      if (do_block_sem) then
+        write(unit_out,'(A)') ' -----------------------------------------------------------------'
+        write(unit_out,'(A)') '  Block-average SEM (standard error of the mean):'
+        do i_b = 1, n_block_sizes
+          n_bs          = block_sizes(i_b)
+          n_block_steps = n_prod / n_bs
+          write(unit_out,'(A,I2,A,F22.10,A,I0,A)') &
+            '  SEM (', n_bs, ' blocks)    =', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
+        end do
+        write(unit_out,'(A)') &
+          '  Note: if SEM(8) ~ SEM(16), blocks are independent; trust that estimate.'
+        write(unit_out,'(A)') &
+          '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
+      end if
+    else
+      write(unit_out,'(A)') '  Energies          : not evaluated (no reference ENERGIES;'
+      write(unit_out,'(A)') '                      geometry-only uniform run). No ENERGIES file written.'
     end if
     write(unit_out,'(A)') ' ================================================================='
     close(unit_out)
@@ -830,11 +886,11 @@ contains
       character(len=256) :: ensemble_path2, energies_path2
 
       ensemble_path2    = trim(output_dir)//'/ENSEMBLE'
-      energies_path2  = trim(output_dir)//'/ENERGIES'
+      energies_path2  = trim(energies_dir)//'/ENERGIES'
 
       write(*, '(A)') ' --- Output files -----------------------------------------------------------'
       write(*, '(A,A)') '  ENSEMBLE          : ', trim(ensemble_path2)
-      write(*, '(A,A)') '  ENERGIES          : ', trim(energies_path2)
+      if (have_energy) write(*, '(A,A)') '  ENERGIES          : ', trim(energies_path2)
       write(*, '(A,A)') '  OUTMC             : ', trim(outmc_path)
       if (write_trace == 1) then
         write(*, '(A,A)') '  MCTRACE           : ', trim(trace_path)

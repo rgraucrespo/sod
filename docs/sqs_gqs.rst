@@ -20,6 +20,39 @@ smallest deviation is the Special Quasirandom Structure (SQS).
   Boltzmann-weighted thermal averages of pair correlations from calculated
   energies.
 
+Ensemble source: enumeration or random sampling
+------------------------------------------------
+
+``sqssod`` and ``gqssod`` score whatever configurations are listed in
+``ENSEMBLE`` — they do **not** enumerate or search the configurational space
+themselves. The SQS is simply the best-scoring member of the ensemble you
+provide. That ensemble can come from either route:
+
+- **Full enumeration** (``sod_comb.sh`` → ``nXX/ENSEMBLE``): the
+  symmetry-inequivalent configurations at the composition. This guarantees the
+  true best SQS *within the supercell* is present, but is only feasible when the
+  space is small enough to enumerate.
+- **Uniform random sampling** (``mcsod`` with sampler = 2 →
+  ``nXX/MCU/ENSEMBLE``): a large random sample of configurations. This is
+  the practical route when the full space is **too large to enumerate** —
+  generate a big uniform ensemble and extract the best SQS from it. Point
+  ``sqssod`` at the ``MCU/`` directory (which holds the sampled ``ENSEMBLE``)
+  while ``EQMATRIX``, ``supercell.cif``, and ``INSOD`` remain in the parent
+  folder. Uniform sampling needs no reference energies, so this works before any
+  DFT is run; for GQS, supply ``ENERGIES`` for the sampled configurations.
+
+With random sampling the result is the best SQS *found in the sample*, not
+provably the global optimum — enlarge the sample to improve it.
+
+.. note::
+
+   **Future direction.** SOD does not yet perform a *directed* search for the
+   SQS (e.g. simulated annealing or basin-hopping that minimises the score
+   ``Q`` as a pseudo-energy to drive the configuration toward ideal
+   randomness). At present the SQS can only be selected from a pre-generated
+   ensemble (enumerated or randomly sampled). A directed-search mode is a
+   planned enhancement.
+
 Workflow
 --------
 

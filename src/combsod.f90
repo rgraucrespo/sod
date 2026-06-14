@@ -148,7 +148,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
@@ -847,7 +847,7 @@ program combsod
   do i = 1, nsubs
     as_A(i) = i
   end do
-  mores_A = (nsubs < npos)
+  mores_A = (nsubs > 0 .and. nsubs < npos)
 
   do   ! outer combined loop
 !   Rank of combined selection: combinatorial number system
@@ -862,7 +862,7 @@ program combsod
     do i = 1, nsubs_t(1,1)
       as_B(i) = i
     end do
-    mores_B = (nsubs_t(1,1) < nsubs)
+    mores_B = (nsubs_t(1,1) > 0 .and. nsubs_t(1,1) < nsubs)
 
     do   ! inner colouring loop
 !     Rank of colouring
@@ -1159,7 +1159,7 @@ program combsod
   do i = 1, nsubs
     as_A(i) = i
   end do
-  mores_A = (nsubs < npos)
+  mores_A = (nsubs > 0 .and. nsubs < npos)
 
   do   ! outer combined loop
 !   Rank of combined selection: combinatorial number system
@@ -1173,7 +1173,7 @@ program combsod
     do i = 1, nsubs_t(1,1)
       as_B(i) = i
     end do
-    mores_B = (nsubs_t(1,1) < nsubs)
+    mores_B = (nsubs_t(1,1) > 0 .and. nsubs_t(1,1) < nsubs)
 
     do   ! middle colouring loop (sp1)
 !     Rank of sp1 colouring
@@ -1199,7 +1199,7 @@ program combsod
       do i = 1, nsubs_t(1,2)
         as_C(i) = i
       end do
-      mores_C = (nsubs_t(1,2) < n2rem)
+      mores_C = (nsubs_t(1,2) > 0 .and. nsubs_t(1,2) < n2rem)
 
       do   ! inner colouring loop (sp2)
 !       Rank of sp2 colouring
@@ -1817,19 +1817,19 @@ program combsod
     do i = 1, nsubs_tot_t(t)
       as_pos_t(t, i) = i
     end do
-    mores_pos_t(t) = (nsubs_tot_t(t) < npos_t(t))
+    mores_pos_t(t) = (nsubs_tot_t(t) > 0 .and. nsubs_tot_t(t) < npos_t(t))
     if (nk(t) >= 2) then
       do i = 1, nsubs_t(t,1)
         as_col1_t(t, i) = i
       end do
-      mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+      mores_col1_t(t) = (nsubs_t(t,1) > 0 .and. nsubs_t(t,1) < nsubs_tot_t(t))
       call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
     end if
     if (nk(t) >= 3) then
       do i = 1, nsubs_t(t,2)
         as_col2_t(t, i) = i
       end do
-      mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+      mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
     end if
   end do
 
@@ -2025,7 +2025,7 @@ program combsod
           exit p4_carry
         else
           do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
-          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+          mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
         end if
       end if
       if (nk(t) >= 2) then
@@ -2034,16 +2034,16 @@ program combsod
           call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
           if (nk(t) >= 3) then
             do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
-            mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+            mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
           end if
           exit p4_carry
         else
           do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
-          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          mores_col1_t(t) = (nsubs_t(t,1) > 0 .and. nsubs_t(t,1) < nsubs_tot_t(t))
           call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
           if (nk(t) >= 3) then
             do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
-            mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+            mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
           end if
         end if
       end if
@@ -2051,27 +2051,27 @@ program combsod
         call comb_next(as_pos_t(t,:), nsubs_tot_t(t), npos_t(t), mores_pos_t(t))
         if (nk(t) >= 2) then
           do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
-          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          mores_col1_t(t) = (nsubs_t(t,1) > 0 .and. nsubs_t(t,1) < nsubs_tot_t(t))
           call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
         end if
         if (nk(t) >= 3) then
           do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
-          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+          mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
         end if
         exit p4_carry
       else if (t == 1) then
         exit p4_main
       else
         do i = 1, nsubs_tot_t(t); as_pos_t(t,i) = i; end do
-        mores_pos_t(t) = (nsubs_tot_t(t) < npos_t(t))
+        mores_pos_t(t) = (nsubs_tot_t(t) > 0 .and. nsubs_tot_t(t) < npos_t(t))
         if (nk(t) >= 2) then
           do i = 1, nsubs_t(t,1); as_col1_t(t,i) = i; end do
-          mores_col1_t(t) = (nsubs_t(t,1) < nsubs_tot_t(t))
+          mores_col1_t(t) = (nsubs_t(t,1) > 0 .and. nsubs_t(t,1) < nsubs_tot_t(t))
           call complement_indices(as_col1_t(t,:), nsubs_t(t,1), nsubs_tot_t(t), notcol1_t(t,:), j)
         end if
         if (nk(t) >= 3) then
           do i = 1, nsubs_t(t,2); as_col2_t(t,i) = i; end do
-          mores_col2_t(t) = (nsubs_t(t,2) < nrem2_t(t))
+          mores_col2_t(t) = (nsubs_t(t,2) > 0 .and. nsubs_t(t,2) < nrem2_t(t))
         end if
       end if
     end do p4_carry

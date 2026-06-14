@@ -1,0 +1,34 @@
+# Title
+MAPbI3-MAPbBr3 solid solution: MA parent molecule, I/Br disorder
+
+# a, b, c, alpha, beta, gamma
+6.3100  6.3100  6.3100  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+3
+
+# symbol(1:nsp): Atom symbols (@MA is a spherical A-site molecule placeholder, materialised from MA.xyz)
+@MA Pb I
+
+# natsp0(1:nsp): Number of atoms per species (asymmetric unit is sufficient)
+1 1 1
+
+# coords0: Fractional coordinates (one line with x_frac y_frac z_frac per atom)
+0.0  0.0  0.0
+0.5  0.5  0.5
+0.5  0.5  0.0
+
+# na, nb, nc: Supercell multipliers along a, b, c
+2 2 2
+
+# sptarget: Index or indices of species to substitute (the halide X-site)
+3
+
+# nsubs: Substitution counts. One line per target site.
+2
+
+# newsymbol: k new-species symbols followed by the remaining-species symbol
+Br I
+
+# FILER: -1 none | 0 CIF | 1 GULP | 2 LAMMPS | 11 VASP | 12 CASTEP | 13 QE
+11

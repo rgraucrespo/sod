@@ -39,6 +39,7 @@ SOD supports several substitution patterns:
 - **Multi-target**: substitutions on multiple independent sites (e.g., Sr on La and Mn on Fe)
 - **Multi-target multi-nary**: combined multi-nary on each of multiple sites
 - **Molecules**: rigid molecular groups substituting at crystal sites (e.g., MA in perovskites)
+- **Parent molecules**: rigid molecular groups that are part of the parent structure, represented by a spherical placeholder for the symmetry analysis and materialised at write time (e.g., a free-rotor cation on every A-site)
 - **Vacancies**: removal of atoms (e.g., oxygen vacancies)
 
 These modes can be combined to handle complex disorder in real materials.

@@ -413,7 +413,7 @@ test_mcsod() {
     # Check OUTMC from target level
     local ttag; ttag=$(printf "%02d" $tlvl)
     local ref="$maindir/pme_test_ref/OUTMC"
-    local gen="$tmp/n${ttag}/PMEh/MCT_300K/OUTMC"
+    local gen="$tmp/n${ttag}/MCT_300K/PMEh/OUTMC"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[OUTMC has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -494,14 +494,16 @@ test_mcstat() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Thermodynamic integration over the sampled temperatures
+    # Thermodynamic integration over the sampled temperatures.
+    # Layout is sampling-first: MC output lives in nXX/MCT_*K/PMEx/, so mcstatsod
+    # runs from nXX/ and writes thermodynamics.dat there.
     local ttag; ttag=$(printf "%02d" $tlvl)
-    local pmedir="$tmp/n${ttag}/PMEh"
-    if [ ! -d "$pmedir" ]; then
-        fail_line "$label" "[n${ttag}/PMEh not generated]"
+    local nxxdir="$tmp/n${ttag}"
+    if ! ls -d "$nxxdir"/MCT_*K/ >/dev/null 2>&1; then
+        fail_line "$label" "[n${ttag}/MCT_*K not generated]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
-    out=$(cd "$pmedir" && PATH="$BIN:$PATH" sod_mcstat.sh 2>&1)
+    out=$(cd "$nxxdir" && PATH="$BIN:$PATH" sod_mcstat.sh 2>&1)
     rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[mcstatsod error]"
@@ -511,7 +513,7 @@ test_mcstat() {
 
     # Check thermodynamics.dat against the committed reference
     local ref="$maindir/pme_test_ref/thermodynamics.dat"
-    local gen="$pmedir/thermodynamics.dat"
+    local gen="$nxxdir/thermodynamics.dat"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[thermodynamics.dat has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -575,8 +577,9 @@ test_mcstat_vs_enum() {
     fi
 
     local ttag; ttag=$(printf "%02d" $tlvl)
-    local pmedir="$tmp/n${ttag}/PMEh"
-    if [ ! -f "$pmedir/ENERGIES" ] || [ ! -f "$tmp/n${ttag}/ENSEMBLE" ]; then
+    local nxxdir="$tmp/n${ttag}"
+    local pmedir="$nxxdir/PMEh"   # pmesod enumeration energies (nXX/PMEh/ENERGIES)
+    if [ ! -f "$pmedir/ENERGIES" ] || [ ! -f "$nxxdir/ENSEMBLE" ]; then
         fail_line "$label" "[n${ttag} enumeration/ENERGIES not generated]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
@@ -594,13 +597,14 @@ test_mcstat_vs_enum() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Approximate path: mcsod MC sampling (same PMEh) + mcstatsod TI
+    # Approximate path: mcsod MC sampling (same PMEh) + mcstatsod TI.
+    # MC output is sampling-first (nXX/MCT_*K/PMEh/), so mcstatsod runs from nXX/.
     out=$(cd "$tmp" && PATH="$BIN:$PATH" sod_mc.sh 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[mcsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
-    out=$(cd "$pmedir" && PATH="$BIN:$PATH" sod_mcstat.sh 2>&1); rc=$?
+    out=$(cd "$nxxdir" && PATH="$BIN:$PATH" sod_mcstat.sh 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[mcstatsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -622,7 +626,7 @@ test_mcstat_vs_enum() {
             if (n == 0) { print "0 0 0 ERR"; exit }
             printf "%.6f %s %d %s\n", maxd, maxT, n, (maxd <= tol ? "PASS" : "FAIL")
         }
-    ' "$tmp/enum/thermodynamics.dat" "$pmedir/thermodynamics.dat")
+    ' "$tmp/enum/thermodynamics.dat" "$nxxdir/thermodynamics.dat")
     read -r maxd maxT npts verdict <<< "$res"
 
     rm -rf "$tmp"

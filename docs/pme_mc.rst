@@ -217,16 +217,32 @@ temperature in K per line, then run:
 For uniform random sampling, ``TEMPERATURES`` is not used and the
 Metropolis-only part of ``INMC`` is not read.
 
+Uniform sampling does not use the PME Hamiltonian to decide moves (every
+trial is accepted), so it can run **without** reference energies.  If the
+low-side reference ``ENERGIES`` (``n00``/``n01``/``n02``/…) are absent,
+``mcsod`` initialises geometry-only: it samples configurations and writes
+``ENSEMBLE`` but skips energy evaluation, the ``ENERGIES`` file, and the
+energy statistics.  Compute DFT energies for the sampled configurations and
+build the PME model to obtain energies.  (Metropolis sampling always needs
+the reference energies.)
+
 MC Output
 ---------
 
-MC outputs are written inside the selected PME variant directory:
+MC outputs follow a *sampling method first, Hamiltonian variant second* layout,
+so the directory tree mirrors the dependency structure of the data:
 
-- ``nXX/PMEx/MCT_TTTK/ENSEMBLE``, ``ENERGIES``, ``OUTMC``, and optionally
-  ``MCTRACE`` for Metropolis at integer-labelled temperature ``TTT`` K.
-- ``nXX/PMEx/MCU/ENSEMBLE``, ``ENERGIES``, and ``OUTMC`` for uniform random
-  sampling.
-- ``nXX/PMEx/INMC`` is a copy of the MC input used for the run.
+- ``nXX/MCT_TTTK/PMEx/ENSEMBLE``, ``ENERGIES``, ``OUTMC``, and optionally
+  ``MCTRACE`` for Metropolis at integer-labelled temperature ``TTT`` K.  The
+  Metropolis walk is driven by the Hamiltonian, so the sampled configurations
+  are variant-dependent and live under ``PMEx`` together with their energies.
+- ``nXX/MCU/ENSEMBLE`` and ``OUTMC`` for uniform random sampling.  The uniform
+  sample is pure geometry and *independent* of any Hamiltonian, so it sits
+  directly under ``MCU/``.  When reference energies are available, the energies
+  of that sample are written per variant to ``nXX/MCU/PMEx/ENERGIES``; a
+  geometry-only run (no reference energies) writes no ``ENERGIES`` at all.
+- ``INMC`` is copied next to the sampling output (``nXX/MCT_TTTK/PMEx/INMC`` or
+  ``nXX/MCU/INMC``).
 
 ``ENSEMBLE`` and ``ENERGIES`` share the same configuration index ``m``.  ``OUTMC`` describes the
 sampler, symmetry handling, ENSEMBLE row semantics, acceptance statistics, sample
@@ -240,16 +256,18 @@ MC Thermodynamics
 -----------------
 
 After running Metropolis at multiple temperatures, run ``sod_mcstat.sh`` from
-the PME variant directory, for example:
+the target-level directory, for example:
 
 .. code-block:: bash
 
-   cd n12/PMEh
+   cd n12
    sod_mcstat.sh
 
-The script reads ``../../TEMPERATURES`` and all ``MCT_*K`` subdirectories, then
-writes ``thermodynamics.dat`` in the same style as ``statsod`` and
-``gcstatsod``.
+The script reads ``../TEMPERATURES`` and all ``MCT_*K`` subdirectories.  The PME
+variant is taken from ``../pme.model`` when present (otherwise it defaults to
+``PMEh``, matching ``mcsod``), and ``MCT_*K/PMEx/ENSEMBLE`` + ``ENERGIES`` are
+read for each temperature.  It writes ``thermodynamics.dat`` in the same style
+as ``statsod`` and ``gcstatsod``.
 
 Example
 -------
@@ -263,5 +281,5 @@ in alpha-quartz:
    sod_pme.sh
    sod_mc.sh
 
-The committed regression references compare ``n12/PMEh/ENERGIES`` and
-``n12/PMEh/MCT_300K/OUTMC``.
+The committed regression references compare ``n12/PMEh/ENERGIES`` (pmesod
+enumeration energies) and ``n12/MCT_300K/PMEh/OUTMC`` (Metropolis MC output).

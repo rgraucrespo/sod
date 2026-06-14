@@ -17,7 +17,7 @@ all:
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/genersod src/insod_reader.f90 src/ensemble_io.f90 src/member.f90 src/cell.f90 src/genersod.f90
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/pmesod src/insod_reader.f90 src/ensemble_io.f90 src/structwriters.f90 src/pmemod.f90 src/pmesod.f90
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/mcsod src/insod_reader.f90 src/ensemble_io.f90 src/structwriters.f90 src/pmemod.f90 src/mcsod.f90
-	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/mcstatsod src/ensemble_io.f90 src/mcstatsod.f90
+	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/mcstatsod src/insod_reader.f90 src/ensemble_io.f90 src/structwriters.f90 src/pmemod.f90 src/mcstatsod.f90
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/invertENSEMBLE src/invertENSEMBLE.f90
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/statsod  src/ensemble_io.f90 src/statsod.f90
 	$(f90comp) $(FFLAGS) $(LDFLAGS) -o bin/gcstatsod  src/ensemble_io.f90 src/factorials.f90 src/momenta.f90 src/gcstatsod.f90

@@ -1,8 +1,9 @@
 !*******************************************************************************
 !    mcstatsod — Thermodynamic integration over MC temperatures.
 !
-!    Reads E_ave(T) from MCT_TTTK/ENSEMBLE + MCT_TTTK/ENERGIES for each
-!    temperature in ../../TEMPERATURES.  Uses the Gibbs-Helmholtz relation d(βF)/dβ = U(β) with
+!    Reads E_ave(T) from MCT_TTTK/PMEx/ENSEMBLE + MCT_TTTK/PMEx/ENERGIES for each
+!    temperature in ../TEMPERATURES (PMEx is read from pme.model).
+!    Uses the Gibbs-Helmholtz relation d(βF)/dβ = U(β) with
 !    the infinite-temperature reference F(T→∞) = −kBT ln Ω_total, where
 !    Ω_total = C(npos, lev) is the total number of configurations (binomial).
 !
@@ -12,15 +13,16 @@
 !    The tail from β=0 to the highest sampled β is handled by linear extrapolation
 !    of U(β) to β=0.
 !
-!    Run from nXX/PMEx/ (where MCT_*K/ directories reside).
+!    Run from nXX/ (where the MCT_*K/ directories and pme.model reside).
 !    Output: thermodynamics.dat  (same format as statsod)
 !
-!    Part of the SOD package (v0.80) — GNU GPL v3+.
+!    Part of the SOD package (v0.81) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcstatsod
   use iso_fortran_env, only: real64, error_unit
   use ensemble_io,     only: read_energies_file
+  use pmemod,          only: pme_variant_dir_from_model
   implicit none
 
   integer,      parameter :: ntempmax  = 1000
@@ -60,19 +62,35 @@ program mcstatsod
   integer :: unit_temps, unit_ensemble, unit_out
   integer :: n_missing
   logical :: ene_ok
-  character(len=32)  :: txx
+  character(len=32)  :: txx, pme_variant
+  logical            :: variant_ok
   character(len=256) :: ensemble_path, energies_path
   character(len=256) :: ensemble_line
   integer :: k, m, j, kpos_mc, kpos2_mc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - mcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - mcstatsod"
+
+  ! -----------------------------------------------------------------------
+  ! 0. Resolve the PME variant subdirectory (sampling method first, Hamiltonian
+  !    variant second: MCT_*K/PMEx/).  pme.model lives in the main problem
+  !    directory (../ from here) and is optional: when absent, mcsod builds the
+  !    Hamiltonian directly from reference ENERGIES and defaults to PMEh, so we
+  !    default to PMEh here too for consistency.
+  ! -----------------------------------------------------------------------
+  call pme_variant_dir_from_model('../pme.model', pme_variant, variant_ok)
+  if (variant_ok) then
+    write(*, '(A,A)') '  PME variant (from ../pme.model): ', trim(pme_variant)
+  else
+    pme_variant = 'PMEh'
+    write(*, '(A)') '  No readable ../pme.model; defaulting to PME variant PMEh.'
+  end if
 
   ! -----------------------------------------------------------------------
   ! 1. Read TEMPERATURES
   ! -----------------------------------------------------------------------
-  open(newunit=unit_temps, file='../../TEMPERATURES', status='old', action='read', iostat=ios)
+  open(newunit=unit_temps, file='../TEMPERATURES', status='old', action='read', iostat=ios)
   if (ios /= 0) then
-    write(error_unit,'(A)') ' Error: ../../TEMPERATURES file not found.'
+    write(error_unit,'(A)') ' Error: ../TEMPERATURES file not found.'
     stop 1
   end if
   n_temp = 0
@@ -97,10 +115,10 @@ program mcstatsod
     stop 1
   end if
 
-  write(*, '(A,I0,A)') '  Found ', n_temp, ' temperatures in ../../TEMPERATURES.'
+  write(*, '(A,I0,A)') '  Found ', n_temp, ' temperatures in ../TEMPERATURES.'
 
   ! -----------------------------------------------------------------------
-  ! 2. Read TXX/ENSEMBLE + TXX/ENERGIES for each temperature → E_ave(T)
+  ! 2. Read TXX/PMEx/ENSEMBLE + TXX/PMEx/ENERGIES for each temperature → E_ave(T)
   ! -----------------------------------------------------------------------
   got_geometry = .false.
   npos = 0; lev = 0
@@ -109,8 +127,8 @@ program mcstatsod
 
   do i_temp = 1, n_temp
     call format_metropolis_directory(temp_raw(i_temp), txx)
-    ensemble_path = trim(txx)//'/ENSEMBLE'
-    energies_path = trim(txx)//'/ENERGIES'
+    ensemble_path = trim(txx)//'/'//trim(pme_variant)//'/ENSEMBLE'
+    energies_path = trim(txx)//'/'//trim(pme_variant)//'/ENERGIES'
 
     open(newunit=unit_ensemble, file=trim(ensemble_path), status='old', action='read', iostat=ios)
     if (ios /= 0) then

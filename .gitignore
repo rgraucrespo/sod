@@ -67,3 +67,22 @@ docs/_build/
 # Miscellaneous
 *.swp
 .DS_Store
+
+# ---------------------------------------------------------------------------
+# sod_dev override: track ALL example files, including generated output, so the
+# work tree syncs across machines via git. The global "ignore everywhere"
+# patterns above still apply outside examples/ (user run dirs, repo root).
+# Public releases stay lean because release.sh re-excludes these generated
+# patterns in its rsync (rsync does not honour .gitignore). Editor/OS junk
+# (*.swp, .DS_Store) is intentionally NOT re-included.
+# ---------------------------------------------------------------------------
+!examples/**/cSGO
+!examples/**/INPME.tmp
+!examples/**/PME0/
+!examples/**/PME1/
+!examples/**/PMEh/
+!examples/**/MCT_*/
+!examples/**/MCU/
+!examples/**/output.gout
+!examples/**/OUTCAR
+!examples/**/CONTCAR

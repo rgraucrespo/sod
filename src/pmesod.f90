@@ -26,7 +26,7 @@ program pmesod
   integer :: target_level, i, nargs
   character(len=256) :: arg, model_filename
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - pmesod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - pmesod"
   write (*, *) " > Periodic Motif Expansion from low/high effective Hamiltonians..."
   write (*, *) ""
 

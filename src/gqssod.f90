@@ -86,7 +86,7 @@ program gqssod
   real(real64), allocatable :: avg_target(:)
   real(real64), parameter :: kb = 8.61734e-5_real64
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.80 - gqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - gqssod"
 
   call read_insqs()
   call read_eqmatrix()

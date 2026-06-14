@@ -130,7 +130,9 @@ Glossary
       not stored in ``INMC``; instead, ``TEMPERATURES`` in
       :term:`SODPROJECT` lists one temperature per line for the
       ``sod_mc.sh`` loop.  Read by :term:`mcsod` via ``sod_mc.sh``.
-      A copy is saved to ``nXX/PMEx/`` after each MC run for reference.
+      A copy is saved next to each MC run's output
+      (``nXX/MCT_TTTK/PMEx/`` for Metropolis or ``nXX/MCU/`` for uniform)
+      for reference.
 
    INGC
       Input file for grand-canonical analysis, placed in an ``x???/``
@@ -201,17 +203,21 @@ Glossary
    MCT
       A Metropolis Monte Carlo output directory, named ``MCT_TTTK`` where
       ``TTT`` is the integer temperature in kelvin (e.g. ``MCT_600K``).
-      Lives inside ``nXX/PMEx/`` alongside any other temperature runs.
-      Contains ``ENSEMBLE``, ``ENERGIES``, ``OUTMC``, ``OUTSTAT``, and
-      optionally ``MCTRACE``.  All MCT directories for a given PME variant
-      are processed together by ``sod_mcstat.sh`` to perform thermodynamic
-      integration.  See also :term:`MCU`.
+      Lives directly under ``nXX/`` (sampling method first); because the
+      Metropolis walk is Hamiltonian-driven, the run's ``ENSEMBLE``,
+      ``ENERGIES``, ``OUTMC``, ``INMC`` and optional ``MCTRACE`` are written
+      in a ``PMEx`` subdirectory, ``nXX/MCT_TTTK/PMEx/``.  All ``MCT_*K``
+      directories are processed together by ``sod_mcstat.sh`` to perform
+      thermodynamic integration.  See also :term:`MCU`.
 
    MCU
       A Monte Carlo Uniform (random-sampling) output directory, named
-      ``MCU``, inside ``nXX/PMEx/``.  Unlike :term:`MCT`, no temperature
-      is associated with uniform sampling.  Contains ``ENSEMBLE``,
-      ``ENERGIES``, ``OUTMC``, and ``OUTSTAT``.  See also :term:`MCT`.
+      ``MCU``, directly under ``nXX/`` (``nXX/MCU/``).  Unlike :term:`MCT`,
+      no temperature is associated with uniform sampling.  The geometry
+      sample is Hamiltonian-independent, so ``ENSEMBLE`` and ``OUTMC`` live
+      in ``nXX/MCU/`` itself; when reference energies are available, the
+      per-variant energies are written to ``nXX/MCU/PMEx/ENERGIES``.
+      See also :term:`MCT`.
 
    mcsod
       The Monte Carlo sampling executable.  Uses a :term:`PME` effective
@@ -220,16 +226,20 @@ Glossary
       ``sod_mc.sh``, which invokes one single-temperature MC run per
       ``TEMPERATURES`` entry.  Reads :term:`INSOD`, :term:`INMC`, and
       ``SODPROJECT/pme.model`` when present,
-      and writes output to ``nXX/PMEx/MCT_TTTK/`` (Metropolis) or
-      ``nXX/PMEx/MCU/`` (uniform random).  Any ε corrections from
+      and writes output to ``nXX/MCT_TTTK/PMEx/`` (Metropolis) or
+      ``nXX/MCU/`` (uniform random; geometry sample, with per-variant energies
+      in ``nXX/MCU/PMEx/`` when reference energies are available).  Any ε
+      corrections from
       :term:`calibration energies` are already baked into the loaded
       Hamiltonian before sampling begins.  Normally invoked via
       ``sod_mc.sh``.
 
    mcstatsod
-      The Monte Carlo thermodynamics program.  Reads
-      ``../../TEMPERATURES`` and the ``MCT_TTTK/ENSEMBLE`` and
-      ``MCT_TTTK/ENERGIES`` files for each sampled temperature, computes
+      The Monte Carlo thermodynamics program.  Run from ``nXX/``, it reads
+      ``../TEMPERATURES`` and the ``MCT_TTTK/PMEx/ENSEMBLE`` and
+      ``MCT_TTTK/PMEx/ENERGIES`` files for each sampled temperature (the
+      ``PMEx`` variant is taken from ``../pme.model``, defaulting to
+      ``PMEh``), computes
       :math:`E_\mathrm{ave}(T) = \sum \omega E / \sum \omega` from MC
       visit counts, and integrates :math:`d(\beta F)/d\beta = U(\beta)`
       by trapezoidal quadrature.  The exact high-temperature reference
@@ -238,7 +248,7 @@ Glossary
       handles the tail from the highest sampled inverse temperature to
       :math:`\beta = 0`.  Output is written to ``thermodynamics.dat`` in
       the same column format as :term:`statsod`.  Always invoked via
-      ``sod_mcstat.sh`` from ``nXX/PMEx/``.  See also :term:`MCT`.
+      ``sod_mcstat.sh`` from ``nXX/``.  See also :term:`MCT`.
 
    molecule substitution
       Substitution of a rigid multi-atom molecular group at a crystal site,
@@ -247,7 +257,26 @@ Glossary
       format), computes the centre of mass, and places the molecule at the
       substituted site with an independent random orientation for each
       configuration. All calculator output formats expand the molecule into
-      its constituent atoms. See also :term:`vacancy`.
+      its constituent atoms. See also :term:`parent molecule` and
+      :term:`vacancy`.
+
+   parent molecule
+      A molecular group that is part of the parent structure rather than
+      substituted in. The parent keeps a single spherical placeholder species
+      at the site — a point that obeys the :term:`SGO` site symmetry and the
+      inequivalent-configuration enumeration — and ``genersod`` materialises
+      the molecule only when writing the calculation inputs. Declared by
+      writing the parent species with an ``@NAME`` prefix in the :term:`INSOD`
+      ``symbol`` list (e.g. ``@MA``) — the same ``@NAME`` convention used for
+      :term:`molecule substitution`. The ``@`` is stripped, leaving an
+      ordinary placeholder species ``NAME``, and ``NAME.xyz`` is recorded as
+      the molecule to materialise. The placeholder must not also be a
+      substitution target. Each site is expanded with an independent random
+      orientation, as for :term:`molecule substitution`; this suits a
+      dynamically isotropic (free-rotor) group, represented as a sphere for
+      the symmetry analysis and made explicit only for individual
+      calculations. Expanded by ``genersod`` across all calculator output
+      formats; ``combsod`` treats ``@NAME`` as a plain placeholder species.
 
    multi-nary substitution
       Simultaneous placement of two or more new species on a single target
@@ -268,7 +297,10 @@ Glossary
       atoms of each new species are placed on the target site(s). Accepts a
       fixed integer, a range (``n1:n2``) for scanning all compositions, a
       space-separated list for :term:`multi-nary substitution`, or multiple
-      lines for :term:`multi-target substitution`.
+      lines for :term:`multi-target substitution`. The endpoints are valid:
+      ``0`` yields the single parent (unsubstituted) configuration, and a
+      count equal to the number of target sites yields the single
+      fully-substituted configuration.
 
    OUTGQS
       Output file written by ``gqssod`` (via ``sod_gqs.sh``). Contains the

@@ -12,8 +12,9 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - Identification of all inequivalent configurations of site substitutions in an arbitrary supercell of an  initial target structure with any space group symmetry.
 - Calculation of the degeneracies of configurations.
 - Generation of input files for GULP, LAMMPS, VASP, CASTEP and Quantum ESPRESSO.
-- Simple extrapolation of energies from low to high concentrations within a supercell.
 - Statistical mechanics processing of output using either canonical or grand-canonical ensembles.
+- Construction of an effective configurational Hamiltonian by Periodic Motif Expansion (PME), fitted from reference energies at low and/or high substitution levels, to predict the energies of configurations at intermediate compositions where full enumeration is intractable.
+- Monte Carlo (MC) sampling (Metropolis or uniform) of the configurational space using the PME Hamiltonian, followed by thermodynamic integration to obtain free energies.
 - Special Quasirandom Structures (SQS) and Generalized Quasirandom Structures (GQS): identification of configurations with optimal short-range order and thermal averaging of pair correlations.
 
 
@@ -22,7 +23,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - sod(version)/src contains the source files.
 - sod(version)/sgo is a library of space group operators (e.g. 131.sgo contains the operators of the space group 131).
 - sod(version)/bin contains the executables. Compile for your platform using `make all`.
-- sod(version)/examples contains sixteen examples, covering a range of structure types, substitution modes (binary, multi-nary, multi-target, multi-target multi-nary, vacancies, molecules), and post-processing workflows (SQS/GQS, PME/MC).
+- sod(version)/examples contains eighteen examples, covering a range of structure types, substitution modes (binary, multi-nary, multi-target, multi-target multi-nary, vacancies, molecules, parent molecules), and post-processing workflows (SQS/GQS, PME/MC).
 
 ## Examples
 
@@ -55,21 +56,23 @@ See [Grau-Crespo et al. Chemical Science Chemical Science 16 (2025) 19357-19369]
 
 - **example09**: Simultaneous Mg/La substitution (2 sites) and O vacancy (1 site) in a 2×2×2 supercell of LaFeO₃ perovskite — a **multi-target** example. Two target sites are specified (`sptarget: 1 3`), with `nsubs` given as `2` (line 1) and `1` (line 2). Configurations are enumerated jointly under the full crystal symmetry and written to `n02_01/`. FILER=-1.
 
-- **example10**: $Ti_{50}Zr_{25}Nb_{25}$ ($Ti_2ZrNb$) alloy with biomedical interest — a **multi-nary** example. Two species, Zr (4 atoms) and Nb (4 atoms), substitute Ti in a 2×2×2 supercell of the BCC structure (16 atoms total). No output files are requested (FILER=-1).
+- **example10**: Ti₅₀Zr₂₅Nb₂₅ (Ti₂ZrNb) alloy with biomedical interest — a **multi-nary** example. Two species, Zr (4 atoms) and Nb (4 atoms), substitute Ti in a 2×2×2 supercell of the BCC structure (16 atoms total). No output files are requested (FILER=-1).
 
 - **example11**: Equimolar NiCoFeCr Cantor subsystem alloy in a 2×2×2 supercell of the FCC primitive cell (8 atoms total, 2 of each species) — a **multi-nary** example with three new species. The FCC primitive cell (a=b=c=2.491 Å, α=β=γ=60°) is used with operators from `225_primitive.sgo`. `nsubs: 2 2 2` places 2 Co, 2 Fe and 2 Cr on Ni sites, leaving 2 Ni. Out of 2520 total arrangements (8!/(2!2!2!2!)), 23 are inequivalent under the full FCC symmetry. GULP input files (FILER=1) are generated using an OpenKIM EAM potential (`kim_model` directive).
 
-- **example12**: Complex perovskite La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃ in a 2×2×2 supercell (space group Pm-3m) — a **multi-target** example. Two target sites are substituted simultaneously: 2 Sr replace La on 8 La-sites (binary, site 1) and 2 Mn replace Fe on 8 Fe-sites (binary, site 2). `nsubs` given as `2` (line 1) and `2` (line 2). Out of 784 total joint arrangements, 13 are inequivalent under the full cubic symmetry. FILER=-1.
+- **example12**: Complex perovskite La<sub>0.75</sub>Sr<sub>0.25</sub>Mn<sub>0.25</sub>Fe<sub>0.75</sub>O<sub>3</sub> in a 2×2×2 supercell (space group Pm-3m) — a **multi-target** example. Two target sites are substituted simultaneously: 2 Sr replace La on 8 La-sites (binary, site 1) and 2 Mn replace Fe on 8 Fe-sites (binary, site 2). `nsubs` given as `2` (line 1) and `2` (line 2). Out of 784 total joint arrangements, 13 are inequivalent under the full cubic symmetry. FILER=-1.
 
-- **example13**: La₁₋ₓSrₓFe₁₋ᵧMnᵧO₃₋z in a 2×2×2 supercell (space group Pm-3m) — a **multi-target** example with three target sites. One Sr replaces La (8 La-sites), one Mn replaces Fe (8 Fe-sites), and one O vacancy is created (24 O-sites), all enumerated simultaneously. `sptarget: 1 2 3`, `nsubs` on three lines: `1`, `1`, `1`. Vacancy on the O site uses the `%O` syntax. 6 inequivalent configurations from 1536 total. FILER=-1.
+- **example13**: La<sub>1−x</sub>Sr<sub>x</sub>Fe<sub>1−y</sub>Mn<sub>y</sub>O<sub>3−z</sub> in a 2×2×2 supercell (space group Pm-3m) — a **multi-target** example with three target sites. One Sr replaces La (8 La-sites), one Mn replaces Fe (8 Fe-sites), and one O vacancy is created (24 O-sites), all enumerated simultaneously. `sptarget: 1 2 3`, `nsubs` on three lines: `1`, `1`, `1`. Vacancy on the O site uses the `%O` syntax. 6 inequivalent configurations from 1536 total. FILER=-1.
 
-- **example14**: La₁₋ₓ₋ᵧSrₓBaᵧMnᵤFe₁₋ᵤO₃ in a 2×2×2 supercell (space group Pm-3m) — the first **multi-target multi-nary** example, combining multi-target and multi-nary substitution. Target 1 (La site, 8 atoms): ternary disorder with 1 Sr + 1 Ba (2 new species). Target 2 (Fe site, 8 atoms): binary disorder with 1 Mn. `nsubs` on two lines: `1 1` (line 1) and `1` (line 2). 3 inequivalent configurations from 448 total. FILER=-1.
+- **example14**: La<sub>1−x−y</sub>Sr<sub>x</sub>Ba<sub>y</sub>Mn<sub>u</sub>Fe<sub>1−u</sub>O<sub>3</sub> in a 2×2×2 supercell (space group Pm-3m) — the first **multi-target multi-nary** example, combining multi-target and multi-nary substitution. Target 1 (La site, 8 atoms): ternary disorder with 1 Sr + 1 Ba (2 new species). Target 2 (Fe site, 8 atoms): binary disorder with 1 Mn. `nsubs` on two lines: `1 1` (line 1) and `1` (line 2). 3 inequivalent configurations from 448 total. FILER=-1.
 
 - **example15**: Si/Ge substitution in α-quartz (2×2×2 supercell, 24 Si sites) - demonstrates Monte Carlo (MC) with Periodic Motif Expansion (PME) Hamiltonian. 
 
 - **example16**: Ni/Mg substitution in MgO rocksalt (2×2×2 supercell, 32 Mg sites, 8 substitutions) — a **SQS/GQS workflow example** demonstrating Special Quasirandom Structure identification (OUTSQS) and thermal-weighted Generalized Quasirandom Structure selection (OUTGQS from gqssod). Illustrates the complete SQS/GQS pipeline: enumeration → pair-correlation-based scoring → thermal averaging across three temperatures (0K, 1000K, 1000000K). Pre-computed GULP energies (`n08/ENERGIES`) and reference outputs (OUTSQS, OUTGQS, thermodynamics.dat) are provided for validation; the per-configuration GULP input files (FILER=1) are regenerated on demand with `sod_comb.sh`.
 
-- **example17**: Al/Fe substitution in a 3×3×3 supercell of cubic LaFeO3 perovskite (space group Pm-3m, 27 Fe sites) - demonstrates the PME-only workflow (without MC): a Periodic Motif Expansion Hamiltonian is calibrated from low-side reference data (n00–n03, 0–3 Al substitutions; 1, 1, 3, 10 inequivalent configurations) and high-side reference data (n24–n27, 24–27 Al substitutions; 10, 3, 1, 1 configurations), then used to predict ordering energies at target compositions n04 (34 configs), n05 (105 configs), and n06 (321 configs). All three PME modes (PME0 low-side only, PME1 high-side only, PMEh hybrid) are pre-computed in each target folder for comparison. FILER=-1. Set the target composition in INSOD and run with sod_pme.sh.
+- **example17**: Al/Fe substitution in a 3×3×3 supercell of cubic LaFeO₃ perovskite (space group Pm-3m, 27 Fe sites) - demonstrates the PME-only workflow (without MC): a Periodic Motif Expansion Hamiltonian is calibrated from low-side reference data (n00–n03, 0–3 Al substitutions; 1, 1, 3, 10 inequivalent configurations) and high-side reference data (n24–n27, 24–27 Al substitutions; 10, 3, 1, 1 configurations), then used to predict ordering energies at target compositions n04 (34 configs), n05 (105 configs), and n06 (321 configs). All three PME modes (PME0 low-side only, PME1 high-side only, PMEh hybrid) are pre-computed in each target folder for comparison. FILER=-1. Set the target composition in INSOD and run with sod_pme.sh.
+
+- **example18**: MAPbI₃–MAPbBr₃ solid solution in a 2×2×2 cubic perovskite (Pm-3m) — demonstrates a **parent molecule**. Methylammonium (MA = CH₃NH₃⁺) occupies every A-site as part of the parent structure (not as a substitution); because MA is a near-free rotor it is represented in the parent by a single spherical placeholder species (written `@MA` in the parent `symbol` list) that obeys the symmetry and the enumeration, and `genersod` materialises it into an 8-atom molecule (random orientation per site) only when writing the calculation inputs. The configurational disorder is the I/Br mixing on the 24 halide sites (`sptarget: 3`), here 2 Br (composition MAPbI₂.₇₅Br₀.₂₅), giving **7 inequivalent configurations** out of C(24,2)=276. The parent molecule is declared simply by the `@MA` prefix in the parent `symbol` list. VASP POSCAR files (FILER=11) are generated, each with 96 atoms (8 MA = 8 C + 8 N + 48 H, plus 8 Pb, 22 I, 2 Br); supply `INCAR`/`KPOINTS`/`POTCAR` before running. Contrast with example08, where MA *substitutes* on the A-site.
 
 ## Molecules (@NAME) and vacancies (%NAME)
 
@@ -80,6 +83,21 @@ Two special prefixes extend the `newsymbol` field in INSOD beyond simple atomic 
 - **`%Symbol`** — vacancy: the atom at the substituted site is simply omitted from all output files. `Symbol` is informational only (e.g. `%Fe` or `%FeB`). 
 
 Both molecules and vacancies can appear simultaneously in `newsymbol(1:2)`, and multiple molecule types can be used (up to 10 types). The `newsymbol` field accepts up to 5 characters (prefix + 4-character name), e.g. `@MA`, `@FA`, `@CO2`, `%FeB`.
+
+### Parent-structure molecules
+
+A molecule can also be part of the **parent structure**, rather than only being substituted in. This is useful when a molecular group is dynamically isotropic (a free rotor): the parent is represented by a single spherical placeholder species — a point that obeys the `SGO` site symmetry and the inequivalent-configuration enumeration — and the molecule is materialised only when `genersod` writes the explicit calculation inputs.
+
+To use this, write the parent species in the `symbol` list with an **`@NAME`** prefix — the same `@NAME` convention used for substituted molecules. For example, to make every A-site of the parent a methylammonium molecule (`MA.xyz`):
+
+```
+# symbol(1:nsp): Atom symbols
+@MA Pb I
+```
+
+SOD strips the `@`, treats the site as an ordinary spherical placeholder species `MA` for the symmetry analysis and enumeration, and records `MA.xyz` as the molecule to materialise. The placeholder must **not** also be a substitution target (a site cannot be both a disorder target and a parent molecule). At write time `genersod` expands each placeholder site into the molecule's atoms with an independent random orientation (as for substituted molecules), in all output formats (CIF, GULP, VASP, CASTEP, QE, LAMMPS). `combsod` sees a plain species symbol (`MA`) — the symmetry analysis is performed on the spherical placeholder.
+
+> Note: parent molecules are expanded by `genersod` only. The `pmesod`/`mcsod` energy-model programs read the `@NAME` symbol as a plain placeholder species and do not materialise parent molecules.
 
 ## Compiling & installing SOD
 
@@ -129,8 +147,8 @@ full configurational enumeration (`statsod`) on the same PME Hamiltonian.
 - In MAINFOLDER, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
 
 - The `nsubs` field in INSOD controls how many atoms of each new species are placed at the target site(s). Several formats are supported:
-  - **Fixed count** (e.g. `4`): enumerate configurations with exactly 4 substitutions.
-  - **Range** (e.g. `1:8`): SOD loops over all integer values from 1 to 8 in sequence, creating one `nXX/` folder per concentration. Only valid when a single target site and a single new species are specified.
+  - **Fixed count** (e.g. `4`): enumerate configurations with exactly 4 substitutions. The endpoints are allowed: `0` gives the single parent (unsubstituted) configuration, and a count equal to the number of target sites gives the single fully-substituted configuration.
+  - **Range** (e.g. `1:8`): SOD loops over all integer values from 1 to 8 in sequence, creating one `nXX/` folder per concentration. The range may start at `0` (e.g. `0:16` spans the parent through full substitution). Only valid when a single target site and a single new species are specified.
   - **Multi-nary** (e.g. `1 2` or `2 2 2`): place the specified numbers of each new species simultaneously on a single target site. Up to 3 new species are supported (quaternary disorder, e.g. `nsubs: 2 2 2` for NiCoFeCr). Extension to higher orders (quinary and beyond) is planned but not yet implemented.
   - **Multi-target** (e.g. two lines `2` then `1`): one line per target site, in the order listed in `sptarget`. The example places 2 substitutions on the first target site and 1 on the second, enumerating all joint configurations simultaneously under the full crystal symmetry.
   - **Multi-target multi-nary** (e.g. line 1: `1 1`, line 2: `1`): combines multi-target and multi-nary — each target site can independently have multiple new species. Each line contains space-separated counts for the new species on that site, and enumerates all joint configurations simultaneously.
@@ -187,7 +205,7 @@ To generate `conf.data`, SOD needs to know which LAMMPS numeric type corresponds
 
 where `<role>` is `core` or `shell`. One `core` line is required for every SOD species. A `shell` line (with `bond_type=<M>`) is additionally required for any species represented as a core–shell pair. SOD will stop with an error if any species has no mapping.
 
-**VASP**: No template is needed. SOD generates `POSCAR` into each `cYY/` folder. The user must supply `INCAR`, `KPOINTS` and `POTCAR` in each folder separately.
+**VASP**: No template is needed. SOD generates `POSCAR` into each `cYY/` folder. If an `INCAR` is present alongside `INSOD` it is copied into every `cYY/` folder; if it is absent SOD prints a warning and still generates the input files. The user must supply `KPOINTS` and `POTCAR` (and `INCAR`, if not provided at the `INSOD` level) in each folder separately.
 
 **CASTEP** (`template_castep.cell`): The template is a normal `.cell` file. SOD replaces `@configuration_structure@` with the `%BLOCK LATTICE_CART` and `%BLOCK POSITIONS_FRAC` blocks. The user must supply the `.param` file separately (it is not managed by SOD).
 
@@ -437,6 +455,17 @@ When modeling disordered alloys, the goal is often to find configurations that m
 
 - **`sqssod`** identifies the best SQS at a single composition (0 K).
 - **`gqssod`** extends this to multiple temperatures, computing thermal averages of pair correlations from energies and temperatures.
+
+### Ensemble source: enumeration or random sampling
+
+`sqssod` and `gqssod` score whatever configurations are listed in `ENSEMBLE` — they do **not** enumerate or search the configurational space themselves. The SQS is simply the best-scoring member of the ensemble you give them. That ensemble can come from either route:
+
+- **Full enumeration** (`sod_comb.sh` → `nXX/ENSEMBLE`): the symmetry-inequivalent configurations at the composition. This guarantees the true best SQS *within the supercell* is present, but is only feasible when the space is small enough to enumerate.
+- **Uniform random sampling** (`mcsod` with sampler = 2 → `nXX/MCU/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `MCU/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Uniform sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations.
+
+With random sampling the result is the best SQS *found in the sample*, not provably the global optimum — enlarge the sample to improve it.
+
+> **Note (future direction):** SOD does not yet perform a *directed* search for the SQS (e.g. simulated annealing or basin-hopping that minimises the score `Q` as a pseudo-energy to drive the configuration toward ideal randomness). At present the SQS can only be selected from a pre-generated ensemble (enumerated or randomly sampled). A directed-search mode is a planned enhancement; see the *Planned* section of `CHANGELOG.md`.
 
 ### Input file: INSQS
 
@@ -723,38 +752,32 @@ Run MC from the top-level working directory:
 sod_mc.sh
 ```
 
-MC output is placed inside the selected PME variant directory:
+MC output follows a *sampling method first, Hamiltonian variant second* layout:
 
 | File | Contents |
 |------|----------|
-| `nXX/PMEx/MCT_TTTK/ENSEMBLE`, `ENERGIES`, `OUTMC` | Metropolis output at integer-labelled temperature `TTT` K |
-| `nXX/PMEx/MCT_TTTK/MCTRACE` | Optional trace when `write_trace=1` |
-| `nXX/PMEx/MCU/ENSEMBLE`, `ENERGIES`, `OUTMC` | Uniform random output |
-| `nXX/PMEx/INMC` | Copy of the MC input used for the run |
+| `nXX/MCT_TTTK/PMEx/ENSEMBLE`, `ENERGIES`, `OUTMC` | Metropolis output at integer-labelled temperature `TTT` K (walk is Hamiltonian-driven, so ENSEMBLE+ENERGIES sit under `PMEx`) |
+| `nXX/MCT_TTTK/PMEx/MCTRACE` | Optional trace when `write_trace=1` |
+| `nXX/MCU/ENSEMBLE`, `OUTMC` | Uniform random output — geometry sample, independent of any Hamiltonian |
+| `nXX/MCU/PMEx/ENERGIES` | Per-variant energies of the uniform sample, when reference energies are available (a geometry-only run writes no `ENERGIES` and no `PMEx` folder) |
+| `nXX/MCT_TTTK/PMEx/INMC` or `nXX/MCU/INMC` | Copy of the MC input used for the run |
 
-Run MC thermodynamics from the PME variant directory:
+Run MC thermodynamics from the target-level directory:
 
 ```bash
-cd n12/PMEh
+cd n12
 sod_mcstat.sh
 ```
 
-`sod_mcstat.sh` reads `../../TEMPERATURES` and all `MCT_*K/` directories and
-writes `thermodynamics.dat`.
+`sod_mcstat.sh` reads `../TEMPERATURES` and all `MCT_*K/` directories, takes the
+PME variant from `../pme.model` (defaulting to `PMEh`), reads each
+`MCT_*K/PMEx/ENSEMBLE`+`ENERGIES`, and writes `thermodynamics.dat`.
 
 ### Example: example15
 
 `examples/example15/` demonstrates PME+MC for Si/Ge substitution in α-quartz.
-The committed regression references compare `n12/PMEh/ENERGIES` and
-`n12/PMEh/MCT_300K/OUTMC`.
-
-### Citing PME/MC
-
-If you use the PME or MC functionality in your research, please cite:
-
-*[Rodgom, S. and Grau-Crespo, R. — reference TBD]*
-
-Also cite the original SOD paper for the computational framework.
+The committed regression references compare `n12/PMEh/ENERGIES` (pmesod
+enumeration energies) and `n12/MCT_300K/PMEh/OUTMC` (Metropolis MC output).
 
 
 ## Citing SOD
