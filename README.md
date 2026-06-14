@@ -101,7 +101,7 @@ SOD strips the `@`, treats the site as an ordinary spherical placeholder species
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.80.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.81.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
