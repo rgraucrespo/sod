@@ -1,38 +1,36 @@
 !*******************************************************************************
 !    mcsod — Monte Carlo sampling with SOD effective Hamiltonian (PME).
 !
-!    Directory layout: sampling method first, Hamiltonian variant second.
-!    Metropolis MC: runs one MC chain at the temperature supplied as a
-!    positional argument; writes output to nXX/MCT_TTTK/PMEx/.
-!    Uniform MC: runs a single uniform-random sampling pass; the geometry sample
-!    is Hamiltonian-independent, so it writes ENSEMBLE to nXX/MCU/ and (when
-!    reference energies are available) ENERGIES to nXX/MCU/PMEx/.
+!    Runs one Metropolis MC chain at the temperature supplied as a positional
+!    argument and writes output to nXX/MCT_TTTK/PMEx/.
+!    For uniform random sampling (energy-free, all moves accepted) use randomsod.
 !
-!    Required input files: INMC, INSOD, EQMATRIX, SGO; Metropolis also needs the
-!    PME training data (n00/ENERGIES, …) and a temperature: mcsod <temperature/K>.
-!    Uniform sampling runs geometry-only without the PME training data.
+!    Required input files: INMC, INSOD, EQMATRIX, SGO, the PME training data
+!    (n00/ENERGIES, …) and a temperature: mcsod <temperature/K>.
 !
-!    Part of the SOD package (v0.81) — GNU GPL v3+.
+!    Part of the SOD package (v0.82) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcsod
   use iso_fortran_env, only: real64, int64, error_unit
   use pmemod
   use ensemble_io,     only: write_ensemble
+  use config_sampling, only: mc_random_subset, seed_rng_clock, seed_rng_fixed, &
+                             read_next_data_line, to_lower
   implicit none
 
-  integer :: target_level, ios, iseed, isampler_in, isym_reduction, write_trace
+  integer :: target_level, ios, iseed, isym_reduction, write_trace
   integer :: arg_count, mkdir_status, copy_status, iarg
   real(real64) :: restart_prob_in
   real(real64) :: requested_temperature
   integer :: n_equil, n_prod
-  logical :: use_metropolis, use_symmetry_reduction, recal_ok
+  logical :: use_symmetry_reduction, recal_ok
   character(len=32) :: seed_label, arg_text, level_dir, pme_variant, temp_dir
   integer :: unit_in
   character(len=256) :: line, start_config_line, model_filename_arg
   character(len=256) :: output_dir, energies_dir
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - mcsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - mcsod"
 
   ! --- Read INMC ---
   open(newunit=unit_in, file='INMC', status='old', action='read', iostat=ios)
@@ -40,19 +38,6 @@ program mcsod
     write(error_unit, '(A)') ' Error: INMC file not found.'
     stop 1
   end if
-
-  ! ---- Common section ----
-
-  ! sampler (1 = Metropolis, 2 = Uniform)
-  call read_next_data_line(unit_in, line, ios)
-  if (ios /= 0) then
-    write(error_unit, '(A)') ' Error: could not read sampler from INMC'; stop 1
-  end if
-  read(line, *, iostat=ios) isampler_in
-  if (ios /= 0 .or. (isampler_in /= 1 .and. isampler_in /= 2)) then
-    write(error_unit, '(A,A)') ' Error: invalid sampler in INMC (1=Metropolis, 2=Uniform): ', trim(line); stop 1
-  end if
-  use_metropolis = (isampler_in == 1)
 
   ! symmetry_reduction (0 = off, 1 = on)
   call read_next_data_line(unit_in, line, ios)
@@ -92,43 +77,36 @@ program mcsod
     write(error_unit, '(A,A)') ' Error: invalid write_trace in INMC (0 or 1): ', trim(line); stop 1
   end if
 
-  ! ---- Metropolis-only section (not read for Uniform) ----
-  n_equil        = 0
-  restart_prob_in = 0.01_real64
-  iseed          = -1
+  ! n_equil (equilibration steps)
+  call read_next_data_line(unit_in, line, ios)
+  if (ios /= 0) then
+    write(error_unit, '(A)') ' Error: could not read n_equil from INMC'; stop 1
+  end if
+  read(line, *, iostat=ios) n_equil
+  if (ios /= 0 .or. n_equil < 0) then
+    write(error_unit, '(A,A)') ' Error: invalid n_equil in INMC (must be >= 0): ', trim(line); stop 1
+  end if
 
-  if (use_metropolis) then
-    ! n_equil (equilibration steps)
-    call read_next_data_line(unit_in, line, ios)
-    if (ios /= 0) then
-      write(error_unit, '(A)') ' Error: could not read n_equil from INMC'; stop 1
-    end if
-    read(line, *, iostat=ios) n_equil
-    if (ios /= 0 .or. n_equil < 0) then
-      write(error_unit, '(A,A)') ' Error: invalid n_equil in INMC (must be >= 0): ', trim(line); stop 1
-    end if
+  ! restart_prob
+  call read_next_data_line(unit_in, line, ios)
+  if (ios /= 0) then
+    write(error_unit, '(A)') ' Error: could not read restart_prob from INMC'; stop 1
+  end if
+  read(line, *, iostat=ios) restart_prob_in
+  if (ios /= 0 .or. restart_prob_in < 0.0_real64 .or. restart_prob_in >= 1.0_real64) then
+    write(error_unit, '(A,A)') ' Error: invalid restart_prob in INMC (0 <= p < 1): ', trim(line); stop 1
+  end if
 
-    ! restart_prob
-    call read_next_data_line(unit_in, line, ios)
-    if (ios /= 0) then
-      write(error_unit, '(A)') ' Error: could not read restart_prob from INMC'; stop 1
-    end if
-    read(line, *, iostat=ios) restart_prob_in
-    if (ios /= 0 .or. restart_prob_in < 0.0_real64 .or. restart_prob_in >= 1.0_real64) then
-      write(error_unit, '(A,A)') ' Error: invalid restart_prob in INMC (0 <= p < 1): ', trim(line); stop 1
-    end if
-
-    ! random_seed (-1 = system clock, >0 = fixed)
-    call read_next_data_line(unit_in, line, ios)
-    if (ios /= 0) then
-      write(error_unit, '(A)') ' Error: could not read random_seed from INMC'; stop 1
-    end if
-    read(line, *, iostat=ios) iseed
-    if (ios /= 0 .or. iseed == 0 .or. iseed < -1) then
-      write(error_unit, '(A,A)') &
-        ' Error: invalid random_seed in INMC (-1 = system clock, >0 = fixed integer): ', trim(line)
-      stop 1
-    end if
+  ! random_seed (-1 = system clock, >0 = fixed)
+  call read_next_data_line(unit_in, line, ios)
+  if (ios /= 0) then
+    write(error_unit, '(A)') ' Error: could not read random_seed from INMC'; stop 1
+  end if
+  read(line, *, iostat=ios) iseed
+  if (ios /= 0 .or. iseed == 0 .or. iseed < -1) then
+    write(error_unit, '(A,A)') &
+      ' Error: invalid random_seed in INMC (-1 = system clock, >0 = fixed integer): ', trim(line)
+    stop 1
   end if
 
   close(unit_in)
@@ -161,39 +139,28 @@ program mcsod
     iarg = iarg + 1
   end do
 
-  if (use_metropolis) then
-    if (arg_text == '') then
-      write(error_unit, '(A)') ' Error: Metropolis mcsod requires a temperature argument, e.g. mcsod 600.0'
-      stop 1
-    end if
-    read(arg_text, *, iostat=ios) requested_temperature
-    if (ios /= 0 .or. requested_temperature <= 0.0_real64) then
-      write(error_unit, '(A,A)') ' Error: invalid mcsod temperature argument: ', trim(arg_text)
-      stop 1
-    end if
-  else
-    if (arg_text /= '') then
-      write(error_unit, '(A)') ' Error: uniform-random mcsod accepts no positional arguments.'
-      stop 1
-    end if
+  if (arg_text == '') then
+    write(error_unit, '(A)') ' Error: mcsod requires a temperature argument, e.g. mcsod 600.0'
+    stop 1
+  end if
+  read(arg_text, *, iostat=ios) requested_temperature
+  if (ios /= 0 .or. requested_temperature <= 0.0_real64) then
+    write(error_unit, '(A,A)') ' Error: invalid mcsod temperature argument: ', trim(arg_text)
+    stop 1
   end if
 
   ! --- Print parameters ---
   write(*, '(A)') ' --- MC parameters ----------------------------------------------------------'
-  if (use_metropolis) then
-    write(*, '(A)')          '  Sampler           : Metropolis'
-    write(*, '(A,I0)')       '  Equil. steps      : ', n_equil
-    write(*, '(A,F6.4)')     '  Restart prob.     : ', restart_prob_in
-    if (iseed < 0) then
-      seed_label = 'system clock'
-    else
-      write(seed_label, '(I0)') iseed
-    end if
-    write(*, '(A,A)')        '  Random seed       : ', trim(seed_label)
-    write(*, '(A,F10.2,A)')  '  Temperature       : ', requested_temperature, ' K'
+  write(*, '(A)')          '  Sampler           : Metropolis'
+  write(*, '(A,I0)')       '  Equil. steps      : ', n_equil
+  write(*, '(A,F6.4)')     '  Restart prob.     : ', restart_prob_in
+  if (iseed < 0) then
+    seed_label = 'system clock'
   else
-    write(*, '(A)')          '  Sampler           : Uniform random'
+    write(seed_label, '(I0)') iseed
   end if
+  write(*, '(A,A)')        '  Random seed       : ', trim(seed_label)
+  write(*, '(A,F10.2,A)')  '  Temperature       : ', requested_temperature, ' K'
   if (use_symmetry_reduction) then
     write(*, '(A)')          '  Symmetry          : on'
   else
@@ -209,20 +176,16 @@ program mcsod
   write(*, '(A)') ' ---------------------------------------------------------------------------'
   write(*, *)
 
-  ! --- Seed the RNG (Metropolis only; seeded once before temperature loop) ---
-  if (use_metropolis) then
-    if (iseed > 0) then
-      call seed_rng_fixed(iseed)
-    else
-      call seed_rng_clock()
-    end if
+  ! --- Seed the RNG (once before the temperature loop) ---
+  if (iseed > 0) then
+    call seed_rng_fixed(iseed)
+  else
+    call seed_rng_clock()
   end if
 
   ! --- Initialize PME model ---
-  ! Uniform sampling does not use energies to decide moves, so it may run
-  ! geometry-only when reference ENERGIES are absent (energy_optional = .true.).
   call pme_get_target_level_from_insod(target_level)
-  call pme_initialize_model(target_level, energy_optional = .not. use_metropolis)
+  call pme_initialize_model(target_level)
   recal_ok = .true.
   if (pme_energies_available()) call pme_preload_recalibration(target_level, recal_ok)
   call pme_print_model_summary()
@@ -230,18 +193,10 @@ program mcsod
   call format_level_directory(target_level, level_dir)
   call format_pme_variant_directory(pme_get_choice(), pme_variant)
 
-  ! Directory layout: sampling method first, Hamiltonian variant second.
-  !   Uniform   : nXX/MCU/ENSEMBLE        (geometry; Hamiltonian-independent)
-  !               nXX/MCU/PMEx/ENERGIES   (per-variant energies, when available)
-  !   Metropolis: nXX/MCT_TK/PMEx/{ENSEMBLE,ENERGIES}  (walk is Hamiltonian-driven)
-  if (use_metropolis) then
-    call format_metropolis_directory(requested_temperature, temp_dir)
-    output_dir   = trim(level_dir)//'/'//trim(temp_dir)//'/'//trim(pme_variant)
-    energies_dir = output_dir
-  else
-    output_dir   = trim(level_dir)//'/MCU'
-    energies_dir = trim(output_dir)//'/'//trim(pme_variant)
-  end if
+  ! Output layout: nXX/MCT_TK/PMEx/{ENSEMBLE,ENERGIES} (the walk is Hamiltonian-driven).
+  call format_metropolis_directory(requested_temperature, temp_dir)
+  output_dir   = trim(level_dir)//'/'//trim(temp_dir)//'/'//trim(pme_variant)
+  energies_dir = output_dir
 
   call execute_command_line('mkdir -p '//trim(output_dir), exitstat=mkdir_status)
   if (mkdir_status /= 0) then
@@ -254,17 +209,11 @@ program mcsod
   end if
 
   ! --- Run MC ---
-  if (use_metropolis) then
-    write(*, '(A,F10.2,A)') '  Running Metropolis MC at ', requested_temperature, ' K'
-    write(*, *)
-    call run_mc(target_level, requested_temperature, n_equil, n_prod, restart_prob_in, &
-                use_metropolis, use_symmetry_reduction, write_trace, &
-                start_config_line, output_dir, energies_dir)
-  else
-    call run_mc(target_level, 0.0_real64, 0, n_prod, 0.0_real64, &
-                use_metropolis, use_symmetry_reduction, write_trace, &
-                start_config_line, output_dir, energies_dir)
-  end if
+  write(*, '(A,F10.2,A)') '  Running Metropolis MC at ', requested_temperature, ' K'
+  write(*, *)
+  call run_mc(target_level, requested_temperature, n_equil, n_prod, restart_prob_in, &
+              use_symmetry_reduction, write_trace, &
+              start_config_line, output_dir, energies_dir)
 
   ! --- Cleanup ---
   call pme_finalize_model()
@@ -304,19 +253,15 @@ contains
   ! =========================================================================
 
   subroutine run_mc(target_level, temperature, n_equil, n_prod, restart_prob, &
-                    use_metropolis, use_symmetry_reduction, write_trace, &
+                    use_symmetry_reduction, write_trace, &
                     start_config_line, output_dir, energies_dir)
     !  Runs n_equil equilibration steps (chain advances, no storage) followed by
     !  n_prod production steps (configurations stored, contribute to averages).
-    !  For Uniform sampling: n_equil = 0, restart_prob unused, temperature unused.
-    !  Writes output_dir/ENSEMBLE, output_dir/OUTMC and energies_dir/ENERGIES.
+    !  Writes output_dir/{ENSEMBLE,OUTMC,ENERGIES} (energies_dir == output_dir).
     !  Optionally writes output_dir/MCTRACE (equil + prod steps, phase-labelled).
-    !  energies_dir == output_dir for Metropolis; for uniform it is the PMEx
-    !  subdirectory (output_dir/PMEx), since the geometry sample is Hamiltonian-
-    !  independent but the energies belong to a specific variant.
     integer,          intent(in) :: target_level, n_equil, n_prod, write_trace
     real(real64),     intent(in) :: temperature, restart_prob
-    logical,          intent(in) :: use_metropolis, use_symmetry_reduction
+    logical,          intent(in) :: use_symmetry_reduction
     character(len=*), intent(in) :: start_config_line, output_dir, energies_dir
 
     real(real64), parameter :: kB = 8.617333262e-5_real64  ! eV/K
@@ -327,11 +272,20 @@ contains
     integer, allocatable :: subset(:), trial_subset(:), best_subset(:)
     real(real64) :: energy, trial_energy, best_energy
     real(real64) :: energy_low, energy_high, trial_low, trial_high
-    real(real64) :: low_terms(4), high_terms(4)
+    real(real64) :: low_terms(4), high_terms(4)             ! running terms of current config
+    real(real64) :: trial_low_terms(4), trial_high_terms(4) ! terms of the trial config
+    real(real64) :: dlow_terms(4), dhigh_terms(4)           ! incremental change for a swap
     real(real64) :: delta_e, beta, rand_num
     integer :: n_accepted_equil, n_accepted_prod
     integer :: i_step, i, j
-    logical :: accepted, valid_swap
+    integer :: removed_site, added_site, hole_pick, hole_count
+    integer, allocatable :: cur_holes(:)   ! complement (hole) list of current config
+    integer :: steps_since_resync
+    ! Periodic full recompute to bound floating-point drift in the running
+    ! term vectors (equivalence test B showed zero drift, but resync keeps it
+    ! robust for larger models / longer chains). One full eval per n_resync steps.
+    integer, parameter :: n_resync = 5000
+    logical :: accepted, is_restart
     character(len=256) :: outmc_path, trace_path
     integer :: unit_out, unit_trace
 
@@ -361,10 +315,8 @@ contains
     real(real64) :: block_mean_e, block_mean_bar, block_ss
     logical :: do_block_sem
     integer(int64) :: total_omega
-    logical :: have_energy
 
     lev       = target_level
-    have_energy = pme_energies_available()
     npos_val  = pme_get_npos()
     atini_val = pme_get_target_atini()
     max_lo    = pme_get_max_low_order()
@@ -396,37 +348,24 @@ contains
       end if
     end block
 
-    beta = 0.0_real64
-    if (use_metropolis) beta = 1.0_real64 / (kB * temperature)
+    beta = 1.0_real64 / (kB * temperature)
 
     allocate(subset(lev), trial_subset(lev), best_subset(lev))
+    hole_count = npos_val - lev          ! constant: substitution count is fixed
+    allocate(cur_holes(max(1, hole_count)))
 
     ! --- Set mode labels ---
-    if (use_metropolis) then
-      sampler_label = 'Metropolis'
-      stats_weighting_label = 'Omega/sum(Omega) (Metropolis sample already energy-biased)'
-    else
-      sampler_label = 'Uniform random'
-      stats_weighting_label = 'Omega/sum(Omega) (uniform sample; use statsod for canonical averages)'
-    end if
+    sampler_label = 'Metropolis'
+    stats_weighting_label = 'Omega/sum(Omega) (Metropolis sample already energy-biased)'
 
     if (use_symmetry_reduction) then
       symmetry_label = 'reduced (symmetry representatives)'
       ensemble_rows_label = 'symmetry representatives'
-      if (use_metropolis) then
-        omega_label = 'visits to representative, including rejected-step residence'
-      else
-        omega_label = 'number of uniform samples folded into representative'
-      end if
+      omega_label = 'visits to representative, including rejected-step residence'
     else
       symmetry_label = 'full (no symmetry reduction)'
-      if (use_metropolis) then
-        ensemble_rows_label = 'explicit trajectory states, no global deduplication'
-        omega_label = 'residence count for consecutive stays on same explicit configuration'
-      else
-        ensemble_rows_label = 'explicit sampled configurations, no deduplication'
-        omega_label = '1 for each sampled row'
-      end if
+      ensemble_rows_label = 'explicit trajectory states, no global deduplication'
+      omega_label = 'residence count for consecutive stays on same explicit configuration'
     end if
 
     write(*, '(A)') ' --- Sampling ---------------------------------------------------------------'
@@ -464,17 +403,16 @@ contains
       end if
     end block
 
-    if (have_energy) then
-      call pme_evaluate_configuration(subset(1:lev), lev, &
-        energy, energy_low, energy_high, low_terms, high_terms)
-      call apply_epsilon_energy(lev, low_terms, high_terms, energy)
-    else
-      energy = 0.0_real64; energy_low = 0.0_real64; energy_high = 0.0_real64
-      low_terms = 0.0_real64; high_terms = 0.0_real64
-    end if
+    ! Hole list for the starting configuration (maintained incrementally below).
+    call rebuild_hole_set(subset, lev, npos_val, cur_holes)
+
+    call pme_evaluate_configuration(subset(1:lev), lev, &
+      energy, energy_low, energy_high, low_terms, high_terms)
+    call apply_epsilon_energy(lev, low_terms, high_terms, energy)
 
     n_accepted_equil = 0
     n_accepted_prod  = 0
+    steps_since_resync = 0
 
     if (write_trace == 1) then
       trace_path = trim(output_dir)//'/MCTRACE'
@@ -489,42 +427,59 @@ contains
     ! Phase 1a: Equilibration
     ! =================================================================
     do i_step = 1, n_equil
-      if (use_metropolis) then
-        trial_subset = subset
-        call random_number(rand_num)
-        if (rand_num < restart_prob) then
-          do
-            call mc_random_subset(npos_val, lev, trial_subset)
-            if (.not. all(trial_subset(1:lev) == subset(1:lev))) exit
-          end do
-        else
-          call mc_swap_move(trial_subset, lev, npos_val, valid_swap)
-          if (.not. valid_swap) cycle
-        end if
+      trial_subset = subset
+      call random_number(rand_num)
+      if (rand_num < restart_prob) then
+        do
+          call mc_random_subset(npos_val, lev, trial_subset)
+          if (.not. all(trial_subset(1:lev) == subset(1:lev))) exit
+        end do
+        is_restart = .true.
+        ! Restart replaces many sites at once — recompute the trial in full.
+        call pme_evaluate_configuration(trial_subset(1:lev), lev, &
+          trial_energy, trial_low, trial_high, trial_low_terms, trial_high_terms)
       else
-        call mc_random_subset(npos_val, lev, trial_subset)
+        is_restart = .false.
+        call mc_swap_move(trial_subset, lev, cur_holes, hole_count, &
+          removed_site, added_site, hole_pick)
+        ! Single swap — update the term vectors incrementally from the current
+        ! config, reusing the maintained hole list (no O(npos) rebuild).
+        call pme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
+          dlow_terms, dhigh_terms, cur_holes, hole_count)
+        trial_low_terms  = low_terms  + dlow_terms
+        trial_high_terms = high_terms + dhigh_terms
       end if
+      call apply_epsilon_energy(lev, trial_low_terms, trial_high_terms, trial_energy)
 
-      call pme_evaluate_configuration(trial_subset(1:lev), lev, &
-        trial_energy, trial_low, trial_high, low_terms, high_terms)
-      call apply_epsilon_energy(lev, low_terms, high_terms, trial_energy)
-
-      if (use_metropolis) then
-        delta_e = trial_energy - energy
-        if (delta_e <= 0.0_real64) then
-          accepted = .true.
-        else
-          call random_number(rand_num)
-          accepted = rand_num < exp(-beta * delta_e)
-        end if
-      else
+      delta_e = trial_energy - energy
+      if (delta_e <= 0.0_real64) then
         accepted = .true.
+      else
+        call random_number(rand_num)
+        accepted = rand_num < exp(-beta * delta_e)
       end if
 
       if (accepted) then
         n_accepted_equil = n_accepted_equil + 1
-        subset = trial_subset
-        energy = trial_energy
+        subset     = trial_subset
+        energy     = trial_energy
+        low_terms  = trial_low_terms
+        high_terms = trial_high_terms
+        if (is_restart) then
+          call rebuild_hole_set(subset, lev, npos_val, cur_holes)
+        else
+          ! O(1) hole-list update: added_site leaves the holes, removed_site joins.
+          cur_holes(hole_pick) = removed_site
+        end if
+      end if
+
+      ! Periodic full recompute to bound floating-point drift.
+      steps_since_resync = steps_since_resync + 1
+      if (steps_since_resync >= n_resync) then
+        call pme_evaluate_configuration(subset(1:lev), lev, &
+          energy, energy_low, energy_high, low_terms, high_terms)
+        call apply_epsilon_energy(lev, low_terms, high_terms, energy)
+        steps_since_resync = 0
       end if
 
       if (write_trace == 1) then
@@ -533,12 +488,14 @@ contains
     end do
 
     ! =================================================================
-    ! Transition: re-evaluate to get fresh low_terms/high_terms
+    ! Transition: full re-evaluation gives a clean resync of the running
+    ! term vectors before production storage begins.
     ! =================================================================
     if (n_equil > 0) then
       call pme_evaluate_configuration(subset(1:lev), lev, &
         energy, energy_low, energy_high, low_terms, high_terms)
       call apply_epsilon_energy(lev, low_terms, high_terms, energy)
+      steps_since_resync = 0
     end if
 
     best_energy      = energy
@@ -565,47 +522,51 @@ contains
     ! Phase 1b: Production
     ! =================================================================
     do i_step = 2, n_prod
-      if (use_metropolis) then
-        trial_subset = subset
-        call random_number(rand_num)
-        if (rand_num < restart_prob) then
-          do
-            call mc_random_subset(npos_val, lev, trial_subset)
-            if (.not. all(trial_subset(1:lev) == subset(1:lev))) exit
-          end do
-        else
-          call mc_swap_move(trial_subset, lev, npos_val, valid_swap)
-          if (.not. valid_swap) cycle
-        end if
-      else
-        call mc_random_subset(npos_val, lev, trial_subset)
-      end if
-
-      if (have_energy) then
+      trial_subset = subset
+      call random_number(rand_num)
+      if (rand_num < restart_prob) then
+        do
+          call mc_random_subset(npos_val, lev, trial_subset)
+          if (.not. all(trial_subset(1:lev) == subset(1:lev))) exit
+        end do
+        is_restart = .true.
+        ! Restart replaces many sites at once — recompute the trial in full.
         call pme_evaluate_configuration(trial_subset(1:lev), lev, &
-          trial_energy, trial_low, trial_high, low_terms, high_terms)
-        call apply_epsilon_energy(lev, low_terms, high_terms, trial_energy)
+          trial_energy, trial_low, trial_high, trial_low_terms, trial_high_terms)
       else
-        trial_energy = 0.0_real64; trial_low = 0.0_real64; trial_high = 0.0_real64
-        low_terms = 0.0_real64; high_terms = 0.0_real64
+        is_restart = .false.
+        call mc_swap_move(trial_subset, lev, cur_holes, hole_count, &
+          removed_site, added_site, hole_pick)
+        ! Single swap — incremental update from the current config, reusing the
+        ! maintained hole list (no O(npos) rebuild).
+        call pme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
+          dlow_terms, dhigh_terms, cur_holes, hole_count)
+        trial_low_terms  = low_terms  + dlow_terms
+        trial_high_terms = high_terms + dhigh_terms
       end if
+      call apply_epsilon_energy(lev, trial_low_terms, trial_high_terms, trial_energy)
 
-      if (use_metropolis) then
-        delta_e = trial_energy - energy
-        if (delta_e <= 0.0_real64) then
-          accepted = .true.
-        else
-          call random_number(rand_num)
-          accepted = rand_num < exp(-beta * delta_e)
-        end if
-      else
+      delta_e = trial_energy - energy
+      if (delta_e <= 0.0_real64) then
         accepted = .true.
+      else
+        call random_number(rand_num)
+        accepted = rand_num < exp(-beta * delta_e)
       end if
 
       if (accepted) then
         n_accepted_prod = n_accepted_prod + 1
-        subset = trial_subset
-        energy = trial_energy
+        subset     = trial_subset
+        energy     = trial_energy
+        low_terms  = trial_low_terms
+        high_terms = trial_high_terms
+
+        ! Keep the hole list in step with the accepted config.
+        if (is_restart) then
+          call rebuild_hole_set(subset, lev, npos_val, cur_holes)
+        else
+          cur_holes(hole_pick) = removed_site
+        end if
 
         if (energy < best_energy) then
           best_energy = energy
@@ -623,12 +584,17 @@ contains
                 exit
               end if
             end do
-            if (.not. found_match .and. n_unique < max_unique) then
-              n_unique = n_unique + 1
-              unique_subsets(:, n_unique) = trial_canonical
-              unique_low(:, n_unique)     = low_terms
-              unique_high(:, n_unique)    = high_terms
-              current_idx                 = n_unique
+            if (.not. found_match) then
+              if (n_unique < max_unique) then
+                n_unique = n_unique + 1
+                unique_subsets(:, n_unique) = trial_canonical
+                unique_low(:, n_unique)     = low_terms
+                unique_high(:, n_unique)    = high_terms
+                current_idx                 = n_unique
+              else
+                write(error_unit,'(A)') ' Error: mcsod storage exhausted in symmetry-reduction path.'
+                stop 1
+              end if
             end if
             current_canonical = trial_canonical
           end if
@@ -653,6 +619,15 @@ contains
       if (write_trace == 1) then
         write(unit_trace,'(A4,3X,I10,2X,F22.10,2X,I6)') 'prod', i_step, energy, current_idx
       end if
+
+      ! Periodic full recompute to bound floating-point drift in the running term vectors.
+      steps_since_resync = steps_since_resync + 1
+      if (steps_since_resync >= n_resync) then
+        call pme_evaluate_configuration(subset(1:lev), lev, &
+          energy, energy_low, energy_high, low_terms, high_terms)
+        call apply_epsilon_energy(lev, low_terms, high_terms, energy)
+        steps_since_resync = 0
+      end if
     end do
 
     if (write_trace == 1) close(unit_trace)
@@ -662,7 +637,7 @@ contains
     ! === Block-average SEM estimation from production energy trajectory ===
     ! SEM = std(block_means) / sqrt(n_blocks); blocks must be >> autocorrelation time.
     ! If SEM converges as n_blocks decreases (block size grows), the estimate is reliable.
-    do_block_sem = have_energy .and. (n_prod >= block_sizes(n_block_sizes))
+    do_block_sem = n_prod >= block_sizes(n_block_sizes)
     if (do_block_sem) then
       do i_b = 1, n_block_sizes
         n_bs = block_sizes(i_b)
@@ -692,7 +667,7 @@ contains
     end do
 
     write(*, '(A)') ' --- Sampling statistics ----------------------------------------------------'
-    if (use_metropolis .and. n_equil > 0) then
+    if (n_equil > 0) then
       write(*, '(A,I0)')       '  Equil. steps      : ', n_equil
       write(*, '(A,F5.1,A)')   '  Equil. acceptance : ', &
         100.0_real64 * real(n_accepted_equil, real64) / real(max(1, n_equil), real64), ' %'
@@ -700,62 +675,51 @@ contains
     write(*, '(A,I0)')         '  Production steps  : ', n_prod
     write(*, '(A,F10.2)')      '  Steps / site      : ', real(n_prod, real64) / real(npos_val, real64)
     write(*, '(A,I0)')         '  Stored configs    : ', n_unique
-    if (use_metropolis) then
-      write(*, '(A,I0,A,F5.1,A)') '  Accepted (prod.)  : ', n_accepted_prod, &
-        '  (', 100.0_real64 * real(n_accepted_prod, real64) / real(max(1, n_prod), real64), ' %)'
-    end if
+    write(*, '(A,I0,A,F5.1,A)') '  Accepted (prod.)  : ', n_accepted_prod, &
+      '  (', 100.0_real64 * real(n_accepted_prod, real64) / real(max(1, n_prod), real64), ' %)'
     write(*, '(A)') ' ---------------------------------------------------------------------------'
     write(*, *)
 
-    ! === Compute final calibrated energies and report (skipped without energies) ===
-    if (have_energy) then
-      do i = 1, n_unique
-        call apply_epsilon_energy(lev, unique_low(:, i), unique_high(:, i), unique_e(i))
-      end do
+    ! === Compute final calibrated energies and report ===
+    do i = 1, n_unique
+      call apply_epsilon_energy(lev, unique_low(:, i), unique_high(:, i), unique_e(i))
+    end do
 
-      ! === Canonical ensemble average (degeneracy-weighted mean for both samplers) ===
-      total_deg = sum(degeneracy(1:n_unique))
-      sum_e  = 0.0_real64
-      sum_ge = 0.0_real64
-      do i = 1, n_unique
-        sum_e  = sum_e  + real(degeneracy(i), real64) * unique_e(i)
-        sum_ge = sum_ge + real(degeneracy(i), real64) * unique_e(i)**2
-      end do
-      mean_e = sum_e / real(total_deg, real64)
-      std_e  = sqrt(max(0.0_real64, sum_ge / real(total_deg, real64) - mean_e**2))
+    ! === Canonical ensemble average (degeneracy-weighted mean) ===
+    total_deg = sum(degeneracy(1:n_unique))
+    sum_e  = 0.0_real64
+    sum_ge = 0.0_real64
+    do i = 1, n_unique
+      sum_e  = sum_e  + real(degeneracy(i), real64) * unique_e(i)
+      sum_ge = sum_ge + real(degeneracy(i), real64) * unique_e(i)**2
+    end do
+    mean_e = sum_e / real(total_deg, real64)
+    std_e  = sqrt(max(0.0_real64, sum_ge / real(total_deg, real64) - mean_e**2))
 
-      best_unique_idx = 1
-      do i = 2, n_unique
-        if (unique_e(i) < unique_e(best_unique_idx)) best_unique_idx = i
-      end do
-      best_energy = unique_e(best_unique_idx)
-      best_subset = unique_subsets(:, best_unique_idx)
+    best_unique_idx = 1
+    do i = 2, n_unique
+      if (unique_e(i) < unique_e(best_unique_idx)) best_unique_idx = i
+    end do
+    best_energy = unique_e(best_unique_idx)
+    best_subset = unique_subsets(:, best_unique_idx)
 
-      write(*, '(A)') ' --- Results ----------------------------------------------------------------'
-      write(*, '(A,F22.10,A)') '  E_min             = ', best_energy, ' eV'
-      write(*, '(A,F22.10,A)') '  E_ave (sample)    = ', mean_e,      ' eV'
-      write(*, '(A,F22.10,A)') '  E_std             = ', std_e,       ' eV'
-      if (do_block_sem) then
-        write(*, '(A)') ' --- Block-average SEM ------------------------------------------------------'
-        do i_b = 1, n_block_sizes
-          n_bs         = block_sizes(i_b)
-          n_block_steps = n_prod / n_bs
-          write(*, '(A,I2,A,F22.10,A,I0,A)') &
-            '  SEM (', n_bs, ' blocks)    = ', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
-        end do
-        write(*, '(A)') '  Note: if SEM(8) ≈ SEM(16), blocks are independent; trust that estimate.'
-        write(*, '(A)') '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
-      end if
-      write(*, '(A)') ' ---------------------------------------------------------------------------'
-      write(*, *)
-    else
-      write(*, '(A)') ' --- Results ----------------------------------------------------------------'
-      write(*, '(A)') '  Energies not evaluated (no reference ENERGIES; geometry-only uniform run).'
-      write(*, '(A)') '  Compute DFT energies for the configurations in ENSEMBLE, then build the'
-      write(*, '(A)') '  PME model to obtain energy statistics.'
-      write(*, '(A)') ' ---------------------------------------------------------------------------'
-      write(*, *)
+    write(*, '(A)') ' --- Results ----------------------------------------------------------------'
+    write(*, '(A,F22.10,A)') '  E_min             = ', best_energy, ' eV'
+    write(*, '(A,F22.10,A)') '  E_ave (sample)    = ', mean_e,      ' eV'
+    write(*, '(A,F22.10,A)') '  E_std             = ', std_e,       ' eV'
+    if (do_block_sem) then
+      write(*, '(A)') ' --- Block-average SEM ------------------------------------------------------'
+      do i_b = 1, n_block_sizes
+        n_bs         = block_sizes(i_b)
+        n_block_steps = n_prod / n_bs
+        write(*, '(A,I2,A,F22.10,A,I0,A)') &
+          '  SEM (', n_bs, ' blocks)    = ', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
+      end do
+      write(*, '(A)') '  Note: if SEM(8) ≈ SEM(16), blocks are independent; trust that estimate.'
+      write(*, '(A)') '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
     end if
+    write(*, '(A)') ' ---------------------------------------------------------------------------'
+    write(*, *)
 
     ! === Write ENSEMBLE ===
     block
@@ -767,12 +731,12 @@ contains
 
       open(newunit=unit_ensemble, file=trim(ensemble_path), status='replace', action='write')
       block
-        integer :: mc_ic(n_unique, max(1, lev)), mc_dg(n_unique), ic_i
+        integer, allocatable :: mc_ic(:,:), mc_dg(:)
+        integer :: ic_i
         character(len=10) :: orig_sym_mc, sym_new_mc, sym_rem_mc
         character(len=10) :: syms_mc(1,2)
         character(len=10) :: orig_arr(1)
-        real(real64) :: tval
-        tval = merge(temperature, -1.0_real64, use_metropolis)
+        allocate(mc_ic(n_unique, max(1, lev)), mc_dg(n_unique))
         call pme_get_newsymbol(orig_sym_mc, sym_new_mc, sym_rem_mc)
         syms_mc(1,1) = sym_new_mc; syms_mc(1,2) = sym_rem_mc
         orig_arr(1)  = orig_sym_mc
@@ -781,35 +745,18 @@ contains
         do ic_i = 1, n_unique
           if (lev > 0) mc_ic(ic_i, 1:lev) = unique_subsets(1:lev, ic_i)
         end do
-        if (use_metropolis) then
-          call write_ensemble(unit_ensemble, 1, [1], [lev], [npos_val], [atini_val], &
-                              n_unique, mc_ic, mc_dg, 'metropolis', orig_arr, syms_mc, &
-                              tsampling=tval)
-        else
-          call write_ensemble(unit_ensemble, 1, [1], [lev], [npos_val], [atini_val], &
-                              n_unique, mc_ic, mc_dg, 'uniform', orig_arr, syms_mc)
-        end if
+        call write_ensemble(unit_ensemble, 1, [1], [lev], [npos_val], [atini_val], &
+                            n_unique, mc_ic, mc_dg, 'metropolis', orig_arr, syms_mc, &
+                            tsampling=temperature)
       end block
       close(unit_ensemble)
 
-      ! === Write ENERGIES (only when a Hamiltonian was available) ===
-      ! For uniform runs the energies live in the PMEx subdirectory, which may
-      ! not exist yet (the geometry sample is written to output_dir).
-      if (have_energy) then
-        block
-          integer :: mkdir_e_status
-          call execute_command_line('mkdir -p '//trim(energies_dir), exitstat=mkdir_e_status)
-          if (mkdir_e_status /= 0) then
-            write(error_unit,'(A,A)') ' Error: could not create directory ', trim(energies_dir)
-            stop 1
-          end if
-        end block
-        open(newunit=unit_energies, file=trim(energies_path), status='replace', action='write')
-        do i = 1, n_unique
-          write(unit_energies,'(I0,2X,F22.10)') i, unique_e(i)
-        end do
-        close(unit_energies)
-      end if
+      ! === Write ENERGIES (energies_dir == output_dir, already created) ===
+      open(newunit=unit_energies, file=trim(energies_path), status='replace', action='write')
+      do i = 1, n_unique
+        write(unit_energies,'(I0,2X,F22.10)') i, unique_e(i)
+      end do
+      close(unit_energies)
 
     end block
 
@@ -828,55 +775,46 @@ contains
     write(unit_out,'(A,A)')       '  Stats weighting   : ', trim(stats_weighting_label)
     write(unit_out,'(A,I0)')      '  Level (nsubs)     : ', lev
     write(unit_out,'(A,I0)')      '  Total sites       : ', npos_val
-    if (use_metropolis) then
-      write(unit_out,'(A,F14.4,A)') '  Temperature       : ', temperature, ' K'
-    end if
+    write(unit_out,'(A,F14.4,A)') '  Temperature       : ', temperature, ' K'
     write(unit_out,'(A,I0)')      '  Equil. steps      : ', n_equil
     write(unit_out,'(A,I0)')      '  Production steps  : ', n_prod
     write(unit_out,'(A,I0)')      '  Stored configs    : ', n_unique
-    if (use_metropolis) then
-      write(unit_out,'(A,I0,A,F5.1,A)') '  Accepted (equil.) : ', n_accepted_equil, &
-        '  (', 100.0_real64 * real(n_accepted_equil, real64) / real(max(1, n_equil), real64), ' %)'
-      write(unit_out,'(A,I0,A,F5.1,A)') '  Accepted (prod.)  : ', n_accepted_prod, &
-        '  (', 100.0_real64 * real(n_accepted_prod, real64) / real(max(1, n_prod), real64), ' %)'
-    end if
+    write(unit_out,'(A,I0,A,F5.1,A)') '  Accepted (equil.) : ', n_accepted_equil, &
+      '  (', 100.0_real64 * real(n_accepted_equil, real64) / real(max(1, n_equil), real64), ' %)'
+    write(unit_out,'(A,I0,A,F5.1,A)') '  Accepted (prod.)  : ', n_accepted_prod, &
+      '  (', 100.0_real64 * real(n_accepted_prod, real64) / real(max(1, n_prod), real64), ' %)'
     write(unit_out,'(A)') ' -----------------------------------------------------------------'
-    if (have_energy) then
-      write(unit_out,'(A)',advance='no') '  eps_low           :'
-      do k = 0, max(1, max_lo)
-        write(unit_out,'(1X,F10.6)',advance='no') mu_lo(k)
+    write(unit_out,'(A)',advance='no') '  eps_low           :'
+    do k = 0, max(1, max_lo)
+      write(unit_out,'(1X,F10.6)',advance='no') mu_lo(k)
+    end do
+    write(unit_out,*)
+    if (has_high) then
+      write(unit_out,'(A)',advance='no') '  eps_high          :'
+      do k = 0, max(1, max_hi)
+        write(unit_out,'(1X,F10.6)',advance='no') mu_hi(k)
       end do
       write(unit_out,*)
-      if (has_high) then
-        write(unit_out,'(A)',advance='no') '  eps_high          :'
-        do k = 0, max(1, max_hi)
-          write(unit_out,'(1X,F10.6)',advance='no') mu_hi(k)
-        end do
-        write(unit_out,*)
-        write(unit_out,'(A,F10.6)')       '  alpha (hybrid)    : ', alpha_hybrid_val
-        write(unit_out,'(A,F10.6)')       '  eta   (hybrid)    : ', eta_hybrid_val
-      end if
+      write(unit_out,'(A,F10.6)')       '  alpha (hybrid)    : ', alpha_hybrid_val
+      write(unit_out,'(A,F10.6)')       '  eta   (hybrid)    : ', eta_hybrid_val
+    end if
+    write(unit_out,'(A)') ' -----------------------------------------------------------------'
+    write(unit_out,'(A,F22.10,A)') '  E_min             =', best_energy, ' eV'
+    write(unit_out,'(A,F22.10,A)') '  E_ave (sample)    =', mean_e,      ' eV'
+    write(unit_out,'(A,F22.10,A)') '  E_std             =', std_e,       ' eV'
+    if (do_block_sem) then
       write(unit_out,'(A)') ' -----------------------------------------------------------------'
-      write(unit_out,'(A,F22.10,A)') '  E_min             =', best_energy, ' eV'
-      write(unit_out,'(A,F22.10,A)') '  E_ave (sample)    =', mean_e,      ' eV'
-      write(unit_out,'(A,F22.10,A)') '  E_std             =', std_e,       ' eV'
-      if (do_block_sem) then
-        write(unit_out,'(A)') ' -----------------------------------------------------------------'
-        write(unit_out,'(A)') '  Block-average SEM (standard error of the mean):'
-        do i_b = 1, n_block_sizes
-          n_bs          = block_sizes(i_b)
-          n_block_steps = n_prod / n_bs
-          write(unit_out,'(A,I2,A,F22.10,A,I0,A)') &
-            '  SEM (', n_bs, ' blocks)    =', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
-        end do
-        write(unit_out,'(A)') &
-          '  Note: if SEM(8) ~ SEM(16), blocks are independent; trust that estimate.'
-        write(unit_out,'(A)') &
-          '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
-      end if
-    else
-      write(unit_out,'(A)') '  Energies          : not evaluated (no reference ENERGIES;'
-      write(unit_out,'(A)') '                      geometry-only uniform run). No ENERGIES file written.'
+      write(unit_out,'(A)') '  Block-average SEM (standard error of the mean):'
+      do i_b = 1, n_block_sizes
+        n_bs          = block_sizes(i_b)
+        n_block_steps = n_prod / n_bs
+        write(unit_out,'(A,I2,A,F22.10,A,I0,A)') &
+          '  SEM (', n_bs, ' blocks)    =', sem_vals(i_b), ' eV  (', n_block_steps, ' steps/block)'
+      end do
+      write(unit_out,'(A)') &
+        '  Note: if SEM(8) ~ SEM(16), blocks are independent; trust that estimate.'
+      write(unit_out,'(A)') &
+        '        If SEM grows as n_blocks decreases, increase n_prod or n_equil.'
     end if
     write(unit_out,'(A)') ' ================================================================='
     close(unit_out)
@@ -890,7 +828,7 @@ contains
 
       write(*, '(A)') ' --- Output files -----------------------------------------------------------'
       write(*, '(A,A)') '  ENSEMBLE          : ', trim(ensemble_path2)
-      if (have_energy) write(*, '(A,A)') '  ENERGIES          : ', trim(energies_path2)
+      write(*, '(A,A)') '  ENERGIES          : ', trim(energies_path2)
       write(*, '(A,A)') '  OUTMC             : ', trim(outmc_path)
       if (write_trace == 1) then
         write(*, '(A,A)') '  MCTRACE           : ', trim(trace_path)
@@ -900,6 +838,7 @@ contains
     end block
 
     deallocate(subset, trial_subset, best_subset)
+    deallocate(cur_holes)
     deallocate(unique_subsets, degeneracy, unique_low, unique_high, unique_e)
     deallocate(visit_count)
   end subroutine run_mc
@@ -908,105 +847,51 @@ contains
   !  MC helpers
   ! =========================================================================
 
-  subroutine mc_random_subset(n, k, subset)
-    !  Uniformly random sorted subset of size k from {1..n} via partial Fisher-Yates.
-    integer, intent(in) :: n, k
-    integer, intent(out) :: subset(:)
-    integer :: pool(n), tmp, i, j
-    real(real64) :: r
-
-    do i = 1, n
-      pool(i) = i
-    end do
-    do i = 1, k
-      call random_number(r)
-      j = i + int(r * real(n - i + 1, real64))
-      j = min(j, n)
-      tmp     = pool(i)
-      pool(i) = pool(j)
-      pool(j) = tmp
-    end do
-    subset(1:k) = pool(1:k)
-    call mc_insertion_sort(subset, k)
-  end subroutine mc_random_subset
-
-  subroutine mc_swap_move(subset, level, npos_val, valid)
-    !  Remove one random occupied site, insert one random unoccupied site, re-sort.
+  subroutine mc_swap_move(subset, level, holes, hole_count, removed_site, added_site, hole_pick)
+    !  Propose a swap: remove a random occupied site and add a random hole drawn
+    !  directly from the maintained complement (hole) list — both O(1), with no
+    !  rejection loop and no membership scan. Reports the removed/added sites (for
+    !  the incremental energy update) and hole_pick (the index of added_site in
+    !  holes, so the caller can update the hole list in O(1) on accept).
     integer, intent(inout) :: subset(:)
-    integer, intent(in) :: level, npos_val
-    logical, intent(out) :: valid
-    integer :: remove_idx, add_site, tries
+    integer, intent(in) :: level, hole_count
+    integer, intent(in) :: holes(:)
+    integer, intent(out) :: removed_site, added_site, hole_pick
+    integer :: remove_idx
     real(real64) :: r
-
-    valid = .false.
-    if (level <= 0 .or. npos_val <= level) return
 
     call random_number(r)
-    remove_idx = int(r * real(level, real64)) + 1
-    remove_idx = min(remove_idx, level)
+    remove_idx = min(int(r * real(level, real64)) + 1, level)
+    removed_site = subset(remove_idx)
 
-    tries = 0
-    do while (tries < npos_val * 4)
-      tries = tries + 1
-      call random_number(r)
-      add_site = int(r * real(npos_val, real64)) + 1
-      add_site = min(add_site, npos_val)
-      if (.not. any(subset(1:level) == add_site)) then
-        subset(remove_idx) = add_site
-        call mc_insertion_sort(subset, level)
-        valid = .true.
-        return
-      end if
-    end do
+    call random_number(r)
+    hole_pick = min(int(r * real(hole_count, real64)) + 1, hole_count)
+    added_site = holes(hole_pick)
+
+    subset(remove_idx) = added_site
+    call mc_insertion_sort(subset, level)
   end subroutine mc_swap_move
 
-  ! =========================================================================
-  !  Input / RNG / string helpers
-  ! =========================================================================
+  subroutine rebuild_hole_set(subset, level, npos_val, holes)
+    !  Rebuild the complement (hole) list = the npos_val-level sites not in
+    !  subset(1:level). O(npos). Used for the initial config and after a restart
+    !  move (which replaces many sites at once); single swaps update holes in O(1).
+    integer, intent(in)  :: subset(:), level, npos_val
+    integer, intent(out) :: holes(:)
+    logical :: occ(npos_val)
+    integer :: i, idx
 
-  subroutine read_next_data_line(unit_num, out_line, io_status)
-    integer, intent(in) :: unit_num
-    character(len=*), intent(out) :: out_line
-    integer, intent(out) :: io_status
-    do
-      read(unit_num, '(A)', iostat=io_status) out_line
-      if (io_status /= 0) return
-      out_line = adjustl(out_line)
-      if (len_trim(out_line) == 0) cycle
-      if (out_line(1:1) == '#') cycle
-      return
+    occ = .false.
+    do i = 1, level
+      occ(subset(i)) = .true.
     end do
-  end subroutine read_next_data_line
-
-  subroutine to_lower(str)
-    character(len=*), intent(inout) :: str
-    integer :: i, c
-    do i = 1, len(str)
-      c = iachar(str(i:i))
-      if (c >= 65 .and. c <= 90) str(i:i) = achar(c + 32)
+    idx = 0
+    do i = 1, npos_val
+      if (.not. occ(i)) then
+        idx = idx + 1
+        holes(idx) = i
+      end if
     end do
-  end subroutine to_lower
-
-  subroutine seed_rng_fixed(seed_val)
-    integer, intent(in) :: seed_val
-    integer :: n
-    integer, allocatable :: seed_arr(:)
-    call random_seed(size=n)
-    allocate(seed_arr(n))
-    seed_arr = seed_val
-    call random_seed(put=seed_arr)
-  end subroutine seed_rng_fixed
-
-  subroutine seed_rng_clock()
-    integer :: i, n, clock_val
-    integer, allocatable :: seed_arr(:)
-    call random_seed(size=n)
-    allocate(seed_arr(n))
-    call system_clock(count=clock_val)
-    do i = 1, n
-      seed_arr(i) = clock_val + 37 * (i - 1)
-    end do
-    call random_seed(put=seed_arr)
-  end subroutine seed_rng_clock
+  end subroutine rebuild_hole_set
 
 end program mcsod

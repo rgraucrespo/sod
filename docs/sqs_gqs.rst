@@ -32,13 +32,13 @@ provide. That ensemble can come from either route:
   symmetry-inequivalent configurations at the composition. This guarantees the
   true best SQS *within the supercell* is present, but is only feasible when the
   space is small enough to enumerate.
-- **Uniform random sampling** (``mcsod`` with sampler = 2 →
-  ``nXX/MCU/ENSEMBLE``): a large random sample of configurations. This is
+- **Uniform random sampling** (``sod_random.sh`` →
+  ``nXX/random/ENSEMBLE``): a large random sample of configurations. This is
   the practical route when the full space is **too large to enumerate** —
   generate a big uniform ensemble and extract the best SQS from it. Point
-  ``sqssod`` at the ``MCU/`` directory (which holds the sampled ``ENSEMBLE``)
+  ``sqssod`` at the ``random/`` directory (which holds the sampled ``ENSEMBLE``)
   while ``EQMATRIX``, ``supercell.cif``, and ``INSOD`` remain in the parent
-  folder. Uniform sampling needs no reference energies, so this works before any
+  folder. Random sampling needs no reference energies, so this works before any
   DFT is run; for GQS, supply ``ENERGIES`` for the sampled configurations.
 
 With random sampling the result is the best SQS *found in the sample*, not
@@ -56,18 +56,38 @@ provably the global optimum — enlarge the sample to improve it.
 Workflow
 --------
 
-Prerequisites: run ``sod_comb.sh`` first to generate ``EQMATRIX``,
-``supercell.cif``, and ``n*/ENSEMBLE``.
+**From a full enumeration** (``sod_comb.sh`` → ``nXX/ENSEMBLE``):
 
-1. Create an ``INSQS`` file in the working directory (see below).
+Prerequisites: ``sod_comb.sh`` must have been run to generate ``EQMATRIX``,
+``supercell.cif``, and ``nXX/ENSEMBLE``.
+
+1. Create an ``INSQS`` file in SODPROJECT/ (or in ``nXX/`` for a per-composition
+   override).
 2. Run SQS scoring::
 
-      sod_sqs.sh        # from SODPROJECT: scores all nXX/ compositions
-      sod_sqs.sh        # from nXX/: scores that composition only
+      sod_sqs.sh        # from SODPROJECT/: scores all nXX/ compositions
+      sod_sqs.sh        # from nXX/:        scores that composition only
 
 3. Optionally run GQS (requires ``ENERGIES`` and ``TEMPERATURES``)::
 
-      sod_gqs.sh        # from SODPROJECT or nXX/
+      sod_gqs.sh        # from SODPROJECT/ or nXX/
+
+**From a random sample** (``sod_random.sh`` → ``nXX/random/ENSEMBLE``):
+
+Prerequisites: ``sod_comb.sh`` must have been run (for ``EQMATRIX`` and
+``supercell.cif``); ``sod_random.sh`` must have produced ``nXX/random/ENSEMBLE``.
+
+1. Create ``INSQS`` in ``nXX/random/`` (alongside ``ENSEMBLE``).
+2. Run SQS scoring from that directory::
+
+      cd nXX/random/
+      sod_sqs.sh        # reads ENSEMBLE and INSQS here; writes OUTSQS here
+
+3. Inspect ``OUTSQS`` and pick the best configuration (rank 0 is nearest to
+   ideal randomness).  Generate calculator input files for the chosen index::
+
+      sod_gener.sh -choose <index>   # still from nXX/random/
+                                     # writes cYY/ under nXX/random/
 
 Input file: INSQS
 -----------------

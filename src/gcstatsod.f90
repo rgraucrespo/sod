@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2014 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -70,7 +70,7 @@ program gcstatsod
   real(real64) lambda, v0, v1, bv, bm0, bm1, bb, vol, bm, voln, xn, eta
   real(real64), dimension(0:nensemblesmax)  :: evsc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - gcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - gcstatsod"
   write (*, *) " > Grand-canonical statistical analysis..."
   write (*, *) ""
 

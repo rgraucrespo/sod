@@ -1,4 +1,4 @@
-# SOD 0.81 - Notes for users
+# SOD 0.82 - Notes for users
 
 SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -14,7 +14,8 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - Generation of input files for GULP, LAMMPS, VASP, CASTEP and Quantum ESPRESSO.
 - Statistical mechanics processing of output using either canonical or grand-canonical ensembles.
 - Construction of an effective configurational Hamiltonian by Periodic Motif Expansion (PME), fitted from reference energies at low and/or high substitution levels, to predict the energies of configurations at intermediate compositions where full enumeration is intractable.
-- Monte Carlo (MC) sampling (Metropolis or uniform) of the configurational space using the PME Hamiltonian, followed by thermodynamic integration to obtain free energies.
+- Metropolis Monte Carlo (MC) sampling of the configurational space using the PME Hamiltonian, followed by thermodynamic integration to obtain free energies.
+- Uniform random sampling of the configurational space (`sod_random.sh`/`randomsod`), an energy-free way to build large configuration sets for levels too big to enumerate.
 - Special Quasirandom Structures (SQS) and Generalized Quasirandom Structures (GQS): identification of configurations with optimal short-range order and thermal averaging of pair correlations.
 
 
@@ -101,7 +102,7 @@ SOD strips the `@`, treats the site as an ordinary spherical placeholder species
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.81.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.82.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -130,10 +131,10 @@ make test
 ./bin/sod_run_tests.sh
 ```
 
-This runs 28 tests covering the full toolchain — `combsod`, `genersod`, `statsod`,
-`pmesod`, `mcsod`, `mcstatsod`, `gcstatsod`, `sqssod`, and `gqssod` — each in an
+This runs 31 tests covering the full toolchain — `combsod`, `genersod`, `statsod`,
+`pmesod`, `randomsod`, `mcsod`, `mcstatsod`, `gcstatsod`, `sqssod`, and `gqssod` — each in an
 isolated temporary directory, so committed reference files are never overwritten.
-All tests should pass (`28 passed, 0 failed, 0 skipped`). The suite is
+All tests should pass (`31 passed, 0 failed, 0 skipped`). The suite is
 self-contained: PME/MC outputs are regenerated on demand and compared against the
 references committed under `examples/*/pme_test_ref/` (or the relevant `nXX/`
 folder). It also includes a physics cross-check confirming that Monte Carlo plus
@@ -142,9 +143,9 @@ full configurational enumeration (`statsod`) on the same PME Hamiltonian.
 
 ## Running SOD
 
-- We recommend creating a new folder for each SOD project. This top-level working directory is called SODPROJECT in newer documentation and MAINFOLDER in some older examples.
+- We recommend creating a new folder for each SOD project. This top-level working directory is called SODPROJECT throughout this documentation (formerly called MAINFOLDER).
 
-- In MAINFOLDER, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
+- In SODPROJECT, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
 
 - The `nsubs` field in INSOD controls how many atoms of each new species are placed at the target site(s). Several formats are supported:
   - **Fixed count** (e.g. `4`): enumerate configurations with exactly 4 substitutions. The endpoints are allowed: `0` gives the single parent (unsubstituted) configuration, and a count equal to the number of target sites gives the single fully-substituted configuration.
@@ -153,7 +154,7 @@ full configurational enumeration (`statsod`) on the same PME Hamiltonian.
   - **Multi-target** (e.g. two lines `2` then `1`): one line per target site, in the order listed in `sptarget`. The example places 2 substitutions on the first target site and 1 on the second, enumerating all joint configurations simultaneously under the full crystal symmetry.
   - **Multi-target multi-nary** (e.g. line 1: `1 1`, line 2: `1`): combines multi-target and multi-nary — each target site can independently have multiple new species. Each line contains space-separated counts for the new species on that site, and enumerates all joint configurations simultaneously.
 
-- In MAINFOLDER, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
+- In SODPROJECT, you must also include a file named SGO with the matrix-vector representations of the symmetry operators. First check if your space group is included in the ROOTSOD/sod(version)/sgo library; if this is the case, just copy the file into your working directory, under the name SGO:
 
 ```bash
 cp ROOTSOD/sod(version)/sgo ./SGO
@@ -240,7 +241,7 @@ export SOD_VASP=vasp_std
 SOD uses the following directory hierarchy:
 
 ```
-MAINFOLDER/               ← working directory: INSOD, SGO, template files, ENSEMBLE, EQMATRIX
+SODPROJECT/               ← working directory: INSOD, SGO, template files, ENSEMBLE, EQMATRIX
   n01/              ← one folder per substitution level (zero-padded)
     ENSEMBLE
     ENERGIES
@@ -250,28 +251,28 @@ MAINFOLDER/               ← working directory: INSOD, SGO, template files, ENS
     INGC
 ```
 
-The table below specifies from which directory each post-processing script should be called. Scripts marked **MAINFOLDER/ or nXX/** detect their calling level automatically: run from MAINFOLDER/ to process all substitution levels at once, or from a specific `nXX/` folder to process only that level.
+The table below specifies from which directory each post-processing script should be called. Scripts marked **SODPROJECT/ or nXX/** detect their calling level automatically: run from SODPROJECT/ to process all substitution levels at once, or from a specific `nXX/` folder to process only that level.
 
 | Script | Call from | What it does |
 |---|---|---|
-| `sod_comb.sh` | MAINFOLDER/ | Runs combinatorics and generates calculator input files |
-| `sod_gener.sh` | MAINFOLDER/ | Re-generates calculator input files from existing ENSEMBLE (skips combinatorics; useful to regenerate files after changing FILER or template) |
-| `sod_gulp_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from GULP `output.gout` files |
-| `sod_vasp_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from VASP `OUTCAR` files |
-| `sod_castep_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from CASTEP `castep.castep` files |
-| `sod_qe_ener.sh` | MAINFOLDER/ or nXX/ | Extracts final energies from QE `pw.out` files (converts Ry→eV) |
-| `sod_gulp_free.sh` | MAINFOLDER/ or nXX/ | Extracts vibrational free energies from GULP output |
-| `sod_gulp_single_ener.sh` | MAINFOLDER/ or nXX/ | Extracts single-point energies from GULP output |
-| `sod_gulp_cell.sh` | MAINFOLDER/ or nXX/ | Extracts cell parameters from GULP output → `CELL` file |
-| `sod_vasp_cell.sh` | MAINFOLDER/ or nXX/ | Extracts cell parameters from VASP `CONTCAR` files → `CELL` file |
-| `sod_vasp_mag.sh` | MAINFOLDER/ or nXX/ | Extracts magnetic moments from VASP `OUTCAR` files |
-| `sod_stat.sh` | MAINFOLDER/ or nXX/ | Runs canonical statistical mechanics (`statsod`) |
+| `sod_comb.sh` | SODPROJECT/ | Runs combinatorics and generates calculator input files |
+| `sod_gener.sh` | SODPROJECT/ | Re-generates calculator input files from existing ENSEMBLE (skips combinatorics; useful to regenerate files after changing FILER or template) |
+| `sod_gulp_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from GULP `output.gout` files |
+| `sod_vasp_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from VASP `OUTCAR` files |
+| `sod_castep_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from CASTEP `castep.castep` files |
+| `sod_qe_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from QE `pw.out` files (converts Ry→eV) |
+| `sod_gulp_free.sh` | SODPROJECT/ or nXX/ | Extracts vibrational free energies from GULP output |
+| `sod_gulp_single_ener.sh` | SODPROJECT/ or nXX/ | Extracts single-point energies from GULP output |
+| `sod_gulp_cell.sh` | SODPROJECT/ or nXX/ | Extracts cell parameters from GULP output → `CELL` file |
+| `sod_vasp_cell.sh` | SODPROJECT/ or nXX/ | Extracts cell parameters from VASP `CONTCAR` files → `CELL` file |
+| `sod_vasp_mag.sh` | SODPROJECT/ or nXX/ | Extracts magnetic moments from VASP `OUTCAR` files |
+| `sod_stat.sh` | SODPROJECT/ or nXX/ | Runs canonical statistical mechanics (`statsod`) |
 | `sod_gcstat.sh` | x???/ | Runs grand-canonical statistical mechanics (`gcstatsod`) |
-| `sod_pme.sh` | MAINFOLDER/ | PME energy extrapolation (up to 4-body motif expansion) |
-| `sod_mc.sh` | MAINFOLDER/ | Monte Carlo sampling with PME Hamiltonian (reads INMC) |
+| `sod_pme.sh` | SODPROJECT/ | PME energy extrapolation (up to 4-body motif expansion) |
+| `sod_mc.sh` | SODPROJECT/ | Monte Carlo sampling with PME Hamiltonian (reads INMC) |
 | `sod_mcstat.sh` | nXX/PMEx/ | Thermodynamic integration over `MCT_*K/` Monte Carlo outputs |
-| `sod_sqs.sh` | MAINFOLDER/ or nXX/ | Runs SQS analysis (`sqssod`); scores configurations by pair correlation deviation |
-| `sod_gqs.sh` | MAINFOLDER/ or nXX/ | Runs GQS analysis (`gqssod`); extends SQS to multiple temperatures with thermal averaging |
+| `sod_sqs.sh` | SODPROJECT/ or nXX/ | Runs SQS analysis (`sqssod`); scores configurations by pair correlation deviation |
+| `sod_gqs.sh` | SODPROJECT/ or nXX/ | Runs GQS analysis (`gqssod`); extends SQS to multiple temperatures with thermal averaging |
 
 - To run the combinatorics program, just type:
 
@@ -461,7 +462,7 @@ When modeling disordered alloys, the goal is often to find configurations that m
 `sqssod` and `gqssod` score whatever configurations are listed in `ENSEMBLE` — they do **not** enumerate or search the configurational space themselves. The SQS is simply the best-scoring member of the ensemble you give them. That ensemble can come from either route:
 
 - **Full enumeration** (`sod_comb.sh` → `nXX/ENSEMBLE`): the symmetry-inequivalent configurations at the composition. This guarantees the true best SQS *within the supercell* is present, but is only feasible when the space is small enough to enumerate.
-- **Uniform random sampling** (`mcsod` with sampler = 2 → `nXX/MCU/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `MCU/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Uniform sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations.
+- **Uniform random sampling** (`sod_random.sh` → `nXX/random/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `random/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Random sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations.
 
 With random sampling the result is the best SQS *found in the sample*, not provably the global optimum — enlarge the sample to improve it.
 
@@ -469,7 +470,7 @@ With random sampling the result is the best SQS *found in the sample*, not prova
 
 ### Input file: INSQS
 
-The `INSQS` file specifies cluster parameters and scoring parameters. It must be placed in the working directory (MAINFOLDER). Format:
+The `INSQS` file specifies cluster parameters and scoring parameters. It must be placed in the working directory (SODPROJECT). Format:
 
 ```
 # Maximum cluster order (2-6)
@@ -499,7 +500,7 @@ The `INSQS` file specifies cluster parameters and scoring parameters. It must be
 To run `sqssod` on a single composition (or all compositions):
 
 ```bash
-# From MAINFOLDER: process all nXX/ folders
+# From SODPROJECT: process all nXX/ folders
 sod_sqs.sh
 
 # From a specific nXX/ folder: process only that composition
@@ -510,7 +511,7 @@ The script requires:
 - `EQMATRIX` (from `sod_comb.sh`)
 - `supercell.cif` (from `sod_comb.sh`)
 - `INSOD` (configuration enumeration input)
-- `INSQS` (SQS parameters, in MAINFOLDER or in the nXX/ folder)
+- `INSQS` (SQS parameters, in SODPROJECT or in the nXX/ folder)
 - `ENSEMBLE` (from `sod_comb.sh`)
 
 For each composition, `sqssod` generates:
@@ -549,7 +550,7 @@ The `OUTSQS` file is a ranked list of configurations. Header line:
 `gqssod` extends SQS to multiple temperatures by averaging pair correlations using Boltzmann statistics:
 
 ```bash
-# From MAINFOLDER: process all nXX/ folders
+# From SODPROJECT: process all nXX/ folders
 sod_gqs.sh
 
 # From a specific nXX/ folder: process only that composition
@@ -752,15 +753,16 @@ Run MC from the top-level working directory:
 sod_mc.sh
 ```
 
+Each Metropolis step swaps one occupied site for one hole, so `mcsod` updates the PME energy incrementally (only the cluster terms touching the swapped sites change) rather than recomputing the whole expansion; results are numerically equivalent to a full recompute and the speedup grows with cell size and expansion order. The swap also draws its added site directly from a maintained list of holes (O(1)) rather than by rejection sampling, which keeps the move cheap at any cell size and filling fraction.
+
 MC output follows a *sampling method first, Hamiltonian variant second* layout:
 
 | File | Contents |
 |------|----------|
 | `nXX/MCT_TTTK/PMEx/ENSEMBLE`, `ENERGIES`, `OUTMC` | Metropolis output at integer-labelled temperature `TTT` K (walk is Hamiltonian-driven, so ENSEMBLE+ENERGIES sit under `PMEx`) |
 | `nXX/MCT_TTTK/PMEx/MCTRACE` | Optional trace when `write_trace=1` |
-| `nXX/MCU/ENSEMBLE`, `OUTMC` | Uniform random output — geometry sample, independent of any Hamiltonian |
-| `nXX/MCU/PMEx/ENERGIES` | Per-variant energies of the uniform sample, when reference energies are available (a geometry-only run writes no `ENERGIES` and no `PMEx` folder) |
-| `nXX/MCT_TTTK/PMEx/INMC` or `nXX/MCU/INMC` | Copy of the MC input used for the run |
+| `nXX/MCT_TTTK/PMEx/INMC` | Copy of the MC input used for the run |
+| `nXX/random/ENSEMBLE` | Uniform random sample from `sod_random.sh`/`randomsod` (energy-free; degeneracies are visit counts) |
 
 Run MC thermodynamics from the target-level directory:
 

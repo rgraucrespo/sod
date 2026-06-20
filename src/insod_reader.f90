@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2022 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2022 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -101,6 +101,14 @@ contains
     allocate(rawsym(d%nsp))
     call next_data_line(unit_in, line, ok)
     if (.not. ok) then; write(*, *) 'Error: malformed INSOD (missing symbol list).'; stop 1; end if
+    ! Guard against a stale nsp: a list-directed read of rawsym(1:nsp) would
+    ! silently ignore extra symbols (the common 'nsp=2 but 3 symbols listed' bug),
+    ! so cross-check the token count on the symbol line against nsp explicitly.
+    if (count_tokens(line) /= d%nsp) then
+      write(*, *) 'Error: INSOD nsp =', d%nsp, 'but the symbol list has', &
+                  count_tokens(line), 'entries: ', trim(line)
+      stop 1
+    end if
     read(line, *, iostat=ios) rawsym(1:d%nsp)
     if (ios /= 0) then
       write(*, *) 'Error: could not parse species symbols from INSOD: ', trim(line)
@@ -128,6 +136,11 @@ contains
     allocate(d%natsp0(d%nsp))
     call next_data_line(unit_in, line, ok)
     if (.not. ok) then; write(*, *) 'Error: malformed INSOD (missing natsp0).'; stop 1; end if
+    if (count_tokens(line) /= d%nsp) then
+      write(*, *) 'Error: INSOD nsp =', d%nsp, 'but the natsp0 list has', &
+                  count_tokens(line), 'entries: ', trim(line)
+      stop 1
+    end if
     read(line, *, iostat=ios) d%natsp0(1:d%nsp)
     if (ios /= 0) then
       write(*, *) 'Error: could not parse natsp0 from INSOD: ', trim(line)
@@ -331,5 +344,22 @@ contains
       return
     end do
   end subroutine next_data_line
+
+  ! Count whitespace-separated tokens in a line (used to validate list lengths).
+  integer function count_tokens(line) result(n)
+    character(len=*), intent(in) :: line
+    integer :: i
+    logical :: in_token
+    n = 0
+    in_token = .false.
+    do i = 1, len_trim(line)
+      if (line(i:i) == ' ' .or. line(i:i) == char(9)) then
+        in_token = .false.
+      else if (.not. in_token) then
+        in_token = .true.
+        n = n + 1
+      end if
+    end do
+  end function count_tokens
 
 end module insod_reader

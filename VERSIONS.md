@@ -1,3 +1,15 @@
+## Unreleased
+
+## Version 0.82 (20 June 2026)
+
+- **Standalone random sampler (`randomsod` / `sod_random.sh`)**: uniform random sampling is now a separate executable, split out of `mcsod`. It draws configurations with no energy evaluation at all and writes `nXX/random/ENSEMBLE`, ready for the usual structure-writer → DFT → `statsod` path — the sampling counterpart of `combsod` for levels too big to enumerate. Run as `sod_random.sh -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]`. As a result, `mcsod` and `INMC` are now Metropolis-only: the `INMC` sampler line is gone (first value is now the symmetry flag), and uniform workflows move to `sod_random.sh`. The shared geometry/symmetry/sampling helpers now live in a new `config_sampling` module used by both programs.
+
+- **Clearer INSOD error for a wrong `nsp`**: if the `nsp` count does not match the number of species actually listed on the `symbol` (or `natsp0`) line, SOD now stops with an explicit message instead of silently dropping the extra species and running with the wrong composition.
+
+- **Faster Metropolis MC (`mcsod`)**: each step now updates the PME energy *incrementally* for the single occupied↔hole swap instead of recomputing the whole cluster expansion (per-step cost O(L^k)/O(H^k) → O(L^(k-1))/O(H^(k-1)), with L substitutions, H holes, k the expansion order), and draws the swapped sites directly from a maintained hole list (O(1)) rather than by rejection sampling. Results are numerically equivalent to a full recompute at every step; the speedup grows with cell size, expansion order, and dilute or near-full filling, and the high-filling move-proposal failure mode is removed. A `test_pme_delta` driver checks the incremental update against the full evaluator, and the MC regression tests compare energetics within tolerance (the optimised walk explores a different but statistically equivalent fixed-seed trajectory).
+
+- **`AUTHORS` file**: lists all contributors to the SOD package.
+
 ## Version 0.81 (14 June 2026)
 
 Minor release.

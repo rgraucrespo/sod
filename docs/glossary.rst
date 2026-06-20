@@ -117,22 +117,18 @@ Glossary
       patterns and space groups.
 
    INMC
-      Input file for Monte Carlo sampling, placed in :term:`SODPROJECT`.
-      Contains two sections.  The **common section** (read for all
-      samplers) specifies: sampler type (``1`` = Metropolis, ``2`` =
-      Uniform), symmetry reduction flag (``0`` off / ``1`` on), number of
-      production steps (``n_prod``), starting configuration (``random`` or
-      space-separated site indices), and whether to write a per-step trace
-      (``write_trace``).  The **Metropolis-only section** (skipped for
-      Uniform) specifies: number of equilibration steps (``n_equil``),
-      restart probability (``restart_prob``), and random seed (``-1`` for
-      system clock, any positive integer for a fixed seed).  Temperature is
-      not stored in ``INMC``; instead, ``TEMPERATURES`` in
-      :term:`SODPROJECT` lists one temperature per line for the
-      ``sod_mc.sh`` loop.  Read by :term:`mcsod` via ``sod_mc.sh``.
-      A copy is saved next to each MC run's output
-      (``nXX/MCT_TTTK/PMEx/`` for Metropolis or ``nXX/MCU/`` for uniform)
-      for reference.
+      Input file for Metropolis Monte Carlo sampling, placed in
+      :term:`SODPROJECT`.  Specifies: symmetry reduction flag (``0`` off /
+      ``1`` on), number of production steps (``n_prod``), starting
+      configuration (``random`` or space-separated site indices), whether to
+      write a per-step trace (``write_trace``), number of equilibration steps
+      (``n_equil``), restart probability (``restart_prob``), and random seed
+      (``-1`` for system clock, any positive integer for a fixed seed).
+      Temperature is not stored in ``INMC``; instead, ``TEMPERATURES`` in
+      :term:`SODPROJECT` lists one temperature per line for the ``sod_mc.sh``
+      loop.  Read by :term:`mcsod` via ``sod_mc.sh``.  A copy is saved next to
+      each MC run's output (``nXX/MCT_TTTK/PMEx/``) for reference.  Uniform
+      random sampling uses :term:`randomsod` and does not read ``INMC``.
 
    INGC
       Input file for grand-canonical analysis, placed in an ``x???/``
@@ -208,31 +204,31 @@ Glossary
       ``ENERGIES``, ``OUTMC``, ``INMC`` and optional ``MCTRACE`` are written
       in a ``PMEx`` subdirectory, ``nXX/MCT_TTTK/PMEx/``.  All ``MCT_*K``
       directories are processed together by ``sod_mcstat.sh`` to perform
-      thermodynamic integration.  See also :term:`MCU`.
-
-   MCU
-      A Monte Carlo Uniform (random-sampling) output directory, named
-      ``MCU``, directly under ``nXX/`` (``nXX/MCU/``).  Unlike :term:`MCT`,
-      no temperature is associated with uniform sampling.  The geometry
-      sample is Hamiltonian-independent, so ``ENSEMBLE`` and ``OUTMC`` live
-      in ``nXX/MCU/`` itself; when reference energies are available, the
-      per-variant energies are written to ``nXX/MCU/PMEx/ENERGIES``.
-      See also :term:`MCT`.
+      thermodynamic integration.
 
    mcsod
-      The Monte Carlo sampling executable.  Uses a :term:`PME` effective
-      Hamiltonian to drive sampling of the configuration space at a single
-      temperature.  The loop over multiple temperatures is handled by
+      The Metropolis Monte Carlo sampling executable.  Uses a :term:`PME`
+      effective Hamiltonian to drive sampling of the configuration space at a
+      single temperature.  The loop over multiple temperatures is handled by
       ``sod_mc.sh``, which invokes one single-temperature MC run per
       ``TEMPERATURES`` entry.  Reads :term:`INSOD`, :term:`INMC`, and
-      ``SODPROJECT/pme.model`` when present,
-      and writes output to ``nXX/MCT_TTTK/PMEx/`` (Metropolis) or
-      ``nXX/MCU/`` (uniform random; geometry sample, with per-variant energies
-      in ``nXX/MCU/PMEx/`` when reference energies are available).  Any ε
-      corrections from
+      ``SODPROJECT/pme.model`` when present, and writes output to
+      ``nXX/MCT_TTTK/PMEx/``.  Any ε corrections from
       :term:`calibration energies` are already baked into the loaded
       Hamiltonian before sampling begins.  Normally invoked via
-      ``sod_mc.sh``.
+      ``sod_mc.sh``.  For energy-free uniform random sampling, see
+      :term:`randomsod`.
+
+   randomsod
+      The uniform random-sampling executable (wrapper ``sod_random.sh``).
+      Draws ``nconfigs`` independent uniform configurations at the target
+      level with **no** energy evaluation and writes them to
+      ``nXX/random/ENSEMBLE`` (with ``-symmetry on``, the degeneracy column
+      holds visit counts).  It is the sampling counterpart of :term:`combsod`
+      for levels too large to enumerate; energies, if wanted, are computed a
+      posteriori via the usual structure-writer → DFT → ``statsod`` path.
+      Reads :term:`INSOD` and ``SGO`` (always), plus :term:`EQMATRIX` with
+      ``-symmetry on``.
 
    mcstatsod
       The Monte Carlo thermodynamics program.  Run from ``nXX/``, it reads

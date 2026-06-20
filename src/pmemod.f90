@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2026 Ricardo Grau-Crespo, Said Hamad, Salvador R.G. Balestra
+!    Copyright (c) 2026 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -23,6 +23,7 @@ module pmemod
   use structwriters
   use insod_reader,    only: insod_t, read_insod
   use ensemble_io,     only: read_ensemble, write_ensemble, read_energies_file
+  use config_sampling, only: derive_target_geometry, wrap_fractional
   implicit none
   private
 
@@ -72,6 +73,7 @@ module pmemod
   integer(int64), allocatable, save :: V4_key_high(:)
   logical, allocatable, save :: work_is_ge(:)
   integer, allocatable, save :: work_holes(:)
+  integer, allocatable, save :: work_other_holes(:)   ! scratch for swap-delta high side
 
   ! Compact V residual cache — one value per inequivalent reference config per level.
   ! Populated during V fitting (load_*_side_model) or loaded from INPME V block.
@@ -99,6 +101,7 @@ module pmemod
 
   public :: pme_initialize_model, pme_finalize_model, pme_get_target_level_from_insod
   public :: pme_write_level_outputs, pme_print_model_summary, pme_evaluate_configuration
+  public :: pme_evaluate_swap_delta
   public :: pme_get_npos, pme_get_max_low_order, pme_get_max_high_order
   public :: pme_has_high_side
   public :: pme_energies_available
@@ -199,6 +202,7 @@ contains
     if (allocated(V4_key_high)) deallocate(V4_key_high)
     if (allocated(work_is_ge)) deallocate(work_is_ge)
     if (allocated(work_holes)) deallocate(work_holes)
+    if (allocated(work_other_holes)) deallocate(work_other_holes)
     if (allocated(v1res_low))  deallocate(v1res_low)
     if (allocated(v2res_low))  deallocate(v2res_low)
     if (allocated(v3res_low))  deallocate(v3res_low)
@@ -518,22 +522,11 @@ contains
 
   subroutine build_target_layout_from_inputs(species_index)
     integer, intent(out) :: species_index
-    integer :: unit_sgo, ios, nsp, nat0, at0, op1, nop1
-    integer :: na, nb, nc, sp, cumnatsp, at1r, at1, at1i, nat1r, nat1
-    integer :: nat_super
-    integer, allocatable :: natsp0(:), natsp1(:), natsp(:), spat0(:), spat1(:), spat1r(:)
-    real(real64), allocatable :: coords0(:, :), coords1(:, :), coords1r(:, :)
-    real(real64), allocatable :: mgroup1(:, :, :), vgroup1(:, :)
-    real(real64) :: prod
-    logical :: found
-    real(real64), parameter :: tol0 = 1.0e-3_real64
+    integer :: nsp, geo_npos
     type(insod_t) :: d
 
     call read_insod('INSOD', d)
-    nsp            = d%nsp
-    nat0           = d%nat0
-    na = d%na; nb = d%nb; nc = d%nc
-    species_index  = d%sptarget(1)
+    nsp = d%nsp
 
     ! Populate module-level cache for write_pme_model_template
     if (allocated(insod_symbols_cache)) deallocate(insod_symbols_cache)
@@ -549,111 +542,14 @@ contains
     insod_filer_cache          = d%filer
     insod_cache_valid          = .true.
 
-    allocate(natsp0(nsp), natsp1(nsp), natsp(nsp))
-    natsp0 = d%natsp0
-    allocate(coords0(nat0, 3), spat0(nat0))
-    coords0(1:nat0, 1:3) = d%coords0
+    ! Expand INSOD asymmetric unit through SGO to the supercell (shared helper).
+    call derive_target_geometry(d, 'SGO', species_index, geo_npos, target_atini, target_atfin)
 
-    open(newunit=unit_sgo, file='SGO', status='old', action='read', iostat=ios)
-    if (ios /= 0) then
-      write(error_unit,'(A)') 'Error: could not open SGO while building PME target layout.'
-      stop 1
-    end if
-
-    cumnatsp = 0
-    do sp = 1, nsp
-      do at0 = cumnatsp + 1, cumnatsp + natsp0(sp)
-        spat0(at0) = sp
-      end do
-      cumnatsp = cumnatsp + natsp0(sp)
-    end do
-
-    read(unit_sgo,*,iostat=ios)
-    if (ios /= 0) stop 'Error: malformed SGO header.'
-    read(unit_sgo,*,iostat=ios) op1
-    if (ios /= 0) stop 'Error: malformed SGO operator header.'
-    nop1 = 0
-    do while (op1 > 0)
-      nop1 = max(nop1, op1)
-      do at0 = 1, 3
-        read(unit_sgo,*,iostat=ios)
-        if (ios /= 0) stop 'Error: malformed SGO operator.'
-      end do
-      read(unit_sgo,*,iostat=ios) op1
-      if (ios /= 0) stop 'Error: malformed SGO operator terminator.'
-    end do
-    rewind(unit_sgo)
-    read(unit_sgo,*)
-    allocate(mgroup1(nop1, 3, 3), vgroup1(nop1, 3))
-    mgroup1 = 0.0_real64
-    vgroup1 = 0.0_real64
-    read(unit_sgo,*) op1
-    do while (op1 > 0)
-      do at0 = 1, 3
-        read(unit_sgo,*,iostat=ios) mgroup1(op1, at0, 1:3), vgroup1(op1, at0)
-        if (ios /= 0) stop 'Error: malformed SGO operator body.'
-      end do
-      read(unit_sgo,*,iostat=ios) op1
-      if (ios /= 0) stop 'Error: malformed SGO operator terminator.'
-    end do
-    close(unit_sgo)
-
-    allocate(coords1r(nat0 * nop1, 3), spat1r(nat0 * nop1))
-    at1r = 0
-    do at0 = 1, nat0
-      do op1 = 1, nop1
-        at1r = at1r + 1
-        coords1r(at1r, 1:3) = matmul(mgroup1(op1, 1:3, 1:3), coords0(at0, 1:3)) + vgroup1(op1, 1:3)
-        coords1r(at1r, 1) = wrap_fractional(coords1r(at1r, 1))
-        coords1r(at1r, 2) = wrap_fractional(coords1r(at1r, 2))
-        coords1r(at1r, 3) = wrap_fractional(coords1r(at1r, 3))
-        spat1r(at1r) = spat0(at0)
-      end do
-    end do
-    nat1r = at1r
-
-    allocate(coords1(nat1r, 3), spat1(nat1r))
-    nat1 = 0
-    do at1r = 1, nat1r
-      found = .false.
-      do at1i = 1, nat1
-        prod = sum((coords1r(at1r, 1:3) - coords1(at1i, 1:3))**2)
-        if (prod <= tol0) then
-          found = .true.
-          exit
-        end if
-      end do
-      if (.not. found) then
-        nat1 = nat1 + 1
-        coords1(nat1, 1:3) = coords1r(at1r, 1:3)
-        spat1(nat1) = spat1r(at1r)
-      end if
-    end do
-
-    natsp1 = 0
-    do at1 = 1, nat1
-      natsp1(spat1(at1)) = natsp1(spat1(at1)) + 1
-    end do
-    nat_super = na * nb * nc
-    natsp = nat_super * natsp1
-
-    target_atini = 1
-    do sp = 1, species_index - 1
-      target_atini = target_atini + natsp(sp)
-    end do
-    target_atfin = target_atini + natsp(species_index) - 1
-    if (natsp(species_index) <= 0) then
-      write(error_unit,'(A)') 'Error: target species has zero multiplicity in the supercell.'
-      stop 1
-    end if
-    if (npos > 0 .and. natsp(species_index) /= npos) then
-      write(error_unit,'(A,I0,A,I0,A)') 'Error: target-site count from INSOD/SGO (', natsp(species_index), &
+    if (npos > 0 .and. geo_npos /= npos) then
+      write(error_unit,'(A,I0,A,I0,A)') 'Error: target-site count from INSOD/SGO (', geo_npos, &
         ') does not match EQMATRIX target count (', npos, ').'
       stop 1
     end if
-
-    deallocate(natsp0, natsp1, natsp, spat0, spat1, spat1r)
-    deallocate(coords0, coords1, coords1r, mgroup1, vgroup1)
   end subroutine build_target_layout_from_inputs
 
   subroutine pme_write_level_outputs(target_level)
@@ -1001,6 +897,157 @@ contains
     end select
   end subroutine pme_evaluate_configuration
 
+  subroutine pme_evaluate_swap_delta(conf_old, level, removed_site, added_site, &
+                                     dlow_terms, dhigh_terms, holes_in, hole_count_in)
+    !  Incremental cluster-expansion update for a single swap move: the occupied
+    !  set conf_old(1:level) loses removed_site (= a) and gains added_site (= b).
+    !  Returns the CHANGE in the per-order term vectors, so the caller can form
+    !    new_low_terms  = old_low_terms  + dlow_terms
+    !    new_high_terms = old_high_terms + dhigh_terms
+    !  and recover the energy via apply_epsilon_energy (O(1)).
+    !
+    !  Only clusters containing a or b change. A one-site swap therefore costs
+    !  O(L^(k-1)) on the low side and O(H^(k-1)) on the high side, one power
+    !  cheaper per order than the full pme_evaluate_configuration sum.
+    !  Results are numerically equivalent to the difference of two full
+    !  evaluations (same sorted-key lookups), up to summation order.
+    !
+    !  holes_in/hole_count_in (optional): the hole list of conf_old (the H sites
+    !  NOT in conf_old), supplied by a caller that already maintains it (the MC
+    !  loop). When present, the O(npos) build_hole_configuration rebuild is
+    !  skipped. The list may be in any order — added_site (b) is filtered out and
+    !  every lookup sorts its indices, so the result is order-independent.
+    integer, intent(in) :: conf_old(:)
+    integer, intent(in) :: level, removed_site, added_site
+    real(real64), intent(out) :: dlow_terms(4), dhigh_terms(4)
+    integer, intent(in), optional :: holes_in(:)
+    integer, intent(in), optional :: hole_count_in
+
+    integer :: a, b, eff_low_ord, eff_high_ord, hole_count
+    integer :: no, nh, p, q, r
+    integer :: sa1, sa2, sa3, sa4, sb1, sb2, sb3, sb4   ! ascending-sorted lookup indices
+    integer :: others(max(1, level))           ! occupied set minus a (size level-1)
+
+    dlow_terms  = 0.0_real64
+    dhigh_terms = 0.0_real64
+    if (level <= 0) return
+
+    a = removed_site
+    b = added_site
+    eff_low_ord  = min(max_low_order,  pme_order_cap)
+    eff_high_ord = min(max_high_order, pme_order_cap)
+
+    ! --- compact list of the occupied sites that are NOT swapped out (= S \ {a}) ---
+    no = 0
+    do p = 1, level
+      if (conf_old(p) /= a) then
+        no = no + 1
+        others(no) = conf_old(p)
+      end if
+    end do
+
+    ! ===================== low side (occupied clusters) =====================
+    if (eff_low_ord >= 1) then
+      dlow_terms(1) = V1_low(b) - V1_low(a)
+    end if
+    if (eff_low_ord >= 2 .and. no >= 1) then
+      do p = 1, no
+        dlow_terms(2) = dlow_terms(2) + V2_low(b, others(p)) - V2_low(a, others(p))
+      end do
+    end if
+    if (eff_low_ord >= 3 .and. no >= 2 .and. allocated(V3_i_low)) then
+      do p = 1, no - 1
+        do q = p + 1, no
+          ! Indices must be ascending: the lookup keys are packed in argument
+          ! order (pack_triplet_key does not sort), and only ascending triples
+          ! exist in the table. b/a are not necessarily the smallest index.
+          sb1 = b; sb2 = others(p); sb3 = others(q); call sort_triplet(sb1, sb2, sb3)
+          sa1 = a; sa2 = others(p); sa3 = others(q); call sort_triplet(sa1, sa2, sa3)
+          dlow_terms(3) = dlow_terms(3) &
+            + get_sorted_triplet_value(sb1, sb2, sb3, V3_key_low, V3_val_low) &
+            - get_sorted_triplet_value(sa1, sa2, sa3, V3_key_low, V3_val_low)
+        end do
+      end do
+    end if
+    if (eff_low_ord >= 4 .and. no >= 3 .and. allocated(V4_i_low)) then
+      do p = 1, no - 2
+        do q = p + 1, no - 1
+          do r = q + 1, no
+            sb1 = b; sb2 = others(p); sb3 = others(q); sb4 = others(r)
+            call sort_quad(sb1, sb2, sb3, sb4)
+            sa1 = a; sa2 = others(p); sa3 = others(q); sa4 = others(r)
+            call sort_quad(sa1, sa2, sa3, sa4)
+            dlow_terms(4) = dlow_terms(4) &
+              + get_sorted_quad_value(sb1, sb2, sb3, sb4, V4_key_low, V4_val_low) &
+              - get_sorted_quad_value(sa1, sa2, sa3, sa4, V4_key_low, V4_val_low)
+          end do
+        end do
+      end do
+    end if
+
+    ! ===================== high side (hole clusters) =====================
+    ! Holes lose b (now occupied) and gain a (now empty): symmetric to the low
+    ! side with the sign of (a,b) reversed and loops over Hset \ {b}.
+    if (high_base_loaded) then
+      hole_count = npos - level
+      call ensure_work_buffers()
+      if (present(holes_in) .and. present(hole_count_in)) then
+        ! Caller supplied the hole list of conf_old — skip the O(npos) rebuild.
+        nh = 0
+        do p = 1, hole_count_in
+          if (holes_in(p) /= b) then
+            nh = nh + 1
+            work_other_holes(nh) = holes_in(p)
+          end if
+        end do
+      else
+        call build_hole_configuration(conf_old, level, work_holes, hole_count)
+        nh = 0
+        do p = 1, hole_count
+          if (work_holes(p) /= b) then
+            nh = nh + 1
+            work_other_holes(nh) = work_holes(p)
+          end if
+        end do
+      end if
+
+      if (eff_high_ord >= 1) then
+        dhigh_terms(1) = V1_high(a) - V1_high(b)
+      end if
+      if (eff_high_ord >= 2 .and. nh >= 1) then
+        do p = 1, nh
+          dhigh_terms(2) = dhigh_terms(2) + V2_high(a, work_other_holes(p)) - V2_high(b, work_other_holes(p))
+        end do
+      end if
+      if (eff_high_ord >= 3 .and. nh >= 2 .and. allocated(V3_i_high)) then
+        do p = 1, nh - 1
+          do q = p + 1, nh
+            sa1 = a; sa2 = work_other_holes(p); sa3 = work_other_holes(q); call sort_triplet(sa1, sa2, sa3)
+            sb1 = b; sb2 = work_other_holes(p); sb3 = work_other_holes(q); call sort_triplet(sb1, sb2, sb3)
+            dhigh_terms(3) = dhigh_terms(3) &
+              + get_sorted_triplet_value(sa1, sa2, sa3, V3_key_high, V3_val_high) &
+              - get_sorted_triplet_value(sb1, sb2, sb3, V3_key_high, V3_val_high)
+          end do
+        end do
+      end if
+      if (eff_high_ord >= 4 .and. nh >= 3 .and. allocated(V4_i_high)) then
+        do p = 1, nh - 2
+          do q = p + 1, nh - 1
+            do r = q + 1, nh
+              sa1 = a; sa2 = work_other_holes(p); sa3 = work_other_holes(q); sa4 = work_other_holes(r)
+              call sort_quad(sa1, sa2, sa3, sa4)
+              sb1 = b; sb2 = work_other_holes(p); sb3 = work_other_holes(q); sb4 = work_other_holes(r)
+              call sort_quad(sb1, sb2, sb3, sb4)
+              dhigh_terms(4) = dhigh_terms(4) &
+                + get_sorted_quad_value(sa1, sa2, sa3, sa4, V4_key_high, V4_val_high) &
+                - get_sorted_quad_value(sb1, sb2, sb3, sb4, V4_key_high, V4_val_high)
+            end do
+          end do
+        end do
+      end if
+    end if
+  end subroutine pme_evaluate_swap_delta
+
   subroutine ensure_work_buffers()
     if (.not. allocated(work_is_ge)) allocate(work_is_ge(npos))
     if (size(work_is_ge) /= npos) then
@@ -1011,6 +1058,11 @@ contains
     if (size(work_holes) < max(1, npos)) then
       deallocate(work_holes)
       allocate(work_holes(max(1, npos)))
+    end if
+    if (.not. allocated(work_other_holes)) allocate(work_other_holes(max(1, npos)))
+    if (size(work_other_holes) < max(1, npos)) then
+      deallocate(work_other_holes)
+      allocate(work_other_holes(max(1, npos)))
     end if
   end subroutine ensure_work_buffers
 
@@ -1836,13 +1888,6 @@ contains
     end do
   end subroutine next_data_line
 
-  pure real(real64) function wrap_fractional(x) result(corx)
-    real(real64), intent(in) :: x
-    real(real64), parameter :: tol1 = 1.0e-4_real64
-
-    corx = x - floor(x)
-    if (corx > (1.0_real64 - tol1)) corx = 0.0_real64
-  end function wrap_fractional
 
   subroutine require_model_initialized(context)
     character(len=*), intent(in) :: context
@@ -2323,7 +2368,8 @@ contains
       k = sorted_idx(i)
       key_e = energies(k)
       j = i - 1
-      do while (j >= 1 .and. energies(sorted_idx(j)) > key_e)
+      do while (j >= 1)
+        if (energies(sorted_idx(j)) <= key_e) exit
         sorted_idx(j + 1) = sorted_idx(j)
         j = j - 1
       end do

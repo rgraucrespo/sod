@@ -1,11 +1,16 @@
 #!/bin/bash
-# Run from MAIN/ to score GQS at all temperatures for all nXX/ compositions, or from a single nXX/ folder.
-# Reads ENERGIES from nXX/ folder, TEMPERATURES from nXX/ (priority) or MAIN/.
+# Run from SODPROJECT/ to score GQS at all temperatures for all nXX/ compositions, or from a single nXX/ folder.
+# Reads ENERGIES from nXX/ folder, TEMPERATURES from nXX/ (priority) or SODPROJECT/.
 # Automatically runs sqssod first if OUTSQS is missing.
 
 SOD_BIN=$(cd "$(dirname "$0")" && pwd)
+. "${SOD_BIN}/sod_common.sh"
 
-check_main() {
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
+cd "$SODPROJECT" || exit 1
+
+check_sodproject() {
   if [ ! -f EQMATRIX ]; then
     echo "Error: EQMATRIX not found in $(pwd). Run combsod first."
     exit 1
@@ -30,46 +35,40 @@ run_for() {
   "$SOD_BIN/gqssod" "$nxx"
 }
 
-if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
-  # Called from MAIN/: process all nXX/ folders
-  check_main
+if [ -z "$LEVEL_NAME" ] && ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+  # Called from SODPROJECT/: process all nXX/ folders
+  check_sodproject
   for nxx in $(ls -d n[0-9]*/ 2>/dev/null | sort); do
     run_for "${nxx%/}"
   done
-elif [ -f ENSEMBLE ]; then
-  # Called from inside nXX/: process this composition
-  if [ ! -f ENERGIES ]; then
-    echo "Error: ENERGIES not found in $(pwd)."
+elif [ -n "$LEVEL_NAME" ]; then
+  # Called from inside nXX/ or one of its subdirectories.
+  if [ ! -f "${LEVEL_NAME}/ENERGIES" ]; then
+    echo "Error: ENERGIES not found in ${LEVEL_NAME}/."
     exit 1
   fi
-  # Check for required files in parent directory
   for f in EQMATRIX supercell.cif INSOD; do
-    if [ ! -f "../$f" ]; then
-      echo "Error: $f not found in parent directory."
+    if [ ! -f "$f" ]; then
+      echo "Error: $f not found in SODPROJECT/."
       exit 1
     fi
   done
-  # Check for TEMPERATURES in nXX/ or MAIN/
-  if [ ! -f TEMPERATURES ] && [ ! -f ../TEMPERATURES ]; then
-    echo "Error: TEMPERATURES not found in $(pwd) or in parent directory."
+  # Check for TEMPERATURES in nXX/ or SODPROJECT/
+  if [ ! -f "${LEVEL_NAME}/TEMPERATURES" ] && [ ! -f TEMPERATURES ]; then
+    echo "Error: TEMPERATURES not found in ${LEVEL_NAME}/ or SODPROJECT/."
     exit 1
   fi
-  nxx_name=$(basename "$(pwd)")
-  if [ ! -f OUTSQS ]; then
-    echo " > OUTSQS not found. Running sqssod first..."
-    if [ ! -f INSQS ] && [ ! -f ../INSQS ]; then
-      echo "Error: INSQS not found in $(pwd) or parent directory (MAIN/)."
+  if [ ! -f "${LEVEL_NAME}/OUTSQS" ]; then
+    echo " > OUTSQS not found for ${LEVEL_NAME}. Running sqssod first..."
+    if [ ! -f "${LEVEL_NAME}/INSQS" ] && [ ! -f INSQS ]; then
+      echo "Error: INSQS not found in ${LEVEL_NAME}/ or SODPROJECT/."
       exit 1
     fi
-    cd ..
-    "$SOD_BIN/sqssod" "${nxx_name}"
-    cd "${nxx_name}"
+    "$SOD_BIN/sqssod" "${LEVEL_NAME}"
   fi
-  # cd to parent (MAIN), then run gqssod with nXX arg
-  cd ..
-  echo " > Running gqssod for ${nxx_name}..."
-  "$SOD_BIN/gqssod" "${nxx_name}"
+  echo " > Running gqssod for ${LEVEL_NAME}..."
+  "$SOD_BIN/gqssod" "${LEVEL_NAME}"
 else
-  echo "Error: run sod_gqs.sh from MAIN/ or from an nXX/ folder."
+  echo "Error: run sod_gqs.sh from SODPROJECT/ or from any SODPROJECT/nXX/ subfolder."
   exit 1
 fi

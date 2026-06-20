@@ -9,8 +9,10 @@ bin/mcstatsod
 bin/mcsod
 bin/peaks2spec
 bin/pmesod
+bin/randomsod
 bin/sqssod
 bin/statsod
+bin/test_pme_delta
 
 # Fortran object and module files
 src/*.o
@@ -35,7 +37,7 @@ PME0/
 PME1/
 PMEh/
 MCT_*/
-MCU/
+random/
 
 # Calculator output files - global ignore so users running calcs in example
 # dirs do not see hundreds of untracked files.
@@ -82,7 +84,7 @@ docs/_build/
 !examples/**/PME1/
 !examples/**/PMEh/
 !examples/**/MCT_*/
-!examples/**/MCU/
+!examples/**/random/
 !examples/**/output.gout
 !examples/**/OUTCAR
 !examples/**/CONTCAR

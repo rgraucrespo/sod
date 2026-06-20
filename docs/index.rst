@@ -35,5 +35,6 @@ New users should:
    installation
    examples
    sqs_gqs
+   random
    pme_mc
    glossary

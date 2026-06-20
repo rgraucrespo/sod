@@ -14,8 +14,19 @@
 #mon  a b c beta V
 #tri  a b c alpha beta gamma V
 
-if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
-  # Called from MAIN/: loop over all nXX/cYY/
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/sod_common.sh"
+
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
+
+if [ -z "$LEVEL_NAME" ]; then
+  # Called from SODPROJECT/: loop over all nXX/cYY/
+  cd "$SODPROJECT" || exit 1
+  if ! ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no nXX/ folders found in SODPROJECT/."
+    exit 1
+  fi
   for dir in $(ls -d n*/c*/ 2>/dev/null | sort); do
     if [ -f "${dir}output.gout" ]; then
       awk '($1=="Final") && ($2=="cell") {getline;getline;getline;             print $2}' "${dir}output.gout" >> a.dat
@@ -27,8 +38,13 @@ if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
       awk '$1=="Non-primitive" {print $5}' "${dir}output.gout" >> volume.dat
     fi
   done
-elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+else
   # Called from nXX/: loop over cYY/ in current folder
+  cd "$SODPROJECT/$LEVEL_NAME" || exit 1
+  if ! ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no cYY/ folders found in ${LEVEL_NAME}/."
+    exit 1
+  fi
   for dir in $(ls -d c*/ 2>/dev/null | sort); do
     if [ -f "${dir}output.gout" ]; then
       awk '($1=="Final") && ($2=="cell") {getline;getline;getline;             print $2}' "${dir}output.gout" >> a.dat
@@ -40,9 +56,6 @@ elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
       awk '$1=="Non-primitive" {print $5}' "${dir}output.gout" >> volume.dat
     fi
   done
-else
-  echo "Error: run sod_gulp_cell.sh from MAIN/ or from an nXX/ folder."
-  exit 1
 fi
 
 paste  a.dat b.dat c.dat alpha.dat beta.dat gamma.dat volume.dat > cell.dat

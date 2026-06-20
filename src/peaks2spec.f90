@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2014 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -29,7 +29,7 @@ program peaks2spec
   integer :: i
   real(real64), dimension(:, :), allocatable :: peaks, spectra
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - peaks2spec"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - peaks2spec"
   open (10, file='INP2S', status='OLD')
   open (11, file='PEAKS', status='OLD')
   open (12, file='SPECTRA')

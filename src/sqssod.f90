@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2022 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2022 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -96,7 +96,7 @@ program sqssod
   ! ================================================================
   ! Main program
   ! ================================================================
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - sqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - sqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -131,14 +131,14 @@ contains
       ensemble_dir = adjustl(ensemble_dir)
     end if
 
-    ! INSQS: nXX/ takes priority over MAINFOLDER/
+    ! INSQS: nXX/ takes priority over SODPROJECT/
     insqs_path = trim(ensemble_dir) // "/INSQS"
     inquire (file=trim(insqs_path), exist=insqs_exists)
     if (.not. insqs_exists) insqs_path = "INSQS"
 
     open (unit=iu, file=trim(insqs_path), status='old', IOSTAT=ios)
     if (ios /= 0) then
-      write (*, '(a)') "Error: INSQS not found in nXX/ or MAINFOLDER/."
+      write (*, '(a)') "Error: INSQS not found in nXX/ or SODPROJECT/."
       stop 1
     end if
 

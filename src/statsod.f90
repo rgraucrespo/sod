@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2014 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -59,7 +59,7 @@ program stats
   end if
 
   if (.not. quiet) then
-    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - statsod"
+    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - statsod"
   end if
   write (*, *) " > Statistical mechanics analysis..."
   write (*, *) ""

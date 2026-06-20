@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2014 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -28,7 +28,7 @@ program invertensemble
   integer, dimension(:), allocatable:: omega
   integer, dimension(:, :), allocatable:: conf, confinverted
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - invertENSEMBLE"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - invertENSEMBLE"
   write (*, *) " > Inverting ENSEMBLE configurations (n -> npos-n)..."
   write (*, *) ""
 

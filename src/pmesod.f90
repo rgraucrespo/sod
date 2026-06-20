@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2018 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2018 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -26,7 +26,7 @@ program pmesod
   integer :: target_level, i, nargs
   character(len=256) :: arg, model_filename
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - pmesod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - pmesod"
   write (*, *) " > Periodic Motif Expansion from low/high effective Hamiltonians..."
   write (*, *) ""
 

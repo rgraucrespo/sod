@@ -4,8 +4,19 @@
 # Resolve script directory and find executables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="${SCRIPT_DIR}:${PATH}"
+. "${SCRIPT_DIR}/sod_common.sh"
 
-genersod "$@"
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+LAUNCH_DIR="$PWD"
+LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$LAUNCH_DIR" || true)"
+cd "$SODPROJECT" || exit 1
+
+if [ -n "$LEVEL_NAME" ] && [ -f "$LAUNCH_DIR/ENSEMBLE" ]; then
+  ENSEMBLE_SUBDIR="${LAUNCH_DIR#$SODPROJECT/}"
+  SOD_ENSEMBLE_DIR="$ENSEMBLE_SUBDIR" genersod "$@"
+else
+  genersod "$@"
+fi
 
 # Read FILER value from last line of INSOD
 FILER=$(tail -1 INSOD)

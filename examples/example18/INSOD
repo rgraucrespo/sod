@@ -19,13 +19,13 @@ MAPbI3-MAPbBr3 solid solution: MA parent molecule, I/Br disorder
 0.5  0.5  0.0
 
 # na, nb, nc: Supercell multipliers along a, b, c
-2 2 2
+4 4 4
 
 # sptarget: Index or indices of species to substitute (the halide X-site)
 3
 
 # nsubs: Substitution counts. One line per target site.
-2
+96
 
 # newsymbol: k new-species symbols followed by the remaining-species symbol
 Br I

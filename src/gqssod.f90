@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2022 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2022 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -86,7 +86,7 @@ program gqssod
   real(real64), allocatable :: avg_target(:)
   real(real64), parameter :: kb = 8.61734e-5_real64
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - gqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - gqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -134,14 +134,14 @@ contains
       ensemble_dir = adjustl(ensemble_dir)
     end if
 
-    ! INSQS: nXX/ takes priority over MAINFOLDER/
+    ! INSQS: nXX/ takes priority over SODPROJECT/
     insqs_path = trim(ensemble_dir) // "/INSQS"
     inquire (file=trim(insqs_path), exist=insqs_exists)
     if (.not. insqs_exists) insqs_path = "INSQS"
 
     open (unit=iu, file=trim(insqs_path), status='old', IOSTAT=ios)
     if (ios /= 0) then
-      write (*, '(a)') "Error: INSQS not found in nXX/ or MAINFOLDER/."
+      write (*, '(a)') "Error: INSQS not found in nXX/ or SODPROJECT/."
       stop 1
     end if
 
@@ -624,7 +624,7 @@ contains
   end subroutine read_ensemble
 
   ! ================================================================
-  ! Read TEMPERATURES (from nXX/ if present, otherwise from MAIN/)
+  ! Read TEMPERATURES (from nXX/ if present, otherwise from SODPROJECT/)
   ! ================================================================
   subroutine read_temperatures()
     implicit none
@@ -632,7 +632,7 @@ contains
     logical :: exists
     character(len=256) :: temps_path
 
-    ! Try nXX/ first, then MAIN/
+    ! Try nXX/ first, then SODPROJECT/
     inquire (file=trim(ensemble_dir) // "/TEMPERATURES", exist=exists)
     if (exists) then
       temps_path = trim(ensemble_dir) // "/TEMPERATURES"
@@ -640,7 +640,7 @@ contains
       inquire (file="TEMPERATURES", exist=exists)
       if (.not. exists) then
         write (*, *) "Error: TEMPERATURES file not found in ", trim(ensemble_dir), &
-          " or in MAIN/."
+          " or in SODPROJECT/."
         stop 1
       end if
       temps_path = "TEMPERATURES"

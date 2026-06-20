@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2022 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2022 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -23,6 +23,7 @@ module ensemble_io
   implicit none
   private
   public :: write_ensemble, read_ensemble, read_energies_file
+  integer, parameter :: ensemble_line_len = 65536
 
 contains
 
@@ -150,7 +151,7 @@ contains
     logical,                       intent(out) :: ok
 
     integer :: unit_in, ios, i, aux, nsubs_tot
-    character(len=512) :: line
+    character(len=ensemble_line_len) :: line
 
     ok        = .false.
     ntarget_out = 0
@@ -187,7 +188,8 @@ contains
 
       integer :: kpos, kpos2, kpos3, n_nsubs, n_npos
       integer :: nsubs_buf(25), npos_buf(5)
-      character(len=512) :: ln, rest
+      logical :: rows_ok
+      character(len=ensemble_line_len) :: ln, rest
 
       ln = first_line
 
@@ -224,9 +226,13 @@ contains
       npos_t_out = npos_buf(1:n_npos)
 
       read(u, *, iostat=ios) nic
-      if (ios /= 0 .or. nic <= 0) return
+      if (ios /= 0 .or. nic <= 0) then
+        call cleanup_read_arrays()
+        return
+      end if
 
-      call read_data_rows(u)
+      call read_data_rows(u, rows_ok)
+      if (.not. rows_ok) return
       ok = .true.
     end subroutine read_v2
 
@@ -240,7 +246,8 @@ contains
       integer :: nsubs_acc(25)
       integer :: npos_acc(5)
       real(real64) :: tval
-      character(len=512) :: ln, after_arrow
+      logical :: rows_ok
+      character(len=ensemble_line_len) :: ln, after_arrow
 
       ! Parse line 1: ensemble type + nic
       ln = first_line
@@ -311,20 +318,26 @@ contains
       ! If we exited the target loop on a '#' comment, read one more line for first data row
       if (ln(1:1) == '#') then
         read(u, '(A)', iostat=ios) ln
-        if (ios /= 0) return
+        if (ios /= 0) then
+          call cleanup_read_arrays()
+          return
+        end if
       end if
 
-      call read_data_rows_from_line(u, ln)
+      call read_data_rows_from_line(u, ln, rows_ok)
+      if (.not. rows_ok) return
       ok = .true.
     end subroutine read_v3
 
     ! Read nic data rows; first row is already in first_line
-    subroutine read_data_rows_from_line(u, first_line)
+    subroutine read_data_rows_from_line(u, first_line, rows_ok)
       integer,          intent(in) :: u
       character(len=*), intent(in) :: first_line
+      logical,          intent(out) :: rows_ok
       integer :: row
-      character(len=512) :: ln
+      character(len=ensemble_line_len) :: ln
 
+      rows_ok = .false.
       nsubs_tot = sum(nsubs_flat_out)
       allocate(indconf(nic, max(1, nsubs_tot)))
       allocate(degen(nic))
@@ -338,24 +351,27 @@ contains
           read(ln, *, iostat=ios) aux, degen(row)
         end if
         if (ios /= 0) then
-          deallocate(indconf, degen, nsubs_flat_out, npos_t_out)
+          call cleanup_read_arrays()
           return
         end if
         if (row < nic) then
           read(u, '(A)', iostat=ios) ln
           if (ios /= 0) then
-            deallocate(indconf, degen, nsubs_flat_out, npos_t_out)
+            call cleanup_read_arrays()
             return
           end if
         end if
       end do
+      rows_ok = .true.
     end subroutine read_data_rows_from_line
 
     ! Read nic data rows from unit u (used by v2 path)
-    subroutine read_data_rows(u)
+    subroutine read_data_rows(u, rows_ok)
       integer, intent(in) :: u
+      logical, intent(out) :: rows_ok
       integer :: row
 
+      rows_ok = .false.
       nsubs_tot = sum(nsubs_flat_out)
       allocate(indconf(nic, max(1, nsubs_tot)))
       allocate(degen(nic))
@@ -368,11 +384,19 @@ contains
           read(u, *, iostat=ios) aux, degen(row)
         end if
         if (ios /= 0) then
-          deallocate(indconf, degen, nsubs_flat_out, npos_t_out)
+          call cleanup_read_arrays()
           return
         end if
       end do
+      rows_ok = .true.
     end subroutine read_data_rows
+
+    subroutine cleanup_read_arrays()
+      if (allocated(indconf))        deallocate(indconf)
+      if (allocated(degen))          deallocate(degen)
+      if (allocated(nsubs_flat_out)) deallocate(nsubs_flat_out)
+      if (allocated(npos_t_out))     deallocate(npos_t_out)
+    end subroutine cleanup_read_arrays
 
   end subroutine read_ensemble
 

@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2018 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2018 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -107,7 +107,7 @@ program genersod
   character(len=10) :: numstr
   character(len=30) :: confdir_gulp
   character(len=60) :: inpfile_gulp
-  character(len=10) :: ndir_gulp
+  character(len=40) :: ndir_gulp
 
   ! Variables for LAMMPS logic (FILER=2)
   character(len=20) :: lammps_atom_style
@@ -440,30 +440,39 @@ program genersod
   do nsubs = nsubs_min, nsubs_max
 
     if (ntarget == 1 .and. nk(1) == 1) then
-      write (ndir_gulp, '("n", i2.2)') nsubs
+      ndir_gulp = 'n'//trim(npad(nsubs))
       nsubs_tot = nsubs
     else if (ntarget == 1 .and. nk(1) == 2) then
-      write (ndir_gulp, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2)
+      ndir_gulp = 'n'//trim(npad(nsubs_t(1,1)))//'_'//trim(npad(nsubs_t(1,2)))
     else if (ntarget == 1 .and. nk(1) == 3) then
-      write (ndir_gulp, '("n", i2.2, "_", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3)
+      ndir_gulp = 'n'//trim(npad(nsubs_t(1,1)))//'_'//trim(npad(nsubs_t(1,2)))//'_'//trim(npad(nsubs_t(1,3)))
     else if (ntarget >= 2 .and. all(nk(1:ntarget) == 1)) then
       ! Stage D: multi-target binary
-      write (ndir_gulp, '("n", i2.2)') nsubs_t(1,1)
+      ndir_gulp = 'n'//trim(npad(nsubs_t(1,1)))
       do t = 2, ntarget
-        write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(t,1)
+        ndir_gulp = trim(ndir_gulp)//'_'//trim(npad(nsubs_t(t,1)))
       end do
     else
       ! Phase 4: ntarget >= 2, at least one nk(t) >= 2
-      write (ndir_gulp, '("n", i2.2)') nsubs_t(1,1)
+      ndir_gulp = 'n'//trim(npad(nsubs_t(1,1)))
       do j = 2, nk(1)
-        write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(1,j)
+        ndir_gulp = trim(ndir_gulp)//'_'//trim(npad(nsubs_t(1,j)))
       end do
       do t = 2, ntarget
         do j = 1, nk(t)
-          write (ndir_gulp, '(a, "_", i2.2)') trim(ndir_gulp), nsubs_t(t,j)
+          ndir_gulp = trim(ndir_gulp)//'_'//trim(npad(nsubs_t(t,j)))
         end do
       end do
     end if
+
+    ! sod_gener.sh sets SOD_ENSEMBLE_DIR when launched from a subdir containing ENSEMBLE
+    ! (e.g. nXX/random/), so the binary reads from there instead of the INSOD-derived ndir.
+    block
+      character(len=256) :: sod_edir
+      integer :: edir_len
+      call get_environment_variable('SOD_ENSEMBLE_DIR', sod_edir, length=edir_len)
+      if (edir_len > 0) ndir_gulp = trim(adjustl(sod_edir))
+    end block
 
     block
       integer :: ntarget_rd, nic_rd, iflat
@@ -2523,6 +2532,25 @@ program genersod
   write (*, *) ""
 
 contains
+
+  function npad(n) result(s)
+    integer, intent(in) :: n
+    character(len=10) :: s
+    integer :: nd, tmp
+    character(len=20) :: fmt
+
+    tmp = max(1, abs(maxval(npos_t(1:ntarget))))
+    nd = 1
+    do while (tmp >= 10)
+      nd = nd + 1
+      tmp = tmp / 10
+    end do
+    nd = max(2, nd)
+
+    write(fmt, '(A,I0,A,I0,A)') '(i', nd, '.', nd, ')'
+    write(s, fmt) n
+    s = adjustl(s)
+  end function npad
 
 !---------------------------------------------------------------------------
 ! Return the molecule-type index for NAME, loading NAME.xyz on first request.

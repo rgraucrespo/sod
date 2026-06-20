@@ -1,5 +1,11 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/sod_common.sh"
+
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
+
 extract_energy() {
   local cdir="$1"
   awk '($1=="Total") && ($3=="energy") && ($6=="eV") {print $5}' "${cdir}output.gout"
@@ -32,8 +38,13 @@ process_level() {
   fi
 }
 
-if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
-  # Called from MAIN/: extract single-point energies for all nXX/ levels
+if [ -z "$LEVEL_NAME" ]; then
+  # Called from SODPROJECT/: extract single-point energies for all nXX/ levels
+  cd "$SODPROJECT" || exit 1
+  if ! ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no nXX/ folders found in SODPROJECT/."
+    exit 1
+  fi
   for ndir in $(ls -d n*/ 2>/dev/null | sort); do
     cdirs=()
     while IFS= read -r line; do
@@ -41,14 +52,16 @@ if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
     done < <(ls -d "${ndir}"c*/ 2>/dev/null | sort)
     process_level "${ndir}ENERGIES" "${cdirs[@]}"
   done
-elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+else
   # Called from nXX/: extract single-point energies for this level only
+  cd "$SODPROJECT/$LEVEL_NAME" || exit 1
+  if ! ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no cYY/ folders found in ${LEVEL_NAME}/."
+    exit 1
+  fi
   cdirs=()
   while IFS= read -r line; do
     cdirs+=("$line")
   done < <(ls -d c*/ 2>/dev/null | sort)
   process_level "ENERGIES" "${cdirs[@]}"
-else
-  echo "Error: run sod_gulp_single_ener.sh from MAIN/ or from an nXX/ folder."
-  exit 1
 fi

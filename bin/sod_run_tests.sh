@@ -29,6 +29,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/bin"
 EX="$ROOT/examples"
 
+. "${BIN}/sod_common.sh"
+
 pass=0; fail=0; skip=0
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -40,6 +42,68 @@ fail_line()  { printf "FAIL  $label_fmt  %s\n" "$1" "$2"; }
 skip_line()  { printf "SKIP  $label_fmt  %s\n" "$1" "$2"; }
 
 indent() { sed 's/^/        /'; }
+
+# Compare two OUTMC files produced by mcsod.
+#   $1 = reference  $2 = generated  $3 = energy tolerance (eV)
+# An exact byte match passes immediately (strongest check, and what the
+# bit-identical delta path produces on the build machine). Otherwise fall back
+# to a tolerant comparison of the energy results (E_min / E_ave / E_std): the
+# delta-energy MC path sums the cluster expansion in a different order from the
+# full recompute, which on a different compiler/arch can nudge a near-threshold
+# Metropolis decision and perturb the trajectory. The sampled energetics must
+# still agree to within tolerance. Returns 0 on match, 1 otherwise.
+mc_outmc_match() {
+    local ref="$1" gen="$2" tol="$3"
+    diff -q "$ref" "$gen" >/dev/null 2>&1 && return 0
+    local key val_ref val_gen d ok=1
+    for key in E_min E_ave E_std; do
+        val_ref=$(awk -v k="$key" 'index($0,k){for(i=1;i<=NF;i++) if($i=="="){print $(i+1); exit}}' "$ref")
+        val_gen=$(awk -v k="$key" 'index($0,k){for(i=1;i<=NF;i++) if($i=="="){print $(i+1); exit}}' "$gen")
+        if [ -z "$val_ref" ] || [ -z "$val_gen" ]; then
+            echo "        could not parse $key from OUTMC"; ok=0; break
+        fi
+        d=$(awk -v a="$val_ref" -v b="$val_gen" 'BEGIN{d=a-b; if(d<0)d=-d; print d}')
+        if ! awk -v d="$d" -v t="$tol" 'BEGIN{exit !(d<=t)}'; then
+            echo "        $key: |$val_ref - $val_gen| = $d eV > $tol eV"; ok=0
+        fi
+    done
+    [ $ok -eq 1 ] && return 0 || return 1
+}
+
+# Compare two mcstatsod thermodynamics.dat files.
+#   $1 = reference  $2 = generated
+# Exact match passes immediately. Otherwise compare numerically: comment/header
+# lines exactly, and each data row's E/F within 0.05 eV and S within 5e-4 eV/K.
+# Like the OUTMC check, this tolerates benign MC-trajectory differences (the
+# delta-energy + complement-set swap move changes the RNG consumption, so the
+# fixed-seed walk explores a different — but statistically equivalent — path).
+# Returns 0 on match, 1 otherwise.
+thermo_match() {
+    local ref="$1" gen="$2"
+    diff -q "$ref" "$gen" >/dev/null 2>&1 && return 0
+    awk '
+      function abs(x){ return x<0 ? -x : x }
+      NR==FNR { r[FNR]=$0; nref=FNR; next }
+      {
+        ln=FNR
+        if ($0 ~ /^#/ || $0 ~ /T\/K/) {        # header / comment: exact
+          if (r[ln] != $0) { print "        header line "ln" differs"; bad=1 }
+          next
+        }
+        n=split(r[ln], a); split($0, b)
+        if (n==0) next
+        if (a[1] != b[1]) { print "        T label "ln": "a[1]" vs "b[1]; bad=1; next }
+        if (abs(a[2]-b[2]) > 0.05) { print "        E "ln": "a[2]" vs "b[2]; bad=1 }
+        if (a[3]=="-" || b[3]=="-") { if (a[3]!=b[3]) { print "        F "ln; bad=1 } }
+        else if (abs(a[3]-b[3]) > 0.05) { print "        F "ln": "a[3]" vs "b[3]; bad=1 }
+        if (abs(a[4]-b[4]) > 5e-4) { print "        S "ln": "a[4]" vs "b[4]; bad=1 }
+      }
+      END {
+        if (FNR < nref) { print "        generated file shorter than reference ("FNR" vs "nref" lines)"; bad=1 }
+        exit bad ? 1 : 0
+      }
+    ' "$ref" "$gen"
+}
 
 # ── test_combsod ─────────────────────────────────────────────────────────────
 # $1 = display label   $2 = example directory
@@ -218,10 +282,9 @@ test_pmesod() {
     # Check that all required level directories and data files exist
     local missing=0
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        local ndir="$maindir/n${tag}"
-        if [ ! -f "$ndir/ENSEMBLE" ] || [ ! -f "$ndir/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
     done
@@ -234,9 +297,9 @@ test_pmesod() {
 
     # Copy low and high level reference data
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        mkdir -p "$tmp/n${tag}"
-        cp "$maindir/n${tag}/ENSEMBLE" "$maindir/n${tag}/ENERGIES" "$tmp/n${tag}/"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
     # Run combsod to generate EQMATRIX
@@ -258,9 +321,9 @@ test_pmesod() {
     fi
 
     # Check PMEh ENERGIES from target level
-    local ttag; ttag=$(printf "%02d" $tlvl)
+    local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
     local ref="$maindir/pme_test_ref/ENERGIES"
-    local gen="$tmp/n${ttag}/PMEh/ENERGIES"
+    local gen="$tmp/$tdir/PMEh/ENERGIES"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[ENERGIES has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -294,9 +357,9 @@ test_pmesod_example17() {
 
     local missing=0
     for i in 0 1 2 3 4 24 25 26 27; do
-        local tag; tag=$(printf "%02d" $i)
-        if [ ! -f "$maindir/n${tag}/ENSEMBLE" ] || [ ! -f "$maindir/n${tag}/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
     done
@@ -308,9 +371,9 @@ test_pmesod_example17() {
     # Include n04 so the target-level guard is exercised: pmesod must not use
     # n04/ENERGIES as a training reference even though the file is present.
     for i in 0 1 2 3 4 24 25 26 27; do
-        local tag; tag=$(printf "%02d" $i)
-        mkdir -p "$tmp/n${tag}"
-        cp "$maindir/n${tag}/ENSEMBLE" "$maindir/n${tag}/ENERGIES" "$tmp/n${tag}/"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
     local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
@@ -329,14 +392,76 @@ test_pmesod_example17() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
+    local tdir; tdir=$(sod_level_dir_by_number "$maindir" 4)
     local ref="$maindir/pme_test_ref/ENERGIES"
-    local gen="$tmp/n04/PMEh/ENERGIES"
+    local gen="$tmp/$tdir/PMEh/ENERGIES"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[ENERGIES has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     elif ! diff -q "$ref" "$gen" >/dev/null 2>&1; then
         fail_line "$label" "[ENERGIES differs]"
         diff "$ref" "$gen" | head -6 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_pme_delta ────────────────────────────────────────────────────────────
+# $1 = display label
+# $2 = main example directory (contains INSOD, SGO, n*/ENSEMBLE+ENERGIES)
+# $3 = space-separated level list to copy (low + high side)
+# Builds the same PME model mcsod would use (combsod + pmesod), then runs the
+# test_pme_delta driver, which checks the incremental pme_evaluate_swap_delta
+# against the full pme_evaluate_configuration over a level sweep and a long
+# swap chain. The driver exits non-zero on any mismatch.
+test_pme_delta_case() {
+    local label="$1" maindir="$2" levels="$3"
+
+    if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    if [ ! -x "$BIN/test_pme_delta" ]; then
+        skip_line "$label" "(test_pme_delta not built — run 'make testbin')"
+        skip=$((skip+1)); return
+    fi
+
+    local i ndir missing=0
+    for i in $levels; do
+        ndir=$(sod_level_dir_by_number "$maindir" "$i")
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
+            missing=1; break
+        fi
+    done
+    [ $missing -ne 0 ] && { fail=$((fail+1)); return; }
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$tmp/"
+    [ -f "$maindir/pme.model" ] && cp "$maindir/pme.model" "$tmp/"
+    for i in $levels; do
+        ndir=$(sod_level_dir_by_number "$maindir" "$i")
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
+    done
+
+    local out rc
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[combsod error]"; echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[pmesod error]"; echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" test_pme_delta 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[delta != full]"
+        echo "$out" | grep -iE "mismatch|drift|max |error" | head -8 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
@@ -362,10 +487,9 @@ test_mcsod() {
     # Check that all required level directories and data files exist
     local missing=0
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        local ndir="$maindir/n${tag}"
-        if [ ! -f "$ndir/ENSEMBLE" ] || [ ! -f "$ndir/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
     done
@@ -379,9 +503,9 @@ test_mcsod() {
 
     # Copy low and high level reference data
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        mkdir -p "$tmp/n${tag}"
-        cp "$maindir/n${tag}/ENSEMBLE" "$maindir/n${tag}/ENERGIES" "$tmp/n${tag}/"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
     # Run combsod then pmesod to generate Hamiltonian (needed for mcsod)
@@ -411,14 +535,14 @@ test_mcsod() {
     fi
 
     # Check OUTMC from target level
-    local ttag; ttag=$(printf "%02d" $tlvl)
+    local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
     local ref="$maindir/pme_test_ref/OUTMC"
-    local gen="$tmp/n${ttag}/MCT_300K/PMEh/OUTMC"
+    local gen="$tmp/$tdir/MCT_300K/PMEh/OUTMC"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[OUTMC has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
-    elif ! diff -q "$ref" "$gen" >/dev/null 2>&1; then
-        fail_line "$label" "[OUTMC differs]"
+    elif ! mc_outmc_match "$ref" "$gen" 0.02; then
+        fail_line "$label" "[OUTMC differs beyond tolerance]"
         diff "$ref" "$gen" | head -6 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
@@ -445,10 +569,9 @@ test_mcstat() {
     # Low-side levels: 0-3; high-side levels: 21-24
     local missing=0
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        local ndir="$maindir/n${tag}"
-        if [ ! -f "$ndir/ENSEMBLE" ] || [ ! -f "$ndir/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
     done
@@ -463,9 +586,9 @@ test_mcstat() {
 
     # Copy low and high level reference data
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        mkdir -p "$tmp/n${tag}"
-        cp "$maindir/n${tag}/ENSEMBLE" "$maindir/n${tag}/ENERGIES" "$tmp/n${tag}/"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
     # Run combsod then pmesod to generate the Hamiltonian (needed for mcsod)
@@ -497,10 +620,10 @@ test_mcstat() {
     # Thermodynamic integration over the sampled temperatures.
     # Layout is sampling-first: MC output lives in nXX/MCT_*K/PMEx/, so mcstatsod
     # runs from nXX/ and writes thermodynamics.dat there.
-    local ttag; ttag=$(printf "%02d" $tlvl)
-    local nxxdir="$tmp/n${ttag}"
+    local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
+    local nxxdir="$tmp/$tdir"
     if ! ls -d "$nxxdir"/MCT_*K/ >/dev/null 2>&1; then
-        fail_line "$label" "[n${ttag}/MCT_*K not generated]"
+        fail_line "$label" "[$tdir/MCT_*K not generated]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
     out=$(cd "$nxxdir" && PATH="$BIN:$PATH" sod_mcstat.sh 2>&1)
@@ -517,8 +640,8 @@ test_mcstat() {
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[thermodynamics.dat has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
-    elif ! diff -q "$ref" "$gen" >/dev/null 2>&1; then
-        fail_line "$label" "[thermodynamics.dat differs]"
+    elif ! thermo_match "$ref" "$gen"; then
+        fail_line "$label" "[thermodynamics.dat differs beyond tolerance]"
         diff "$ref" "$gen" | head -6 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
@@ -544,9 +667,9 @@ test_mcstat_vs_enum() {
 
     local missing=0
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        if [ ! -f "$maindir/n${tag}/ENSEMBLE" ] || [ ! -f "$maindir/n${tag}/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
     done
@@ -558,9 +681,9 @@ test_mcstat_vs_enum() {
     # is the worst case for TI (integration edge); more points tighten agreement.
     printf '%s\n' 4000 2000 1200 800 500 300 > "$tmp/TEMPERATURES"
     for i in 0 1 2 3 21 22 23 24; do
-        local tag; tag=$(printf "%02d" $i)
-        mkdir -p "$tmp/n${tag}"
-        cp "$maindir/n${tag}/ENSEMBLE" "$maindir/n${tag}/ENERGIES" "$tmp/n${tag}/"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
     # combsod (full enumeration of target level) + pmesod (PMEh energies)
@@ -576,11 +699,11 @@ test_mcstat_vs_enum() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    local ttag; ttag=$(printf "%02d" $tlvl)
-    local nxxdir="$tmp/n${ttag}"
+    local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
+    local nxxdir="$tmp/$tdir"
     local pmedir="$nxxdir/PMEh"   # pmesod enumeration energies (nXX/PMEh/ENERGIES)
     if [ ! -f "$pmedir/ENERGIES" ] || [ ! -f "$nxxdir/ENSEMBLE" ]; then
-        fail_line "$label" "[n${ttag} enumeration/ENERGIES not generated]"
+        fail_line "$label" "[$tdir enumeration/ENERGIES not generated]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
@@ -588,7 +711,7 @@ test_mcstat_vs_enum() {
     # pmesod writes single-column energies in configuration order; statsod wants
     # the two-column "m E" form, so prepend the 1-based index.
     mkdir -p "$tmp/enum"
-    cp "$tmp/n${ttag}/ENSEMBLE" "$tmp/enum/ENSEMBLE"
+    cp "$nxxdir/ENSEMBLE" "$tmp/enum/ENSEMBLE"
     cp "$tmp/TEMPERATURES"      "$tmp/enum/TEMPERATURES"
     awk '{printf "%d  %s\n", NR, $1}' "$pmedir/ENERGIES" > "$tmp/enum/ENERGIES"
     out=$(cd "$tmp/enum" && PATH="$BIN:$PATH" statsod 2>&1); rc=$?
@@ -665,20 +788,20 @@ test_gcstat() {
     read nsubsmin nsubsmax < <(grep -v "^#" "$xdir/INGC" | head -1)
 
     local tmp; tmp=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$tmp/"
 
     # Copy n*/ENSEMBLE+ENERGIES+DATA+SPECTRA for the required range
     local missing=0
     for ((i=nsubsmin; i<=nsubsmax; i++)); do
-        local tag; tag=$(printf "%02d" $i)
-        local nsrc="$maindir/n${tag}"
-        if [ ! -f "$nsrc/ENSEMBLE" ] || [ ! -f "$nsrc/ENERGIES" ]; then
-            fail_line "$label" "[n${tag}/ENSEMBLE or ENERGIES missing]"
+        local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
+        if [ -z "$ndir" ] || [ ! -f "$maindir/$ndir/ENSEMBLE" ] || [ ! -f "$maindir/$ndir/ENERGIES" ]; then
+            fail_line "$label" "[level $i: ENSEMBLE or ENERGIES missing]"
             missing=1; break
         fi
-        mkdir -p "$tmp/n${tag}"
-        cp "$nsrc/ENSEMBLE" "$nsrc/ENERGIES" "$tmp/n${tag}/"
-        [ -f "$nsrc/DATA"    ] && cp "$nsrc/DATA"    "$tmp/n${tag}/"
-        [ -f "$nsrc/SPECTRA" ] && cp "$nsrc/SPECTRA" "$tmp/n${tag}/"
+        mkdir -p "$tmp/$ndir"
+        cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
+        [ -f "$maindir/$ndir/DATA"    ] && cp "$maindir/$ndir/DATA"    "$tmp/$ndir/"
+        [ -f "$maindir/$ndir/SPECTRA" ] && cp "$maindir/$ndir/SPECTRA" "$tmp/$ndir/"
     done
     if [ $missing -ne 0 ]; then
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -830,6 +953,54 @@ test_gqssod() {
     pass_line "$label"; pass=$((pass+1))
 }
 
+# ── test_randomsod ────────────────────────────────────────────────────────────
+# Smoke test for the uniform random sampler: run randomsod with a fixed seed,
+# check it writes nXX/random/ENSEMBLE, that sum_degeneracies == nconfigs (visit
+# counts over the draws), and that a fixed seed is reproducible.
+# $1 = display label  $2 = main example dir (needs INSOD, SGO, EQMATRIX)
+test_randomsod() {
+    local label="$1" maindir="$2"
+
+    if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ] || [ ! -f "$maindir/EQMATRIX" ]; then
+        skip_line "$label" "(missing INSOD, SGO, or EQMATRIX)"
+        skip=$((skip+1)); return
+    fi
+
+    local nc=5000
+    local tmp; tmp=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$maindir/EQMATRIX" "$tmp/"
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconfigs $nc -symmetry on -seed 12345 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[randomsod error]"; echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local ens; ens=$(ls "$tmp"/n*/random/ENSEMBLE 2>/dev/null | head -1)
+    if [ -z "$ens" ]; then
+        fail_line "$label" "[no nXX/random/ENSEMBLE produced]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local sumdeg; sumdeg=$(awk -F'sum_degeneracies = ' 'NR==1{print $2+0; exit}' "$ens")
+    if [ "$sumdeg" != "$nc" ]; then
+        fail_line "$label" "[sum_degeneracies=$sumdeg != nconfigs=$nc]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Reproducibility: the same fixed seed must reproduce the ENSEMBLE.
+    local tmp2; tmp2=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$maindir/EQMATRIX" "$tmp2/"
+    (cd "$tmp2" && PATH="$BIN:$PATH" randomsod -nconfigs $nc -symmetry on -seed 12345 >/dev/null 2>&1)
+    local ens2; ens2=$(ls "$tmp2"/n*/random/ENSEMBLE 2>/dev/null | head -1)
+    if ! diff -q "$ens" "$ens2" >/dev/null 2>&1; then
+        fail_line "$label" "[not reproducible for fixed seed]"
+        fail=$((fail+1)); rm -rf "$tmp" "$tmp2"; return
+    fi
+
+    rm -rf "$tmp" "$tmp2"
+    pass_line "$label"; pass=$((pass+1))
+}
+
 # ── combsod tests ─────────────────────────────────────────────────────────────
 
 echo "SOD regression tests"
@@ -871,6 +1042,18 @@ printf "%s\n" "-------------------------------------------"
 
 test_pmesod "example15/pmesod (n00-n03 low, n21-n24 high, target=n12)" "$EX/example15" 12
 test_pmesod_example17 "example17/pmesod (n00-n03 low, n24-n27 high, target=n04, PMEh)" "$EX/example17"
+
+# Incremental swap evaluator vs full recompute (delta == full(new) - full(old))
+test_pme_delta_case "example15/pme_delta (swap evaluator vs full)" "$EX/example15" "0 1 2 3 21 22 23 24"
+test_pme_delta_case "example17/pme_delta (swap evaluator vs full)" "$EX/example17" "0 1 2 3 4 24 25 26 27"
+
+# ── randomsod tests (uniform random sampling) ─────────────────────────────────
+
+echo ""
+printf "randomsod  (uniform random sampling)\n"
+printf "%s\n" "-------------------------------------------"
+
+test_randomsod "example15/randomsod (n12, 5000 draws, symmetry on)" "$EX/example15"
 
 # ── mcsod tests (Monte Carlo sampling) ──────────────────────────────────────────
 

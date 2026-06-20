@@ -5,6 +5,10 @@
 # Resolve script directory and find executables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="${SCRIPT_DIR}:${PATH}"
+. "${SCRIPT_DIR}/sod_common.sh"
+
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+cd "$SODPROJECT" || exit 1
 
 rm -f ENSEMBLE supercell.cif EQMATRIX OPERATORS cSGO
 

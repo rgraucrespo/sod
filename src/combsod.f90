@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Copyright (c) 2022 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2022 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
@@ -44,7 +44,7 @@ program combsod
   integer, dimension(:), allocatable:: newconf
   logical, dimension(:), allocatable:: visited
   character(len=256) :: line_buffer
-  character(len=10) :: nxx_dir
+  character(len=40) :: nxx_dir
   integer(int64) :: t_start_total, t_start_level, t_now, clock_rate, clock_max
   integer(int64) :: ntc_A, ntc_B, ntc_joint
   integer(int64) :: ntc_t(ntargetmax), r_t(ntargetmax), new_r, new_r_tt
@@ -148,7 +148,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.81 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
@@ -206,7 +206,7 @@ program combsod
 ! Create output directory nXX/ and open per-level output files
 
     call system_clock(t_start_level)
-    write (nxx_dir, '("n", i2.2)') nsubs
+    nxx_dir = 'n'//trim(npad(nsubs))
     call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
     open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
     open (unit=47, file=trim(nxx_dir) // "/cSGO")
@@ -268,9 +268,9 @@ program combsod
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
     if (going_upward) then
-      write (prev_dir, '("n", i2.2)') nsubs - 1
+      prev_dir = 'n'//trim(npad(nsubs - 1))
     else
-      write (prev_dir, '("n", i2.2)') nsubs + 1
+      prev_dir = 'n'//trim(npad(nsubs + 1))
     end if
     prev_ensemble = trim(prev_dir) // "/ENSEMBLE"
 
@@ -744,7 +744,7 @@ program combsod
   nsubs = nsubs_t(1,1) + nsubs_t(1,2)
 
 ! Build directory name: n01_04/ etc.
-  write (nxx_dir, '("n", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2)
+  nxx_dir = 'n'//trim(npad(nsubs_t(1,1)))//'_'//trim(npad(nsubs_t(1,2)))
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
   open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
@@ -1036,7 +1036,7 @@ program combsod
   n2rem = nsubs_t(1,2) + nsubs_t(1,3)   ! positions after removing sp1
 
 ! Build directory name: n01_02_03/ etc.
-  write (nxx_dir, '("n", i2.2, "_", i2.2, "_", i2.2)') nsubs_t(1,1), nsubs_t(1,2), nsubs_t(1,3)
+  nxx_dir = 'n'//trim(npad(nsubs_t(1,1)))//'_'//trim(npad(nsubs_t(1,2)))//'_'//trim(npad(nsubs_t(1,3)))
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
   open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
   open (unit=47, file=trim(nxx_dir) // "/cSGO")
@@ -1435,9 +1435,9 @@ program combsod
   nsubs_max_t = maxval(nsubs_t(1:ntarget, 1))
 
 ! Build directory name nXX[_YY[_ZZ...]] dynamically
-  write (nxx_dir, '("n", i2.2)') nsubs_t(1,1)
+  nxx_dir = 'n'//trim(npad(nsubs_t(1,1)))
   do t = 2, ntarget
-    write (nxx_dir, '(a, "_", i2.2)') trim(nxx_dir), nsubs_t(t,1)
+    nxx_dir = trim(nxx_dir)//'_'//trim(npad(nsubs_t(t,1)))
   end do
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
   open (unit=30, file=trim(nxx_dir) // "/ENSEMBLE")
@@ -1693,13 +1693,13 @@ program combsod
   npos_max      = maxval(npos_t(1:ntarget))
 
 ! Build directory name: nAA[_BB[_CC]]_DD[_EE[_FF]]...
-  write (nxx_dir, '("n", i2.2)') nsubs_t(1,1)
+  nxx_dir = 'n'//trim(npad(nsubs_t(1,1)))
   do j = 2, nk(1)
-    write (nxx_dir, '(a,"_",i2.2)') trim(nxx_dir), nsubs_t(1,j)
+    nxx_dir = trim(nxx_dir)//'_'//trim(npad(nsubs_t(1,j)))
   end do
   do t = 2, ntarget
     do j = 1, nk(t)
-      write (nxx_dir, '(a,"_",i2.2)') trim(nxx_dir), nsubs_t(t,j)
+      nxx_dir = trim(nxx_dir)//'_'//trim(npad(nsubs_t(t,j)))
     end do
   end do
   call execute_command_line("mkdir -p " // trim(nxx_dir), wait=.true.)
@@ -2135,6 +2135,25 @@ program combsod
   write (*, *) ""
 
 contains
+
+  function npad(n) result(s)
+    integer, intent(in) :: n
+    character(len=10) :: s
+    integer :: nd, tmp
+    character(len=20) :: fmt
+
+    tmp = max(1, abs(npos_max))
+    nd = 1
+    do while (tmp >= 10)
+      nd = nd + 1
+      tmp = tmp / 10
+    end do
+    nd = max(2, nd)
+
+    write(fmt, '(A,I0,A,I0,A)') '(i', nd, '.', nd, ')'
+    write(s, fmt) n
+    s = adjustl(s)
+  end function npad
 
   ! ---------------------------------------------------------------------------
   ! Read unit-cell symmetry operators from SGO file (unit 12).

@@ -14,6 +14,12 @@
 #mon  a b c beta V
 #tri  a b c alpha beta gamma V
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/sod_common.sh"
+
+SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
+LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
+
 extract_vasp_cell() {
   local f="$1"
   printf 'final parameters\n' > _sod_cell_tmp
@@ -24,21 +30,28 @@ extract_vasp_cell() {
   rm _sod_cell_tmp
 }
 
-rm -f cell.dat a.dat b.dat c.dat
-
-if ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
-  # Called from MAIN/: loop over all nXX/cYY/CONTCAR
+if [ -z "$LEVEL_NAME" ]; then
+  # Called from SODPROJECT/: loop over all nXX/cYY/CONTCAR
+  cd "$SODPROJECT" || exit 1
+  rm -f cell.dat a.dat b.dat c.dat
+  if ! ls -d n[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no nXX/ folders found in SODPROJECT/."
+    exit 1
+  fi
   for f in $(ls n*/c*/CONTCAR 2>/dev/null | sort); do
     extract_vasp_cell "$f"
   done
-elif ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+else
   # Called from nXX/: loop over cYY/CONTCAR in current folder
+  cd "$SODPROJECT/$LEVEL_NAME" || exit 1
+  rm -f cell.dat a.dat b.dat c.dat
+  if ! ls -d c[0-9]*/ 2>/dev/null | grep -q .; then
+    echo "Error: no cYY/ folders found in ${LEVEL_NAME}/."
+    exit 1
+  fi
   for f in $(ls c*/CONTCAR 2>/dev/null | sort); do
     extract_vasp_cell "$f"
   done
-else
-  echo "Error: run sod_vasp_cell.sh from MAIN/ or from an nXX/ folder."
-  exit 1
 fi
 
 paste a.dat b.dat c.dat > cell.dat

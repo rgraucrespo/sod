@@ -1,7 +1,7 @@
 subroutine ksubset(n, k, a, more)
 
 !*******************************************************************************
-!    Copyright (c) 2014 Ricardo Grau-Crespo, Said Hamad
+!    Copyright (c) 2014 Ricardo Grau-Crespo and co-authors
 !
 !    This file is part of the SOD package.
 !
