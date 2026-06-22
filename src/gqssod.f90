@@ -86,7 +86,7 @@ program gqssod
   real(real64), allocatable :: avg_target(:)
   real(real64), parameter :: kb = 8.61734e-5_real64
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - gqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - gqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -110,6 +110,7 @@ program gqssod
 
   ! Write thermal averages to file
   call write_thermal_averages()
+  call write_wc_parameters()
 
   write (*, *)
   write (*, *) " > Done."
@@ -1080,5 +1081,125 @@ contains
       end if
     end do
   end subroutine sort_pi_order
+
+  ! ================================================================
+  ! Write Warren-Cowley SRO parameters for all pair cluster types.
+  ! Pair correlations are recomputed from ENSEMBLE sigma vectors so
+  ! that the output is independent of the OUTSQS column ordering.
+  ! ================================================================
+  subroutine write_wc_parameters()
+    implicit none
+    integer :: iu, jj, jc, tt, ipair, ic, js, local_idx, n_pairs
+    integer :: sigma(npos)
+    integer, allocatable :: pair_jc(:)
+    real(real64) :: pi_rand, factor, emin, beta, z, corr_val, T_inf_pi
+    real(real64), allocatable :: pair_corr(:,:), alpha_vals(:)
+    character(len=256) :: path_out
+
+    pi_rand = (1.0_real64 - 2.0_real64 * x_comp)**2
+    factor  = 4.0_real64 * x_comp * (1.0_real64 - x_comp)
+
+    ! Collect pair cluster indices in distance order (pi_order)
+    n_pairs = 0
+    do jj = 1, n_clusters
+      if (clusters(pi_order(jj))%order == 2) n_pairs = n_pairs + 1
+    end do
+
+    if (n_pairs == 0) then
+      write (*, '(a)') " > No pair clusters found; skipping WC parameter output."
+      return
+    end if
+
+    allocate (pair_jc(n_pairs))
+    ipair = 0
+    do jj = 1, n_clusters
+      jc = pi_order(jj)
+      if (clusters(jc)%order == 2) then
+        ipair = ipair + 1
+        pair_jc(ipair) = jc
+      end if
+    end do
+
+    ! Compute pair correlations from ENSEMBLE sigma vectors
+    allocate (pair_corr(nic, n_pairs))
+    do ic = 1, nic
+      sigma = 1
+      do js = 1, nsubs
+        local_idx = indconf(ic, js) - atini + 1
+        sigma(local_idx) = -1
+      end do
+      do ipair = 1, n_pairs
+        jc = pair_jc(ipair)
+        corr_val = 0.0_real64
+        do js = 1, clusters(jc)%n_inst
+          corr_val = corr_val + sigma(clusters(jc)%inst(1, js)) * sigma(clusters(jc)%inst(2, js))
+        end do
+        pair_corr(ic, ipair) = corr_val / real(clusters(jc)%n_inst, real64)
+      end do
+    end do
+
+    allocate (alpha_vals(ntemp + 1))
+    emin = minval(ene(1:nic))
+
+    path_out = trim(ensemble_dir) // "/wc_parameters.dat"
+    iu = 32
+    open (unit=iu, file=trim(path_out))
+
+    write (iu, '(a)') "# Warren-Cowley SRO parameters from gqssod"
+    write (iu, '(a,f8.5,a,f8.5,a,f8.5)') &
+      "# x = ", x_comp, "   (1-2x)^2 = ", pi_rand, "   4x(1-x) = ", factor
+    write (iu, '(a)') "# alpha_n = (Pi_n - (1-2x)^2) / (4x(1-x))"
+    write (iu, '(a,i0,a)') "# ", n_pairs, " symmetrically distinct pair types"
+    write (iu, '(a)') "#"
+    write (iu, '(a)') &
+      "# Columns: pair  char_dist(A)  n_inst  alpha(T_1) ... alpha(T_last)  alpha(T=inf)"
+    write (iu, '(a)', advance='no') "# Temperatures (K):"
+    do tt = 1, ntemp
+      write (iu, '(f11.1)', advance='no') temps(tt)
+    end do
+    write (iu, '(a)') "        inf"
+
+    do ipair = 1, n_pairs
+      jc = pair_jc(ipair)
+
+      do tt = 1, ntemp
+        if (abs(temps(tt)) < 1.0e-8_real64) then
+          corr_val = 0.0_real64; z = 0.0_real64
+          do ic = 1, nic
+            if (abs(ene(ic) - emin) < 1.0e-10_real64) then
+              corr_val = corr_val + real(degen(ic), real64) * pair_corr(ic, ipair)
+              z        = z        + real(degen(ic), real64)
+            end if
+          end do
+        else
+          beta = 1.0_real64 / (kb * temps(tt))
+          z    = 0.0_real64; corr_val = 0.0_real64
+          do ic = 1, nic
+            z        = z        + real(degen(ic), real64) * exp(-beta * (ene(ic) - emin))
+            corr_val = corr_val + real(degen(ic), real64) * exp(-beta * (ene(ic) - emin)) * pair_corr(ic, ipair)
+          end do
+        end if
+        alpha_vals(tt) = (corr_val / z - pi_rand) / factor
+      end do
+
+      T_inf_pi = 0.0_real64
+      do ic = 1, nic
+        T_inf_pi = T_inf_pi + real(degen(ic), real64) * pair_corr(ic, ipair)
+      end do
+      T_inf_pi = T_inf_pi / sum(real(degen(1:nic), real64))
+      alpha_vals(ntemp + 1) = (T_inf_pi - pi_rand) / factor
+
+      write (iu, '(i5, 2x, f8.4, 2x, i5, *(2x, f10.4))') &
+        ipair, clusters(jc)%char_dist, clusters(jc)%n_inst, alpha_vals(1:ntemp+1)
+    end do
+
+    close (iu)
+    deallocate (pair_corr, pair_jc, alpha_vals)
+
+    write (*, '(a,i0,a)') " > WC SRO parameters: ", n_pairs, " pair types"
+    write (*, '(a,a)') " > Written to ", trim(path_out)
+    write (*, *)
+
+  end subroutine write_wc_parameters
 
 end program gqssod

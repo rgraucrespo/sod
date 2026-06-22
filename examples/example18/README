@@ -1,67 +1,79 @@
-Example 18: MAPbI3-MAPbBr3 solid solution (MA as a parent molecule)
-===================================================================
+Example 18: SQS via random sampling for MAPbI3-MAPbBr3 (MA as parent molecule)
+===============================================================================
 
 Physical system
 ---------------
-Methylammonium lead halide perovskites MAPbX3 (X = I, Br) form a
-continuous MAPbI3-MAPbBr3 solid solution by mixing on the halide
-X-site, tuning the optical band gap for photovoltaic and LED
-applications. Here the cubic perovskite (Pm-3m) is modelled with the
-methylammonium cation MA (CH3NH3+) on every A-site and I/Br disorder
-on the X-site.
+MAPbI3-MAPbBr3 mixed-halide perovskites tune the optical band gap continuously
+by mixing I and Br on the X-site, with applications in photovoltaics and LEDs.
+At the equimolar composition (x=0.5, MAPbI1.5Br1.5) the number of halide
+arrangements in a 4x4x4 supercell is C(192,96) ~ 10^57, far beyond enumeration.
+This example demonstrates the random-sampling + SQS workflow for this regime.
 
-Unlike example08 (where MA *substitutes* for Cs on a fraction of the
-A-sites), in this example MA is part of the *parent structure*: every
-A-site is occupied by MA. MA is a near-free rotor at room temperature,
-so it is dynamically isotropic and is represented in the parent by a
-single spherical placeholder species, which is a point that obeys the
-Pm-3m site symmetry and the inequivalent-configuration enumeration. The
-molecule is declared simply by writing the parent species with an @NAME
-prefix in the INSOD symbol list - the same @NAME convention used for
-substituted molecules - so the parent symbol line reads:
+Workflow
+--------
+1. sod_random.sh -nconf 50000 -sym on
+   randomsod draws 50,000 uniform random configurations of 96 Br in 192 halide
+   sites, reduced under Pm-3m symmetry (EQMATRIX required). Results are written
+   to n096/random/ENSEMBLE.
+
+2. sod_sqs.sh (run from n096/random/)
+   sqssod scores each configuration against the ideal random alloy using the van
+   de Walle criterion (4th-order clusters, cutoff radii 12/8/8 A, omega=10).
+   Rankings are written to n096/random/OUTSQS. The top-ranked configuration is
+   c04258 (AbsErr ~ 0.0155).
+
+3. genersod (run from n096/random/)
+   Materialises the best SQS as a VASP POSCAR in n096/random/c04258/POSCAR
+   (FILER=11, 768 atoms: 64 C + 64 N + 384 H + 64 Pb + 96 Br + 96 I).
+
+@MA as parent molecule
+----------------------
+Unlike example08 (where MA substitutes for Cs on a fraction of A-sites), here
+MA is the parent-structure species: every A-site is occupied by MA throughout.
+The @MA prefix in the INSOD symbol list declares a parent molecule:
 
     # symbol(1:nsp): Atom symbols
     @MA Pb I
 
-SOD strips the @, treats the site as an ordinary "MA" placeholder
-species, and materialises MA.xyz only when genersod writes the explicit
-calculation inputs.
+combsod and randomsod treat @MA as a spherical point species obeying Pm-3m site
+symmetry; the symmetry analysis and random sampling act on the ideal lattice.
+genersod then expands each A-site placeholder into a full MA molecule (MA.xyz,
+8 atoms: C N 6H) with an independent random orientation (Shoemake uniform
+quaternion sampling).
 
-This example uses a 2x2x2 supercell with 24 halide sites and substitutes
-2 of them with Br (composition MAPbI(2.75)Br(0.25), the I-rich end of the
-solid solution), enumerating all inequivalent configurations under Pm-3m
-symmetry. The configurational disorder (sptarget: 3) is on the halide
-site only; the spherical MA placeholders and the Pb sub-lattice are
-framework. Output is VASP POSCAR files (FILER=11) for DFT calculations.
-
-The MA molecule is read from MA.xyz (8 atoms: C, N, 6H). genersod places
-its centre of mass at each A-site with an independent random orientation
-(Shoemake uniform quaternion sampling), the same treatment as a
-substituted molecule. combsod never sees the molecule - the symmetry
-analysis is performed on the spherical "MA" placeholder.
+For SQS on a fully enumerated ensemble, see example16.
 
 Files
 -----
-  INSOD                SOD input (FILER=11, VASP; @MA parent molecule in symbol list)
-  SGO                  Symmetry operations for Pm-3m (space group 221)
-  supercell.cif        2x2x2 placeholder supercell in P1 (40 sites: 8 MA, 8 Pb, 24 I)
-  MA.xyz               Methylammonium geometry (DFT-PBE optimised, Angstrom)
+  INSOD                      SOD input (4x4x4 supercell, nsubs=96, FILER=11 VASP)
+  SGO                        Symmetry operators for Pm-3m (space group 221)
+  OPERATORS                  Operator list
+  EQMATRIX                   Equivalence matrix (required for -sym on)
+  supercell.cif              Reference placeholder geometry (CIF, P1)
+  MA.xyz                     Methylammonium geometry (DFT-PBE optimised, Angstrom)
+  n096/random/ENSEMBLE       50,000 symmetry-reduced random configurations
+  n096/random/INSQS          SQS scoring parameters (4th-order, cutoffs 12/8/8 A)
+  n096/random/OUTSQS         SQS scores and ranking for all 50,000 configurations
+  n096/random/c04258/POSCAR  Best-SQS VASP POSCAR (768 atoms)
 
 How to run
 ----------
-1. Run combsod:   ../../bin/combsod
-2. Run genersod:  ../../bin/genersod
-3. VASP POSCAR files appear in n02/cXX/POSCAR
+1. Generate the random ensemble (from the example18/ directory):
+     sod_random.sh -nconf 50000 -sym on
 
-Supply INCAR, KPOINTS and POTCAR (Vegard-scaled lattice for other Br
-fractions) before running VASP; genersod copies an INCAR into each
-configuration directory if one is present in the working directory.
+2. Score and rank:
+     cd n096/random
+     sod_sqs.sh
+
+3. Write the best SQS structure:
+     genersod
+
+Supply INCAR, KPOINTS and POTCAR before running VASP. For other compositions
+(different x), adjust nsubs in INSOD and regenerate the random ensemble.
 
 Expected output
 ---------------
-7 inequivalent configurations out of C(24,2) = 276 total arrangements.
-
-Each POSCAR contains 96 atoms:
-  8 MA molecules (8 C + 8 N + 48 H) + 8 Pb + 22 I + 2 Br
-(every A-site placeholder expanded into an 8-atom MA molecule).
+50,000 symmetry-reduced configurations in n096/random/ENSEMBLE.
+OUTSQS rank 1: configuration c04258, AbsErr ~ 1.55e-02.
+POSCAR: 768 atoms (64 MA molecules + 64 Pb + 96 I + 96 Br).
 MA orientations are random and differ between genersod runs.

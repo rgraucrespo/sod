@@ -221,14 +221,14 @@ Glossary
 
    randomsod
       The uniform random-sampling executable (wrapper ``sod_random.sh``).
-      Draws ``nconfigs`` independent uniform configurations at the target
+      Draws N independent uniform configurations at the target
       level with **no** energy evaluation and writes them to
-      ``nXX/random/ENSEMBLE`` (with ``-symmetry on``, the degeneracy column
+      ``nXX/random/ENSEMBLE`` (with ``-sym on``, the degeneracy column
       holds visit counts).  It is the sampling counterpart of :term:`combsod`
       for levels too large to enumerate; energies, if wanted, are computed a
       posteriori via the usual structure-writer → DFT → ``statsod`` path.
       Reads :term:`INSOD` and ``SGO`` (always), plus :term:`EQMATRIX` with
-      ``-symmetry on``.
+      ``-sym on``.
 
    mcstatsod
       The Monte Carlo thermodynamics program.  Run from ``nXX/``, it reads

@@ -1,5 +1,14 @@
 ## Unreleased
 
+## Version 0.83 (22 June 2026)
+
+Minor release.
+
+- **Warren-Cowley SRO parameters (`gqssod`)**: `gqssod` now writes `wc_parameters.dat` with thermally averaged Warren-Cowley α_n parameters for each symmetrically distinct pair-cluster shell at every requested temperature, plus the T→∞ (random) limit.
+- **`AUTHORS.md`**: contributors file converted to Markdown with GitHub profile links.
+- **`sod_random.sh` flags shortened** (breaking): `-nconfigs` → `-nconf`, `-symmetry` → `-sym`. Default symmetry changed to `off`. The shell wrapper now catches a missing `-nconf` and prints its own usage. Error messages point to `sod_random.sh` rather than the bare `randomsod` executable.
+- **example18 documentation corrected**: all four description locations now accurately describe the actual committed example (4×4×4 supercell, nsubs=96, random-sampling workflow with 50,000 draws).
+
 ## Version 0.82 (20 June 2026)
 
 - **Standalone random sampler (`randomsod` / `sod_random.sh`)**: uniform random sampling is now a separate executable, split out of `mcsod`. It draws configurations with no energy evaluation at all and writes `nXX/random/ENSEMBLE`, ready for the usual structure-writer → DFT → `statsod` path — the sampling counterpart of `combsod` for levels too big to enumerate. Run as `sod_random.sh -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]`. As a result, `mcsod` and `INMC` are now Metropolis-only: the `INMC` sampler line is gone (first value is now the symmetry flag), and uniform workflows move to `sod_random.sh`. The shared geometry/symmetry/sampling helpers now live in a new `config_sampling` module used by both programs.

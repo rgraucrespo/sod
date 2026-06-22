@@ -9,11 +9,11 @@
 # sampling counterpart of combsod, for substitution levels too large to enumerate.
 #
 # USAGE
-#   sod_random.sh -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]
+#   sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]
 #
-#   -nconfigs <N>        Number of uniform draws (required). This is the number of
+#   -nconf <N>           Number of uniform draws (required). This is the number of
 #                        draws, not the number of distinct configurations.
-#   -symmetry on|off     Fold draws to symmetry representatives (default: on).
+#   -sym on|off          Fold draws to symmetry representatives (default: off).
 #                        With 'on', the degeneracy column holds visit counts, the
 #                        correct importance weights for statsod canonical averages.
 #   -seed clock|<int>    RNG seed (default: clock). Use a positive integer for a
@@ -37,27 +37,34 @@ cd "$SODPROJECT" || exit 1
 
 clear
 
-# Parse arguments (defaults: symmetry on, seed clock). All flags are forwarded
+# Parse arguments (defaults: sym on, seed clock). All flags are forwarded
 # to randomsod, which re-validates them; we parse here for input-file checks.
-SYMMETRY="on"
+SYMMETRY="off"
+HAVE_NCONF=false
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -nconfigs)
-      [[ $# -ge 2 ]] || { echo "Error: -nconfigs requires a value."; exit 1; }
-      ARGS+=("-nconfigs" "$2"); shift 2 ;;
-    -symmetry)
-      [[ $# -ge 2 ]] || { echo "Error: -symmetry requires a value (on|off)."; exit 1; }
-      SYMMETRY="$2"; ARGS+=("-symmetry" "$2"); shift 2 ;;
+    -nconf)
+      [[ $# -ge 2 ]] || { echo "Error: -nconf requires a value."; exit 1; }
+      ARGS+=("-nconf" "$2"); HAVE_NCONF=true; shift 2 ;;
+    -sym)
+      [[ $# -ge 2 ]] || { echo "Error: -sym requires a value (on|off)."; exit 1; }
+      SYMMETRY="$2"; ARGS+=("-sym" "$2"); shift 2 ;;
     -seed)
       [[ $# -ge 2 ]] || { echo "Error: -seed requires a value (clock|<int>)."; exit 1; }
       ARGS+=("-seed" "$2"); shift 2 ;;
     *)
       echo "Error: unrecognised argument to sod_random.sh: $1"
-      echo "Usage: sod_random.sh -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]"
+      echo "Usage: sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]"
       exit 1 ;;
   esac
 done
+
+if ! $HAVE_NCONF; then
+  echo "Error: -nconf is required."
+  echo "Usage: sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]"
+  exit 1
+fi
 
 # Required input files: INSOD and SGO always; EQMATRIX only when reducing.
 for reqfile in INSOD SGO; do
@@ -68,8 +75,8 @@ for reqfile in INSOD SGO; do
 done
 
 if [ "$SYMMETRY" = "on" ] && [ ! -f EQMATRIX ]; then
-  echo "Error: EQMATRIX not found, required for -symmetry on."
-  echo "Generate it with sod_comb.sh, or run with -symmetry off."
+  echo "Error: EQMATRIX not found, required for -sym on."
+  echo "Generate it with sod_comb.sh, or run with -sym off."
   exit 1
 fi
 

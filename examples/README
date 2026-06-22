@@ -129,8 +129,9 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
 - example16:         SQS/GQS workflow: 8 Ni/Mg substitutions in a 2×2×2 supercell of rocksalt
                     MgO (space group Fm-3m, 32 Mg sites), giving 8043 inequivalent
                     configurations. Demonstrates Special Quasirandom Structure identification
-                    (sqssod → OUTSQS) and thermally weighted Generalized Quasirandom Structure
-                    selection (gqssod → OUTGQS) using pre-computed ENERGIES and TEMPERATURES.
+                    (sqssod → OUTSQS), thermally weighted Generalized Quasirandom Structure
+                    selection (gqssod → OUTGQS), and Warren-Cowley SRO parameter output
+                    (gqssod → wc_parameters.dat) using pre-computed ENERGIES and TEMPERATURES.
                     GULP input files (FILER=1) for all 8043 configurations are pre-generated.
                     Run with sod_sqs.sh or sod_gqs.sh.
 
@@ -143,5 +144,23 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
                     ordering energies at target compositions n04 (34 configs), n05 (105 configs),
                     and n06 (321 configs). All three PME modes (PME0 low-side only, PME1
                     high-side only, PMEh hybrid) are pre-computed in each target folder for
-                    comparison. FILER=-1. Set the target composition in INSOD and run with 
+                    comparison. FILER=-1. Set the target composition in INSOD and run with
                     sod_pme.sh.
+
+- example18:         SQS identification via random sampling: equimolar MAPbI1.5Br1.5
+                    (x=0.5 MAPbI3-MAPbBr3 solid solution), 4×4×4 supercell of cubic
+                    perovskite Pm-3m (96 Br substituted into 192 halide sites).
+                    C(192,96)≈10^57 makes full enumeration impossible; instead 50,000
+                    uniform random configurations are drawn with sod_random.sh (-nconf
+                    50000 -sym on) and the Special Quasirandom Structure is identified
+                    with sod_sqs.sh (van de Walle scoring, 4th-order clusters, cutoffs
+                    12/8/8 Å). The top-ranked SQS (configuration c04258) is written as a
+                    VASP POSCAR (FILER=11, 768 atoms: 64 C + 64 N + 384 H + 64 Pb +
+                    96 I + 96 Br). Also demonstrates the @MA parent-molecule syntax:
+                    every A-site of the parent structure is occupied by the MA cation
+                    (declared as @MA in the INSOD symbol list), so combsod and randomsod
+                    treat it as a spherical Pm-3m placeholder while genersod expands each
+                    site into a full MA molecule from MA.xyz (Shoemake random orientation).
+                    Contrast with example08, where MA substitutes for Cs on a fraction of
+                    A-sites, and with example16, where SQS is found on a fully enumerated
+                    ensemble. Run with sod_random.sh then sod_sqs.sh.

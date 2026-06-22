@@ -1,6 +1,6 @@
 project = "SOD"
 author = "Ricardo Grau-Crespo and co-authors"
-release = "0.82"
+release = "0.83"
 
 extensions = []
 templates_path = ["_templates"]
@@ -14,4 +14,4 @@ except ImportError:
 else:
     html_theme = "sphinx_rtd_theme"
 html_title = f"SOD documentation ({release})"
-html_logo = "_static/sod_logo.png"
+html_logo = "_static/sod_logo.svg"

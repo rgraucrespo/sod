@@ -8,20 +8,20 @@
 !    as for an enumerated combsod ensemble. randomsod is the sampling counterpart
 !    of combsod, for substitution levels too large to enumerate.
 !
-!    With -symmetry on (default) draws are folded to symmetry representatives and
+!    With -sym on draws are folded to symmetry representatives and
 !    the degeneracy column holds visit counts: the uniform draw already visits
 !    each orbit in proportion to its size, so visit counts are the correct
-!    importance weights for canonical averages in statsod. -nconfigs is the
+!    importance weights for canonical averages in statsod. -nconf is the
 !    number of draws (not the number of distinct configurations, which is not
 !    known a priori).
 !
 !    USAGE
-!      randomsod -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]
+!      randomsod -nconf <N> [-sym on|off] [-seed clock|<int>]
 !
 !    Required input files: INSOD, SGO (always); EQMATRIX (when -symmetry on).
 !    Output: nXX/random/ENSEMBLE (XX = target level).
 !
-!    Part of the SOD package (v0.82) — GNU GPL v3+.
+!    Part of the SOD package (v0.83) — GNU GPL v3+.
 !*******************************************************************************
 
 program randomsod
@@ -54,12 +54,12 @@ program randomsod
   character(len=256) :: ensemble_path
   integer :: unit_ens
 
-  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - randomsod"
+  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - randomsod"
 
   ! --- Defaults ---
   nconfigs      = 0
   have_nconfigs = .false.
-  use_symmetry  = .true.        ! -symmetry on by default
+  use_symmetry  = .false.       ! -sym off by default
   iseed         = -1            ! -seed clock by default
 
   ! --- Parse command line ---
@@ -68,21 +68,21 @@ program randomsod
   do while (iarg <= arg_count)
     call get_command_argument(iarg, arg)
     select case (trim(arg))
-    case ('-nconfigs')
-      call require_value(iarg, arg_count, '-nconfigs', val)
+    case ('-nconf')
+      call require_value(iarg, arg_count, '-nconf', val)
       read(val, *, iostat=ios) nconfigs
       if (ios /= 0 .or. nconfigs <= 0) then
-        write(error_unit,'(A,A)') ' Error: -nconfigs requires a positive integer, got: ', trim(val)
+        write(error_unit,'(A,A)') ' Error: -nconf requires a positive integer, got: ', trim(val)
         stop 1
       end if
       have_nconfigs = .true.
-    case ('-symmetry')
-      call require_value(iarg, arg_count, '-symmetry', val)
+    case ('-sym')
+      call require_value(iarg, arg_count, '-sym', val)
       select case (trim(val))
       case ('on');  use_symmetry = .true.
       case ('off'); use_symmetry = .false.
       case default
-        write(error_unit,'(A,A)') ' Error: -symmetry must be on or off, got: ', trim(val)
+        write(error_unit,'(A,A)') ' Error: -sym must be on or off, got: ', trim(val)
         stop 1
       end select
     case ('-seed')
@@ -98,15 +98,15 @@ program randomsod
       end if
     case default
       write(error_unit,'(A,A)') ' Error: unrecognised argument: ', trim(arg)
-      write(error_unit,'(A)')   ' Usage: randomsod -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]'
+      write(error_unit,'(A)')   ' Usage: sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]'
       stop 1
     end select
     iarg = iarg + 1
   end do
 
   if (.not. have_nconfigs) then
-    write(error_unit,'(A)') ' Error: -nconfigs is required.'
-    write(error_unit,'(A)') ' Usage: randomsod -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]'
+    write(error_unit,'(A)') ' Error: -nconf is required.'
+    write(error_unit,'(A)') ' Usage: sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]'
     stop 1
   end if
 
@@ -215,6 +215,7 @@ program randomsod
   ! --- Summary ---
   write(*, '(A)') ' --- Output -----------------------------------------------------------------'
   write(*, '(A,I0)')  '  Draws             : ', nconfigs
+  if (use_symmetry) &
   write(*, '(A,I0)')  '  Distinct configs  : ', n_unique
   write(*, '(A,A)')   '  ENSEMBLE          : ', trim(ensemble_path)
   write(*, '(A)') ' ---------------------------------------------------------------------------'

@@ -99,6 +99,9 @@ Examples 02–14 cover a wide range of disorder models and statistical workflows
    * - 17
      - Al/Fe in LaFeO₃ (3×3×3, 27 Fe sites)
      - **PMEh** third-order hybrid PME for target level n04 with full DFT reference energies
+   * - 18
+     - MAPbI₃–MAPbBr₃ equimolar solid solution (4×4×4 Pm-3m, 192 halide sites)
+     - **SQS via random sampling**: 50 000 draws with ``sod_random.sh``, ranked with ``sod_sqs.sh``; ``@MA`` parent-molecule syntax (all A-sites occupied by MA)
 
 Many examples include reference outputs such as ``ENSEMBLE``, ``ENERGIES``,
 ``DATA``, ``SPECTRA``, ``OUTSQS``, ``OUTGQS``, and grand-canonical ``x???/`` folders.

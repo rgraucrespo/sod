@@ -19,20 +19,20 @@ Usage
 
 .. code-block:: bash
 
-   sod_random.sh -nconfigs <N> [-symmetry on|off] [-seed clock|<int>]
+   sod_random.sh -nconf <N> [-sym on|off] [-seed clock|<int>]
 
 Run it from the main problem directory, which must contain ``INSOD`` and
-``SGO`` (always), plus ``EQMATRIX`` when ``-symmetry on`` (generate ``EQMATRIX``
+``SGO`` (always), plus ``EQMATRIX`` when ``-sym on`` (generate ``EQMATRIX``
 with ``sod_comb.sh``).
 
 Options
 ~~~~~~~
 
-``-nconfigs <N>``
+``-nconf <N>``
   Number of uniform **draws** (required).  This is the number of draws, not the
   number of distinct configurations — the latter is not known a priori.
 
-``-symmetry on|off``  (default ``on``)
+``-sym on|off``  (default ``off``)
   With ``on``, draws are folded to symmetry representatives and the degeneracy
   column of the ``ENSEMBLE`` holds **visit counts**.  A uniform draw visits each
   symmetry orbit in proportion to its size, so visit counts are exactly the

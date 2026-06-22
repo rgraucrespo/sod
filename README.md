@@ -1,4 +1,4 @@
-# SOD 0.82 - Notes for users
+# SOD 0.83 - Notes for users
 
 SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -15,7 +15,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 - Statistical mechanics processing of output using either canonical or grand-canonical ensembles.
 - Construction of an effective configurational Hamiltonian by Periodic Motif Expansion (PME), fitted from reference energies at low and/or high substitution levels, to predict the energies of configurations at intermediate compositions where full enumeration is intractable.
 - Metropolis Monte Carlo (MC) sampling of the configurational space using the PME Hamiltonian, followed by thermodynamic integration to obtain free energies.
-- Uniform random sampling of the configurational space (`sod_random.sh`/`randomsod`), an energy-free way to build large configuration sets for levels too big to enumerate.
+- Uniform random sampling of the configurational space, an energy-free way to build large configuration sets for levels too big to enumerate.
 - Special Quasirandom Structures (SQS) and Generalized Quasirandom Structures (GQS): identification of configurations with optimal short-range order and thermal averaging of pair correlations.
 
 
@@ -69,11 +69,11 @@ See [Grau-Crespo et al. Chemical Science Chemical Science 16 (2025) 19357-19369]
 
 - **example15**: Si/Ge substitution in α-quartz (2×2×2 supercell, 24 Si sites) - demonstrates Monte Carlo (MC) with Periodic Motif Expansion (PME) Hamiltonian. 
 
-- **example16**: Ni/Mg substitution in MgO rocksalt (2×2×2 supercell, 32 Mg sites, 8 substitutions) — a **SQS/GQS workflow example** demonstrating Special Quasirandom Structure identification (OUTSQS) and thermal-weighted Generalized Quasirandom Structure selection (OUTGQS from gqssod). Illustrates the complete SQS/GQS pipeline: enumeration → pair-correlation-based scoring → thermal averaging across three temperatures (0K, 1000K, 1000000K). Pre-computed GULP energies (`n08/ENERGIES`) and reference outputs (OUTSQS, OUTGQS, thermodynamics.dat) are provided for validation; the per-configuration GULP input files (FILER=1) are regenerated on demand with `sod_comb.sh`.
+- **example16**: Ni/Mg substitution in MgO rocksalt (2×2×2 supercell, 32 Mg sites, 8 substitutions) — a **SQS/GQS workflow example** demonstrating Special Quasirandom Structure identification (OUTSQS), thermal-weighted Generalized Quasirandom Structure selection (OUTGQS from gqssod), and Warren-Cowley short-range order parameters (wc_parameters.dat from gqssod). Illustrates the complete SQS/GQS pipeline: enumeration → pair-correlation-based scoring → thermal averaging across three temperatures (0K, 1000K, 1000000K). Pre-computed GULP energies (`n08/ENERGIES`) and reference outputs (OUTSQS, OUTGQS, wc_parameters.dat, thermodynamics.dat) are provided for validation; the per-configuration GULP input files (FILER=1) are regenerated on demand with `sod_comb.sh`.
 
 - **example17**: Al/Fe substitution in a 3×3×3 supercell of cubic LaFeO₃ perovskite (space group Pm-3m, 27 Fe sites) - demonstrates the PME-only workflow (without MC): a Periodic Motif Expansion Hamiltonian is calibrated from low-side reference data (n00–n03, 0–3 Al substitutions; 1, 1, 3, 10 inequivalent configurations) and high-side reference data (n24–n27, 24–27 Al substitutions; 10, 3, 1, 1 configurations), then used to predict ordering energies at target compositions n04 (34 configs), n05 (105 configs), and n06 (321 configs). All three PME modes (PME0 low-side only, PME1 high-side only, PMEh hybrid) are pre-computed in each target folder for comparison. FILER=-1. Set the target composition in INSOD and run with sod_pme.sh.
 
-- **example18**: MAPbI₃–MAPbBr₃ solid solution in a 2×2×2 cubic perovskite (Pm-3m) — demonstrates a **parent molecule**. Methylammonium (MA = CH₃NH₃⁺) occupies every A-site as part of the parent structure (not as a substitution); because MA is a near-free rotor it is represented in the parent by a single spherical placeholder species (written `@MA` in the parent `symbol` list) that obeys the symmetry and the enumeration, and `genersod` materialises it into an 8-atom molecule (random orientation per site) only when writing the calculation inputs. The configurational disorder is the I/Br mixing on the 24 halide sites (`sptarget: 3`), here 2 Br (composition MAPbI₂.₇₅Br₀.₂₅), giving **7 inequivalent configurations** out of C(24,2)=276. The parent molecule is declared simply by the `@MA` prefix in the parent `symbol` list. VASP POSCAR files (FILER=11) are generated, each with 96 atoms (8 MA = 8 C + 8 N + 48 H, plus 8 Pb, 22 I, 2 Br); supply `INCAR`/`KPOINTS`/`POTCAR` before running. Contrast with example08, where MA *substitutes* on the A-site.
+- **example18**: MAPbI₃–MAPbBr₃ equimolar solid solution (x=0.5, MAPbI₁.₅Br₁.₅) in a 4×4×4 supercell of cubic perovskite (Pm-3m, 192 halide sites) — demonstrates **SQS identification via random sampling**. C(192,96)≈10⁵⁷ makes full enumeration impossible; instead 50,000 uniform random configurations are drawn with `sod_random.sh -nconf 50000 -sym on` and scored against the ideal random alloy with `sod_sqs.sh` (van de Walle criterion, 4th-order clusters, cutoffs 12/8/8 Å). The top-ranked SQS (configuration c04258) is written as a VASP POSCAR (FILER=11, 768 atoms: 64 C + 64 N + 384 H + 64 Pb + 96 I + 96 Br). Also demonstrates the **`@MA` parent-molecule syntax**: methylammonium (MA = CH₃NH₃⁺) occupies every A-site of the parent structure (not as a substitution), declared with the `@MA` prefix in the INSOD `symbol` list. `randomsod` treats it as a spherical Pm-3m placeholder; `genersod` materialises each site into an 8-atom MA molecule with a random Shoemake orientation. Contrast with example08 (MA substitutes for Cs) and example16 (SQS on a fully enumerated ensemble).
 
 ## Molecules (@NAME) and vacancies (%NAME)
 
@@ -102,7 +102,7 @@ SOD strips the `@`, treats the site as an ordinary spherical placeholder species
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.82.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.83.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -143,7 +143,7 @@ full configurational enumeration (`statsod`) on the same PME Hamiltonian.
 
 ## Running SOD
 
-- We recommend creating a new folder for each SOD project. This top-level working directory is called SODPROJECT throughout this documentation (formerly called MAINFOLDER).
+- We recommend creating a new folder for each SOD project (a family of compositions within a given supercell). This top-level working directory is called SODPROJECT throughout this documentation. 
 
 - In SODPROJECT, you must create a file named *INSOD* which contains all the information for running the combinatorics part of the program. Use the *INSOD* file given in one of the examples as a template. The file is self-explanatory. The format of this file is rigid, so keep the same number of blank lines.
 
@@ -564,27 +564,52 @@ The script automatically runs `sqssod` first if needed, then reads:
 It generates:
 - **`OUTSQS`**: SQS results (from `sqssod`)
 - **`OUTGQS`**: GQS results with thermal averages of pair correlations at each temperature
+- **`wc_parameters.dat`**: Warren-Cowley SRO parameters for each symmetrically distinct pair type, at each temperature
 
-### Example: example01/FILER1_gulp/n04
+### Output file: wc_parameters.dat
 
-This example demonstrates SQS/GQS for Ni/Mg substitution (nsubs=4, x=0.125) in a 2×2×2 MgO rocksalt supercell:
+`wc_parameters.dat` reports the Warren-Cowley short-range order (SRO) parameter for each symmetrically distinct pair cluster type, thermally averaged over the ensemble using Boltzmann statistics. The Warren-Cowley parameter for pair shell n is:
 
-```bash
-cd examples/example01/FILER1_gulp/
-sod_comb.sh                    # Generate EQMATRIX, n04/ENSEMBLE, etc.
-sod_gulp_ener.sh               # Extract ENERGIES from GULP output
-sod_sqs.sh                      # Run sqssod on all nXX/ folders
+```
+α_n = (Π_n − (1−2x)²) / (4x(1−x))
 ```
 
-The results in `n04/OUTSQS` show that configuration 45 is the best SQS for this composition (lowest Q).
+where Π_n is the pair correlation and x is the substituted-species fraction. Interpretation:
 
-To run GQS (thermal averaging), also create a TEMPERATURES file and run:
+- **α = 0**: ideal random mixing for that shell
+- **α < 0**: preference for unlike neighbors (ordering tendency)
+- **α > 0**: preference for like neighbors (clustering tendency)
 
-```bash
-sod_gqs.sh
+The file lists one row per symmetrically distinct pair type, ordered by increasing characteristic distance. Example for Ni/Mg in MgO (x=0.25, N=32 sites, T=0/1000/1000000 K):
+
+```
+# Warren-Cowley SRO parameters from gqssod
+# x =  0.25000   (1-2x)^2 =  0.25000   4x(1-x) =  0.75000
+# alpha_n = (Pi_n - (1-2x)^2) / (4x(1-x))
+# 5 symmetrically distinct pair types
+#
+# Columns: pair  char_dist(A)  n_inst  alpha(T_1) ... alpha(T_last)  alpha(T=inf)
+# Temperatures (K):        0.0     1000.0  1000000.0        inf
+    1    2.9840    192      0.0000     -0.0299     -0.0323     -0.0323
+    2    4.2200     48     -0.3333     -0.0388     -0.0323     -0.0323
+    3    5.1684    192      0.0000     -0.0315     -0.0323     -0.0323
+    4    5.9680     48     -0.3333     -0.0377     -0.0323     -0.0323
+    5    7.3093     16      1.0000     -0.0341     -0.0323     -0.0323
 ```
 
-This will generate `n04/OUTGQS` showing how pair correlations evolve with temperature due to the Boltzmann distribution over configurations.
+The `T=inf` column (last) is the equiprobable ensemble average. For a finite supercell of N sites it converges to −1/(N−1) rather than exactly 0, reflecting the well-known finite-size correction to the canonical WC parameters; for N=32 this is −1/31 ≈ −0.0323. As the supercell grows, this residual approaches zero.
+
+### Example: example16
+
+`examples/example16/` is the dedicated SQS/GQS reference example: 8 Ni substitutions (x=0.25) in 32 Mg sites of a 2×2×2 MgO rocksalt supercell (8043 inequivalent configurations). Pre-computed GULP energies and reference outputs (`n08/OUTSQS`, `n08/OUTGQS`, `n08/wc_parameters.dat`, `n08/thermodynamics.dat`) are provided. To reproduce:
+
+```bash
+cd examples/example16/
+sod_sqs.sh n08        # score configurations → n08/OUTSQS
+sod_gqs.sh n08        # thermal averaging  → n08/OUTGQS, n08/wc_parameters.dat
+```
+
+The `n08/wc_parameters.dat` above shows the ground-state (T=0 K) ordering: nearest-neighbor pairs (2.984 Å) have α=0 (random-like), second-neighbor pairs (4.220 Å) have α=−1/3 (strong unlike-neighbor preference), and the 7.309 Å shell has α=+1 (exclusively like-neighbor pairs). All shells converge to approximately zero at high temperature, consistent with the finite-size limit −1/31.
 
 ### Selecting a SQS
 

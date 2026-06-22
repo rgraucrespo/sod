@@ -8,7 +8,7 @@
 !    Required input files: INMC, INSOD, EQMATRIX, SGO, the PME training data
 !    (n00/ENERGIES, …) and a temperature: mcsod <temperature/K>.
 !
-!    Part of the SOD package (v0.82) — GNU GPL v3+.
+!    Part of the SOD package (v0.83) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcsod
@@ -30,7 +30,7 @@ program mcsod
   character(len=256) :: line, start_config_line, model_filename_arg
   character(len=256) :: output_dir, energies_dir
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.82 - mcsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - mcsod"
 
   ! --- Read INMC ---
   open(newunit=unit_in, file='INMC', status='old', action='read', iostat=ios)

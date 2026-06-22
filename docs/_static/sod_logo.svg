@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="136" viewBox="0 0 320 136">
+  <title>SOD — Site-Occupancy Disorder</title>
+
+  <!-- Lattice grid lines -->
+  <g stroke="#cccccc" stroke-width="0.6" fill="none">
+    <line x1="0" y1="40" x2="96" y2="40"/>
+    <line x1="0" y1="68" x2="96" y2="68"/>
+    <line x1="0" y1="96" x2="96" y2="96"/>
+    <line x1="16" y1="24" x2="16" y2="112"/>
+    <line x1="48" y1="24" x2="48" y2="112"/>
+    <line x1="80" y1="24" x2="80" y2="112"/>
+  </g>
+
+  <!-- Ordered sites (solid filled) -->
+  <circle cx="16" cy="40" r="8" fill="#1a1a1a"/>
+  <circle cx="48" cy="40" r="8" fill="#1a1a1a"/>
+  <circle cx="80" cy="40" r="8" fill="#1a1a1a"/>
+  <circle cx="16" cy="68" r="8" fill="#1a1a1a"/>
+
+  <!-- Half-occupied site at (48,68) -->
+  <circle cx="48" cy="68" r="8" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+  <path d="M48,60 A8,8 0 0,1 48,76 Z" fill="#1a1a1a"/>
+
+  <!-- Vacant/disordered site at (80,68) — dashed outline -->
+  <circle cx="80" cy="68" r="8" fill="none" stroke="#aaaaaa" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+
+  <!-- Ordered site at (16,96) -->
+  <circle cx="16" cy="96" r="8" fill="#1a1a1a"/>
+
+  <!-- Vacant site at (48,96) -->
+  <circle cx="48" cy="96" r="8" fill="none" stroke="#aaaaaa" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+
+  <!-- Half-occupied site at (80,96) -->
+  <circle cx="80" cy="96" r="8" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+  <path d="M80,88 A8,8 0 0,1 80,104 Z" fill="#1a1a1a"/>
+
+  <!-- Wordmark -->
+  <text x="112" y="98" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="80" font-weight="700" fill="#1a1a1a" letter-spacing="-2">SOD</text>
+
+  <!-- Tagline -->
+  <text x="112" y="120" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="11" font-weight="400" fill="#888888" letter-spacing="2">SITE-OCCUPANCY DISORDER</text>
+</svg>

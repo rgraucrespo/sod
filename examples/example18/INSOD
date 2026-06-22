@@ -25,7 +25,7 @@ MAPbI3-MAPbBr3 solid solution: MA parent molecule, I/Br disorder
 3
 
 # nsubs: Substitution counts. One line per target site.
-96
+48
 
 # newsymbol: k new-species symbols followed by the remaining-species symbol
 Br I
