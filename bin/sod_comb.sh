@@ -16,12 +16,8 @@ clear
 
 combsod || { echo "Error: combsod failed"; exit 1; }
 
-# Read FILER value from last line of INSOD
-if [ ! -f INSOD ]; then
-  echo "Error: INSOD file not found"
-  exit 1
-fi
-FILER=$(tail -1 INSOD)
+# Read FILER from the last non-blank, non-comment INSOD line.
+FILER="$(sod_read_insod_filer INSOD)" || exit 1
 
 if [ "$FILER" -ne -1 ]; then
 

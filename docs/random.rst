@@ -14,6 +14,10 @@ energies are computed *a posteriori*: feed ``nXX/random/ENSEMBLE`` into the
 normal structure-writer → DFT → ``statsod`` path, exactly as for an enumerated
 ``combsod`` ensemble.
 
+``randomsod`` supports the same general substitution model as ``combsod``:
+multiple target sublattices (multisite) and multiple substituting species on a
+single site (multinary).  See :ref:`random-multinary` below.
+
 Usage
 -----
 
@@ -38,7 +42,11 @@ Options
   symmetry orbit in proportion to its size, so visit counts are exactly the
   importance weights ``statsod`` needs for canonical Boltzmann averages — no
   separate orbit-size calculation is required.  With ``off``, every draw is
-  written as its own row with degeneracy 1.
+  written as its own row with degeneracy 1.  Folding uses a *colored* orbit
+  representative, so it is correct for multinary and multisite runs (a
+  configuration is only merged with another if their sites match species by
+  species, not merely as an unlabelled set).  ``-sym on`` requires ``EQMATRIX``,
+  which ``sod_comb.sh`` writes with one block per target sublattice.
 
 ``-seed clock|<int>``  (default ``clock``)
   RNG seed.  Use a positive integer for a reproducible sample; ``clock`` seeds
@@ -47,10 +55,43 @@ Options
 Output
 ------
 
-``nXX/random/ENSEMBLE`` (``XX`` = target level), in the standard ``ENSEMBLE``
-format.  It is consumed by ``sod_sqs.sh`` (SQS selection), ``sod_gener.sh``
-(calculation inputs), and ``statsod`` (canonical thermodynamics once energies
-are available).
+``nXX/random/ENSEMBLE`` in the standard ``ENSEMBLE`` format, where ``XX`` is the
+substitution level.  The directory name follows ``combsod``: for a single binary
+target it is ``n<nsubs>``; for multinary or multisite runs the per-species counts
+are joined with underscores (e.g. ``n04_04`` for a 4/4 multinary split,
+``n02_01`` for two sublattices substituted 2 and 1).  It is consumed by
+``sod_sqs.sh`` (SQS selection), ``sod_gener.sh`` (calculation inputs), and
+``statsod`` (canonical thermodynamics once energies are available).
+
+.. _random-multinary:
+
+Multinary and multisite substitutions
+--------------------------------------
+
+The number and identity of targets and substituting species are read from
+``INSOD`` exactly as for ``combsod`` — ``randomsod`` needs no extra flags. Each
+draw independently places, on **every** target sublattice, a uniform *colored*
+assignment of the requested per-species counts:
+
+- **Multisite** (several ``sptarget`` sublattices): every sublattice is
+  substituted in the same draw, at its own requested level.
+- **Multinary** (``nsubs`` line with more than one count, e.g. ``4 4``): the
+  substituted sites on that sublattice are partitioned uniformly among the
+  substituting species.
+
+The resulting ``ENSEMBLE`` has one column group per (target, species) and is
+byte-compatible with the ``combsod`` format, so ``statsod`` and the structure
+writers consume it unchanged. With ``-sym on`` the same crystal symmetry acts on
+all sublattices simultaneously, and the visit counts reproduce the exact orbit
+degeneracies from ``combsod`` (in the enumerable limit) up to Monte-Carlo noise.
+
+The colored orbit folding uses the **same canonical representative as**
+``combsod`` — the ranking is nested target-major and, within each target,
+support-major (sorted combined support, then each species colouring). As a
+result, for any orbit that appears in both, ``randomsod -sym on`` and ``combsod``
+write the *identical* configuration row: the two ``ENSEMBLE`` files match
+line-for-line on the sampled orbits, differing only in the degeneracy column
+(``combsod`` writes exact orbit sizes, ``randomsod`` writes visit counts).
 
 SQS selection from a random sample
 -----------------------------------

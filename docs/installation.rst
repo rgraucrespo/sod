@@ -19,7 +19,7 @@ features used in SOD.
 Obtaining the source
 --------------------
 
-Download the SOD release archive, for example ``sod0.83.tar.gz``, and copy it
+Download the SOD release archive, for example ``sod0.84.tar.gz``, and copy it
 to a directory that will contain the installation. Let this parent directory be
 called ``ROOTSOD``.
 
@@ -30,7 +30,7 @@ Unpack the archive with:
    tar xzvf sod(version).tar.gz
 
 This creates a versioned SOD directory inside ``ROOTSOD``, for example
-``ROOTSOD/sod0.83/``.
+``ROOTSOD/sod0.84/``.
 
 Building SOD
 ------------

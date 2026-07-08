@@ -1,5 +1,14 @@
 ## Unreleased
 
+## Version 0.84 (8 July 2026)
+
+Minor release.
+
+- **Multinary and multisite random sampling (`randomsod` / `sod_random.sh`)**: the uniform random sampler now supports the full substitution model — multiple target sublattices (multisite) and multiple substituting species per site (multinary) — exactly as `combsod`. Previously it handled only single-target binary substitution and silently ignored any extra targets or species. Each draw places a uniform colored assignment on every sublattice, and the output `ENSEMBLE` is byte-compatible with the `combsod` format (one column group per target/species). With `-sym on`, draws fold to colored symmetry orbits using the *same* canonical representative as `combsod`, so the two `ENSEMBLE` files match line-for-line on the sampled orbits — differing only in the degeneracy column (`combsod` writes exact orbit sizes, `randomsod` writes visit counts).
+- **`sod_pme.sh` / `sod_mc.sh`: `-model` argument validation**: both wrappers now fail fast with `Error: -model requires a filename argument.` when `-model` is given with no filename, instead of looping forever (`sod_mc.sh`) or forwarding a silent error (`sod_pme.sh`).
+- **`sod_comb.sh` / `sod_gener.sh`: robust FILER parsing**: the wrappers now take the FILER value from the last non-blank, non-comment line of `INSOD`, so a trailing blank or comment line no longer triggers a spurious "unknown FILER" error.
+- **`combsod`: fixed EQMATRIX corruption for large supercells**: the supercell symmetry-operator arrays are now allocated to the exact operator count, fixing out-of-bounds corruption when `nop = nop1 × na × nb × nc` exceeded the old fixed bound of 10000 (e.g. Fm-3m 5×5×5 = 24000). The corruption previously made `sqssod`/`gqssod` score every configuration as zero.
+
 ## Version 0.83 (22 June 2026)
 
 Minor release.

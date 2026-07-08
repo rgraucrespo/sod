@@ -86,7 +86,7 @@ program gqssod
   real(real64), allocatable :: avg_target(:)
   real(real64), parameter :: kb = 8.61734e-5_real64
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - gqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - gqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -443,7 +443,7 @@ contains
         end do
 
         if (is_canonical) then
-          ! Generate the full orbit: all distinct transforms under symmetry
+          ! Generate the full orbit: all distinct transforms under symmetry.
           n_temp = 0
           do iop = 1, nop
             do ia = 1, kk

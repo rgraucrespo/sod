@@ -43,6 +43,27 @@ skip_line()  { printf "SKIP  $label_fmt  %s\n" "$1" "$2"; }
 
 indent() { sed 's/^/        /'; }
 
+run_with_timeout() {
+    local timeout="$1" outfile="$2"
+    shift 2
+
+    "$@" >"$outfile" 2>&1 &
+    local pid=$!
+    local elapsed=0
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$elapsed" -ge "$timeout" ]; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        elapsed=$((elapsed+1))
+    done
+
+    wait "$pid"
+}
+
 # Compare two OUTMC files produced by mcsod.
 #   $1 = reference  $2 = generated  $3 = energy tolerance (eV)
 # An exact byte match passes immediately (strongest check, and what the
@@ -205,6 +226,104 @@ test_genersod() {
             diff "$dir/$struct_rel" "$tmp/$struct_rel" | head -8 | indent
             fail=$((fail+1)); rm -rf "$tmp"; return
         fi
+    fi
+
+    pass_line "$label"; pass=$((pass+1))
+    rm -rf "$tmp"
+}
+
+# ── test_wrapper_filer_tail ───────────────────────────────────────────────────
+# Ensure the shell wrappers read FILER from the last INSOD data line rather than
+# literally the last file line, so trailing comments/blanks do not break them.
+#
+# $1 = display label   $2 = mode ("comb" or "gener")   $3 = example directory
+# $4 = expected output path relative to the temp project
+test_wrapper_filer_tail() {
+    local label="$1" mode="$2" dir="$3" expect_rel="$4"
+
+    if [ ! -s "$dir/INSOD" ]; then
+        skip_line "$label" "(empty INSOD)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    rsync -a \
+        --exclude='n*/'        \
+        --exclude='EQMATRIX'   \
+        --exclude='filer'      \
+        --exclude='OPERATORS'  \
+        --exclude='supercell.cif' \
+        --exclude='job_sender' \
+        "$dir/" "$tmp/" 2>/dev/null
+
+    printf '\n# trailing comment after FILER\n\n' >> "$tmp/INSOD"
+
+    local out rc
+    if [ "$mode" = "comb" ]; then
+        out=$(cd "$tmp" && PATH="$BIN:$PATH" "$BIN/sod_comb.sh" 2>&1)
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            fail_line "$label" "[sod_comb.sh error]"
+            echo "$out" | head -3 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+    elif [ "$mode" = "gener" ]; then
+        out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            fail_line "$label" "[combsod setup error]"
+            echo "$out" | head -3 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+        out=$(cd "$tmp" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" 2>&1)
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            fail_line "$label" "[sod_gener.sh error]"
+            echo "$out" | head -3 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+    else
+        fail_line "$label" "[unknown test mode: $mode]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    if [ ! -f "$tmp/$expect_rel" ]; then
+        fail_line "$label" "[missing $expect_rel]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    pass_line "$label"; pass=$((pass+1))
+    rm -rf "$tmp"
+}
+
+# ── test_wrapper_model_flag_error ─────────────────────────────────────────────
+# Ensure wrapper-level -model parsing fails fast and returns nonzero instead of
+# hanging (sod_mc.sh) or returning success after an argument error (sod_pme.sh).
+#
+# $1 = display label   $2 = script path   $3 = example directory
+test_wrapper_model_flag_error() {
+    local label="$1" script_path="$2" dir="$3"
+
+    local tmp; tmp=$(mktemp -d)
+    rsync -a "$dir/" "$tmp/" 2>/dev/null
+
+    local out="$tmp/wrapper.err"
+    run_with_timeout 5 "$out" bash -lc "cd \"$tmp\" && PATH=\"$BIN:\$PATH\" \"$script_path\" -model"
+    local rc=$?
+
+    if [ $rc -eq 124 ]; then
+        fail_line "$label" "[wrapper hung on missing -model argument]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[wrapper returned success on missing -model argument]"
+        sed -n '1,3p' "$out" | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! grep -q "Error: -model requires a filename argument." "$out"; then
+        fail_line "$label" "[missing expected error message]"
+        sed -n '1,5p' "$out" | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
     pass_line "$label"; pass=$((pass+1))
@@ -969,7 +1088,7 @@ test_randomsod() {
     local nc=5000
     local tmp; tmp=$(mktemp -d)
     cp "$maindir/INSOD" "$maindir/SGO" "$maindir/EQMATRIX" "$tmp/"
-    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconfigs $nc -symmetry on -seed 12345 2>&1)
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconf $nc -sym on -seed 12345 2>&1)
     if [ $? -ne 0 ]; then
         fail_line "$label" "[randomsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -990,10 +1109,85 @@ test_randomsod() {
     # Reproducibility: the same fixed seed must reproduce the ENSEMBLE.
     local tmp2; tmp2=$(mktemp -d)
     cp "$maindir/INSOD" "$maindir/SGO" "$maindir/EQMATRIX" "$tmp2/"
-    (cd "$tmp2" && PATH="$BIN:$PATH" randomsod -nconfigs $nc -symmetry on -seed 12345 >/dev/null 2>&1)
+    (cd "$tmp2" && PATH="$BIN:$PATH" randomsod -nconf $nc -sym on -seed 12345 >/dev/null 2>&1)
     local ens2; ens2=$(ls "$tmp2"/n*/random/ENSEMBLE 2>/dev/null | head -1)
     if ! diff -q "$ens" "$ens2" >/dev/null 2>&1; then
         fail_line "$label" "[not reproducible for fixed seed]"
+        fail=$((fail+1)); rm -rf "$tmp" "$tmp2"; return
+    fi
+
+    rm -rf "$tmp" "$tmp2"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_randomsod_general ────────────────────────────────────────────────────
+# Multinary/multisite validation. combsod enumerates the exact orbit set; with a
+# fixed seed and enough draws randomsod -sym on must fold to the same NUMBER of
+# distinct orbits (a representative-independent invariant), with sum_degeneracies
+# == nconfigs. Also checks -sym off writes one row per draw with the expected
+# per-species columns.
+# $1 = display label   $2 = main example dir (INSOD, SGO, EQMATRIX)
+test_randomsod_general() {
+    local label="$1" maindir="$2"
+
+    if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ] || [ ! -f "$maindir/EQMATRIX" ]; then
+        skip_line "$label" "(missing INSOD, SGO, or EQMATRIX)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$tmp/"
+
+    # Reference orbit count from combsod's exact enumeration.
+    (cd "$tmp" && PATH="$BIN:$PATH" combsod >/dev/null 2>&1)
+    local cens; cens=$(ls "$tmp"/n*/ENSEMBLE 2>/dev/null | grep -v /random/ | head -1)
+    if [ -z "$cens" ]; then
+        fail_line "$label" "[combsod produced no ENSEMBLE]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local ncomb; ncomb=$(awk -F'ensemble: ' 'NR==1{split($2,a," "); print a[1]; exit}' "$cens")
+
+    # -sym on: enough draws to sample every orbit, then compare distinct count.
+    local nc=20000
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconf $nc -sym on -seed 4242 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[randomsod -sym on error]"; echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local ens; ens=$(ls "$tmp"/n*/random/ENSEMBLE 2>/dev/null | head -1)
+    local ndist; ndist=$(awk -F'ensemble: ' 'NR==1{split($2,a," "); print a[1]; exit}' "$ens")
+    if [ "$ndist" != "$ncomb" ]; then
+        fail_line "$label" "[distinct orbits=$ndist != combsod=$ncomb]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local sumdeg; sumdeg=$(awk -F'sum_degeneracies = ' 'NR==1{print $2+0; exit}' "$ens")
+    if [ "$sumdeg" != "$nc" ]; then
+        fail_line "$label" "[sym-on sum_degeneracies=$sumdeg != nconfigs=$nc]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Byte-for-byte representative parity: colored canonicalization must pick the
+    # same orbit representative as combsod, so the sets of position columns
+    # (fields 3..NF of each data row) must be identical between the two ENSEMBLEs.
+    local reps_c reps_r
+    reps_c=$(awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/{$1="";$2="";print}' "$cens" | sort)
+    reps_r=$(awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/{$1="";$2="";print}' "$ens"  | sort)
+    if [ "$reps_c" != "$reps_r" ]; then
+        fail_line "$label" "[representatives differ from combsod]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # -sym off: one row per draw, sum_degeneracies == nconfigs.
+    local tmp2; tmp2=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/SGO" "$tmp2/"
+    (cd "$tmp2" && PATH="$BIN:$PATH" randomsod -nconf 100 -sym off -seed 4242 >/dev/null 2>&1)
+    local ensoff; ensoff=$(ls "$tmp2"/n*/random/ENSEMBLE 2>/dev/null | head -1)
+    # Data rows have numeric config index AND numeric degeneracy; target header
+    # lines (e.g. "8 La sites -> ...") have a non-numeric second field.
+    local nrows; nrows=$(awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/{c++} END{print c+0}' "$ensoff")
+    local sumoff; sumoff=$(awk -F'sum_degeneracies = ' 'NR==1{print $2+0; exit}' "$ensoff")
+    if [ "$nrows" != "100" ] || [ "$sumoff" != "100" ]; then
+        fail_line "$label" "[sym-off rows=$nrows sum=$sumoff, expected 100/100]"
         fail=$((fail+1)); rm -rf "$tmp" "$tmp2"; return
     fi
 
@@ -1024,6 +1218,10 @@ test_genersod "example01/FILER2_lammps"  "$EX/example01/FILER2_lammps"  "n04/c01
 test_genersod "example01/FILER11_vasp"   "$EX/example01/FILER11_vasp"   "n04/c01/POSCAR"
 test_genersod "example01/FILER12_castep" "$EX/example01/FILER12_castep" "n04/c01/castep.cell"
 test_genersod "example01/FILER13_QE"     "$EX/example01/FILER13_QE"     "n04/c01/pw.in"
+test_wrapper_filer_tail "sod_comb.sh ignores trailing INSOD comment" "comb" "$EX/example01/FILER1_gulp" "n04/c01/input.gin"
+test_wrapper_filer_tail "sod_gener.sh ignores trailing INSOD comment" "gener" "$EX/example01/FILER1_gulp" "job_sender"
+test_wrapper_model_flag_error "sod_pme.sh rejects missing -model filename" "$BIN/sod_pme.sh" "$EX/example15"
+test_wrapper_model_flag_error "sod_mc.sh rejects missing -model filename" "$BIN/sod_mc.sh" "$EX/example15"
 
 # ── statsod tests (canonical) ────────────────────────────────────────────────
 
@@ -1054,6 +1252,8 @@ printf "randomsod  (uniform random sampling)\n"
 printf "%s\n" "-------------------------------------------"
 
 test_randomsod "example15/randomsod (n12, 5000 draws, symmetry on)" "$EX/example15"
+test_randomsod_general "example14/randomsod (multisite+multinary vs combsod)" "$EX/example14"
+test_randomsod_general "example09/randomsod (multisite vs combsod)" "$EX/example09"
 
 # ── mcsod tests (Monte Carlo sampling) ──────────────────────────────────────────
 

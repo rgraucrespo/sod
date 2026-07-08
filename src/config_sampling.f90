@@ -12,7 +12,7 @@
 !      (2) Sampling helpers: uniform random subsets, symmetry canonicalization,
 !          EQMATRIX loading, RNG seeding and small input/string helpers.
 !
-!    Part of the SOD package (v0.83) — GNU GPL v3+.
+!    Part of the SOD package (v0.84) — GNU GPL v3+.
 !*******************************************************************************
 
 module config_sampling
@@ -21,9 +21,9 @@ module config_sampling
   implicit none
   private
 
-  public :: derive_target_geometry, wrap_fractional
-  public :: load_eqmatrix, canonicalize_config
-  public :: mc_random_subset, mc_insertion_sort
+  public :: derive_target_geometry, derive_target_geometry_all, wrap_fractional
+  public :: load_eqmatrix, load_eqmatrix_all, canonicalize_config, canonicalize_colored
+  public :: mc_random_subset, mc_random_colored, mc_insertion_sort
   public :: seed_rng_clock, seed_rng_fixed
   public :: read_next_data_line, to_lower
 
@@ -35,22 +35,82 @@ contains
 
   subroutine derive_target_geometry(d, sgo_filename, species_index, &
                                      npos_out, atini_out, atfin_out)
-    !  Expand the INSOD asymmetric unit (d%coords0, d%natsp0) through the SGO
-    !  operators to the conventional cell, deduplicate, multiply by the
-    !  d%na*d%nb*d%nc supercell, and report:
+    !  Single-target geometry for the first target species (d%sptarget(1)).
+    !  Thin wrapper over expand_to_supercell_natsp; reports:
     !    species_index = d%sptarget(1)
     !    npos_out      = number of target-species sites in the supercell
     !    atini_out     = global index of the first target-species atom
     !    atfin_out     = global index of the last target-species atom
-    !  The caller owns INSOD (passed in as d) and any EQMATRIX cross-check.
+    !  Kept for pmemod and single-target callers; derive_target_geometry_all
+    !  is the multisite generalization.
     type(insod_t),    intent(in)  :: d
     character(len=*), intent(in)  :: sgo_filename
     integer,          intent(out) :: species_index, npos_out, atini_out, atfin_out
 
+    integer, allocatable :: natsp(:)
+    integer :: sp
+
+    species_index = d%sptarget(1)
+    if (species_index <= 0) stop 'Error: invalid sptarget in INSOD.'
+    call expand_to_supercell_natsp(d, sgo_filename, natsp)
+
+    atini_out = 1
+    do sp = 1, species_index - 1
+      atini_out = atini_out + natsp(sp)
+    end do
+    atfin_out = atini_out + natsp(species_index) - 1
+    npos_out  = natsp(species_index)
+    if (npos_out <= 0) then
+      write(error_unit,'(A)') 'Error: target species has zero multiplicity in the supercell.'
+      stop 1
+    end if
+  end subroutine derive_target_geometry
+
+  subroutine derive_target_geometry_all(d, sgo_filename, npos_t, atini_t, atfin_t)
+    !  Multisite generalization of derive_target_geometry: report per-target
+    !  site count and global atom range for every target species d%sptarget(t),
+    !  t = 1..d%ntarget. Allocates npos_t/atini_t/atfin_t to length d%ntarget.
+    type(insod_t),        intent(in)  :: d
+    character(len=*),     intent(in)  :: sgo_filename
+    integer, allocatable, intent(out) :: npos_t(:), atini_t(:), atfin_t(:)
+
+    integer, allocatable :: natsp(:)
+    integer :: t, sp, si
+
+    call expand_to_supercell_natsp(d, sgo_filename, natsp)
+    allocate(npos_t(d%ntarget), atini_t(d%ntarget), atfin_t(d%ntarget))
+    do t = 1, d%ntarget
+      si = d%sptarget(t)
+      if (si <= 0) then
+        write(error_unit,'(A,I0,A)') 'Error: invalid sptarget for target ', t, ' in INSOD.'
+        stop 1
+      end if
+      atini_t(t) = 1
+      do sp = 1, si - 1
+        atini_t(t) = atini_t(t) + natsp(sp)
+      end do
+      atfin_t(t) = atini_t(t) + natsp(si) - 1
+      npos_t(t)  = natsp(si)
+      if (npos_t(t) <= 0) then
+        write(error_unit,'(A,I0,A)') 'Error: target ', t, &
+          ' species has zero multiplicity in the supercell.'
+        stop 1
+      end if
+    end do
+  end subroutine derive_target_geometry_all
+
+  subroutine expand_to_supercell_natsp(d, sgo_filename, natsp)
+    !  Expand the INSOD asymmetric unit (d%coords0, d%natsp0) through the SGO
+    !  operators to the conventional cell, deduplicate, multiply by the
+    !  d%na*d%nb*d%nc supercell, and return per-species site counts natsp(nsp).
+    type(insod_t),        intent(in)  :: d
+    character(len=*),     intent(in)  :: sgo_filename
+    integer, allocatable, intent(out) :: natsp(:)
+
     integer :: unit_sgo, ios, nsp, nat0, at0, op1, nop1
     integer :: na, nb, nc, sp, cumnatsp, at1r, at1, at1i, nat1r, nat1
     integer :: nat_super
-    integer, allocatable :: natsp0(:), natsp1(:), natsp(:), spat0(:), spat1(:), spat1r(:)
+    integer, allocatable :: natsp0(:), natsp1(:), spat0(:), spat1(:), spat1r(:)
     real(real64), allocatable :: coords0(:, :), coords1(:, :), coords1r(:, :)
     real(real64), allocatable :: mgroup1(:, :, :), vgroup1(:, :)
     real(real64) :: prod
@@ -60,8 +120,6 @@ contains
     nsp           = d%nsp
     nat0          = d%nat0
     na = d%na; nb = d%nb; nc = d%nc
-    species_index = d%sptarget(1)
-    if (species_index <= 0) stop 'Error: invalid sptarget in INSOD.'
 
     allocate(natsp0(nsp), natsp1(nsp), natsp(nsp))
     natsp0 = d%natsp0
@@ -151,20 +209,9 @@ contains
     nat_super = na * nb * nc
     natsp = nat_super * natsp1
 
-    atini_out = 1
-    do sp = 1, species_index - 1
-      atini_out = atini_out + natsp(sp)
-    end do
-    atfin_out = atini_out + natsp(species_index) - 1
-    npos_out  = natsp(species_index)
-    if (npos_out <= 0) then
-      write(error_unit,'(A)') 'Error: target species has zero multiplicity in the supercell.'
-      stop 1
-    end if
-
-    deallocate(natsp0, natsp1, natsp, spat0, spat1, spat1r)
+    deallocate(natsp0, natsp1, spat0, spat1, spat1r)
     deallocate(coords0, coords1, coords1r, mgroup1, vgroup1)
-  end subroutine derive_target_geometry
+  end subroutine expand_to_supercell_natsp
 
   pure real(real64) function wrap_fractional(x) result(corx)
     real(real64), intent(in) :: x
@@ -208,6 +255,135 @@ contains
     end do
     close(unit_in)
   end subroutine load_eqmatrix
+
+  subroutine load_eqmatrix_all(filename, ntarget, npos_t, eqmt, nop)
+    !  Read the multi-block EQMATRIX written by combsod: ntarget consecutive
+    !  blocks, each a header "nop npos_t(t)" followed by nop rows of npos_t(t)
+    !  target-local image indices. Returns eqmt(ntarget, nop, npos_max) with
+    !  eqmt(t, op, p) = image of local position p under operator op on target t.
+    !  Cross-checks nop consistency across blocks and each block's site count
+    !  against the geometry-derived npos_t.
+    character(len=*),     intent(in)  :: filename
+    integer,              intent(in)  :: ntarget
+    integer,              intent(in)  :: npos_t(:)     ! (ntarget) expected counts
+    integer, allocatable, intent(out) :: eqmt(:, :, :)
+    integer,              intent(out) :: nop
+    integer :: unit_in, ios, t, op, nop_t, npos_read, npos_max
+
+    npos_max = maxval(npos_t(1:ntarget))
+    open(newunit=unit_in, file=trim(filename), status='old', action='read', iostat=ios)
+    if (ios /= 0) then
+      write(error_unit,'(A,1X,A)') 'Error: could not open EQMATRIX file', trim(filename)
+      stop 1
+    end if
+
+    nop = 0
+    do t = 1, ntarget
+      read(unit_in,*,iostat=ios) nop_t, npos_read
+      if (ios /= 0 .or. nop_t <= 0 .or. npos_read <= 0) then
+        close(unit_in)
+        write(error_unit,'(A,I0,A)') 'Error: invalid EQMATRIX header for target ', t, '.'
+        stop 1
+      end if
+      if (t == 1) then
+        nop = nop_t
+        allocate(eqmt(ntarget, nop, npos_max))
+      else if (nop_t /= nop) then
+        close(unit_in)
+        write(error_unit,'(A,I0,A,I0,A,I0,A)') 'Error: EQMATRIX target ', t, ' has ', &
+          nop_t, ' operators but target 1 has ', nop, '.'
+        stop 1
+      end if
+      if (npos_read /= npos_t(t)) then
+        close(unit_in)
+        write(error_unit,'(A,I0,A,I0,A,I0,A)') 'Error: EQMATRIX target ', t, ' site count (', &
+          npos_read, ') does not match INSOD/SGO (', npos_t(t), ').'
+        stop 1
+      end if
+      do op = 1, nop
+        read(unit_in,*,iostat=ios) eqmt(t, op, 1:npos_read)
+        if (ios /= 0) then
+          close(unit_in)
+          write(error_unit,'(A,I0,A)') 'Error: invalid EQMATRIX row for target ', t, '.'
+          stop 1
+        end if
+      end do
+    end do
+    close(unit_in)
+  end subroutine load_eqmatrix_all
+
+  subroutine canonicalize_colored(conf, ntarget, nk_t, nsubs2, eqmt, nop, canonical)
+    !  Colored/multisite orbit representative, matching combsod's convention so
+    !  the two tools store the SAME representative for each orbit. conf and
+    !  canonical are flat local index vectors laid out target-major, species-minor:
+    !  [t1:sp1..spK][t2:...]. For each operator op (the SAME op index acts on every
+    !  target — one crystal symmetry) the image is mapped through each target's
+    !  eqmt block and the orbit member with the lexicographically minimal ranking
+    !  key is kept. Following combsod, the key is nested target-major and, within
+    !  each target, support-major:
+    !     [T1: sorted combined support, sorted sp1, sorted sp2, ...][T2: ...]
+    !  where the combined support is the sorted union of all substituted positions
+    !  on that target. (combsod ranks colourings as indices within the support;
+    !  for a fixed support that is order-equivalent to ranking the sorted positions
+    !  directly, so this key reproduces combsod's argmin exactly.) The stored
+    !  canonical holds only the per-species positions (no support prefix), matching
+    !  the ENSEMBLE/indconf layout. Colors are preserved, so configurations that
+    !  differ only by which sites carry species A vs B are NOT folded together.
+    integer, intent(in)  :: conf(:)           ! (nsubs_tot)
+    integer, intent(in)  :: ntarget, nop
+    integer, intent(in)  :: nk_t(:)           ! (ntarget)
+    integer, intent(in)  :: nsubs2(:, :)      ! (ntarget, max_nk)
+    integer, intent(in)  :: eqmt(:, :, :)     ! (ntarget, nop, npos_max)
+    integer, intent(out) :: canonical(:)      ! (nsubs_tot)
+    integer :: nsubs_tot, op, t, j, i, off, koff, level_t
+    integer, allocatable :: mapped(:), key(:), best_key(:)
+    logical :: is_less
+
+    nsubs_tot = size(conf)
+    ! key = per target [combined support (level_t) ++ species groups (level_t)]
+    allocate(mapped(nsubs_tot), key(2*nsubs_tot), best_key(2*nsubs_tot))
+
+    do op = 1, nop
+      off = 0
+      koff = 0
+      do t = 1, ntarget
+        level_t = sum(nsubs2(t, 1:nk_t(t)))
+        ! Per-species image, sorted within each (target, species) group.
+        do j = 1, nk_t(t)
+          do i = 1, nsubs2(t, j)
+            mapped(off+i) = eqmt(t, op, conf(off+i))
+          end do
+          call mc_insertion_sort(mapped(off+1:off+nsubs2(t, j)), nsubs2(t, j))
+          off = off + nsubs2(t, j)
+        end do
+        ! Key block: sorted combined support, then the species groups as-is.
+        key(koff+1:koff+level_t) = mapped(off-level_t+1:off)
+        call mc_insertion_sort(key(koff+1:koff+level_t), level_t)
+        koff = koff + level_t
+        key(koff+1:koff+level_t) = mapped(off-level_t+1:off)
+        koff = koff + level_t
+      end do
+
+      if (op == 1) then
+        best_key  = key
+        canonical = mapped
+      else
+        is_less = .false.
+        do i = 1, 2*nsubs_tot
+          if (key(i) < best_key(i)) then
+            is_less = .true.; exit
+          else if (key(i) > best_key(i)) then
+            exit
+          end if
+        end do
+        if (is_less) then
+          best_key  = key
+          canonical = mapped
+        end if
+      end if
+    end do
+    deallocate(mapped, key, best_key)
+  end subroutine canonicalize_colored
 
   subroutine canonicalize_config(conf, level, eqmatrix, nop, canonical)
     !  Map a configuration to its lexicographically minimal form under all nop
@@ -261,6 +437,41 @@ contains
     subset(1:k) = pool(1:k)
     call mc_insertion_sort(subset, k)
   end subroutine mc_random_subset
+
+  subroutine mc_random_colored(npos, nk, nsubs, groups)
+    !  Uniform colored (multinary) assignment on one target site set: draw
+    !  S = sum(nsubs) distinct sites from {1..npos} and partition them uniformly
+    !  into nk species groups of sizes nsubs(1..nk). The returned `groups` array
+    !  lays the species groups consecutively (species 1, then 2, ...), each group
+    !  sorted ascending. A uniform S-subset followed by a uniform permutation
+    !  gives a uniform distribution over labeled configurations, which is what
+    !  the -sym on visit-count weighting requires.
+    integer, intent(in)  :: npos, nk
+    integer, intent(in)  :: nsubs(:)     ! (nk) sites per substituting species
+    integer, intent(out) :: groups(:)    ! (sum(nsubs)) laid sp1..spK, sorted per group
+    integer :: s, i, j, off, tmp
+    integer, allocatable :: pick(:)
+    real(real64) :: r
+
+    s = sum(nsubs(1:nk))
+    if (s <= 0) return
+    allocate(pick(s))
+    call mc_random_subset(npos, s, pick)      ! uniform S-subset (sorted)
+    ! Uniform permutation of the drawn sites so the partition below is uniform.
+    do i = 1, s
+      call random_number(r)
+      j = i + int(r * real(s - i + 1, real64))
+      j = min(j, s)
+      tmp = pick(i); pick(i) = pick(j); pick(j) = tmp
+    end do
+    off = 0
+    do j = 1, nk
+      groups(off+1:off+nsubs(j)) = pick(off+1:off+nsubs(j))
+      call mc_insertion_sort(groups(off+1:off+nsubs(j)), nsubs(j))
+      off = off + nsubs(j)
+    end do
+    deallocate(pick)
+  end subroutine mc_random_colored
 
   subroutine mc_insertion_sort(arr, n)
     !  In-place insertion sort for a small integer array.

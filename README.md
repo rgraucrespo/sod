@@ -1,4 +1,4 @@
-# SOD 0.83 - Notes for users
+# SOD 0.84 - Notes for users
 
 SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -102,7 +102,7 @@ SOD strips the `@`, treats the site as an ordinary spherical placeholder species
 
 ## Compiling & installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.83.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.84.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -131,10 +131,10 @@ make test
 ./bin/sod_run_tests.sh
 ```
 
-This runs 31 tests covering the full toolchain — `combsod`, `genersod`, `statsod`,
+This runs 37 tests covering the full toolchain — `combsod`, `genersod`, `statsod`,
 `pmesod`, `randomsod`, `mcsod`, `mcstatsod`, `gcstatsod`, `sqssod`, and `gqssod` — each in an
 isolated temporary directory, so committed reference files are never overwritten.
-All tests should pass (`31 passed, 0 failed, 0 skipped`). The suite is
+All tests should pass (`37 passed, 0 failed, 0 skipped`). The suite is
 self-contained: PME/MC outputs are regenerated on demand and compared against the
 references committed under `examples/*/pme_test_ref/` (or the relevant `nXX/`
 folder). It also includes a physics cross-check confirming that Monte Carlo plus
@@ -462,7 +462,7 @@ When modeling disordered alloys, the goal is often to find configurations that m
 `sqssod` and `gqssod` score whatever configurations are listed in `ENSEMBLE` — they do **not** enumerate or search the configurational space themselves. The SQS is simply the best-scoring member of the ensemble you give them. That ensemble can come from either route:
 
 - **Full enumeration** (`sod_comb.sh` → `nXX/ENSEMBLE`): the symmetry-inequivalent configurations at the composition. This guarantees the true best SQS *within the supercell* is present, but is only feasible when the space is small enough to enumerate.
-- **Uniform random sampling** (`sod_random.sh` → `nXX/random/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `random/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Random sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations.
+- **Uniform random sampling** (`sod_random.sh` → `nXX/random/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `random/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Random sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations. `sod_random.sh` reads the same `INSOD` substitution model as `sod_comb.sh`, so multinary and multi-target compositions are sampled directly, with `-sym on` folding to colored symmetry orbits.
 
 With random sampling the result is the best SQS *found in the sample*, not provably the global optimum — enlarge the sample to improve it.
 

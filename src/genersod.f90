@@ -498,6 +498,17 @@ program genersod
       end do
       npos_t(1:ntarget_rd) = npst_rd(1:ntarget_rd)
       nic = nic_rd
+      ! Trust the local ENSEMBLE over INSOD for substitution counts (they may differ,
+      ! e.g. when SOD_ENSEMBLE_DIR points to a subdir with a different composition).
+      if (sum(nsfl_rd) /= nsubs_tot) then
+        write (*, '(A,I0,A,I0,A)') &
+          " Warning: INSOD specifies ", nsubs_tot, " substitutions but the local ENSEMBLE has ", &
+          sum(nsfl_rd), ". Using the local value — no need to change INSOD."
+      end if
+      nsubs_tot = sum(nsfl_rd)
+      do t = 1, ntarget
+        nsubs_tot_t(t) = sum(nsubs_t(t, 1:nk(t)))
+      end do
       allocate(degen(nic))
       degen = degen_rd(1:nic)
       allocate(newconf(max(1, nsubs_tot)))

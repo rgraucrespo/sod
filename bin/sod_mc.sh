@@ -39,22 +39,9 @@ export PATH="${SCRIPT_DIR}:${PATH}"
 SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
 cd "$SODPROJECT" || exit 1
 
-clear
+sod_parse_model_args "$@" || exit 1
 
-# Separate -model <filename> from other args
-MODEL_ARGS=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -model)
-      MODEL_ARGS+=("-model" "$2")
-      shift 2
-      ;;
-    *)
-      echo "Error: unexpected argument to sod_mc.sh: $1"
-      exit 1
-      ;;
-  esac
-done
+clear
 
 # Check that required input files are present before launching
 for reqfile in INMC INSOD SGO EQMATRIX; do
@@ -85,7 +72,7 @@ while read -r temp rest; do
   case "$temp" in
     ""|\#*) continue ;;
   esac
-  mcsod "${MODEL_ARGS[@]}" "$temp" || exit 1
+  mcsod "${SOD_MODEL_ARGS[@]}" "$temp" || exit 1
 done < TEMPERATURES
 
 exit 0

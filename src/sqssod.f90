@@ -96,7 +96,7 @@ program sqssod
   ! ================================================================
   ! Main program
   ! ================================================================
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - sqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - sqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -470,7 +470,7 @@ contains
         end do
 
         if (is_canonical) then
-          ! Generate the full orbit: all distinct transforms under symmetry
+          ! Generate the full orbit: all distinct transforms under symmetry.
           n_temp = 0
           do iop = 1, nop
             do ia = 1, kk

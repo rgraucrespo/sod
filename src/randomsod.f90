@@ -8,12 +8,18 @@
 !    as for an enumerated combsod ensemble. randomsod is the sampling counterpart
 !    of combsod, for substitution levels too large to enumerate.
 !
+!    Supports the general substitution model: multiple target sublattices
+!    (ntarget) and multiple substituting species per site (multinary, nk>1).
+!    Each draw independently places, on every target sublattice, a uniform
+!    colored assignment of the requested per-species counts.
+!
 !    With -sym on draws are folded to symmetry representatives and
 !    the degeneracy column holds visit counts: the uniform draw already visits
 !    each orbit in proportion to its size, so visit counts are the correct
 !    importance weights for canonical averages in statsod. -nconf is the
 !    number of draws (not the number of distinct configurations, which is not
-!    known a priori).
+!    known a priori). Symmetry folding uses a colored orbit representative, so it
+!    works for the general multinary/multisite case.
 !
 !    USAGE
 !      randomsod -nconf <N> [-sym on|off] [-seed clock|<int>]
@@ -21,23 +27,25 @@
 !    Required input files: INSOD, SGO (always); EQMATRIX (when -symmetry on).
 !    Output: nXX/random/ENSEMBLE (XX = target level).
 !
-!    Part of the SOD package (v0.83) — GNU GPL v3+.
+!    Part of the SOD package (v0.84) — GNU GPL v3+.
 !*******************************************************************************
 
 program randomsod
   use iso_fortran_env, only: real64, error_unit
   use insod_reader,    only: insod_t, read_insod
-  use config_sampling, only: derive_target_geometry, load_eqmatrix, &
-                             canonicalize_config, mc_random_subset, &
+  use config_sampling, only: derive_target_geometry_all, load_eqmatrix_all, &
+                             canonicalize_colored, mc_random_colored, &
                              seed_rng_clock, seed_rng_fixed
   use ensemble_io,     only: write_ensemble
   implicit none
 
   type(insod_t) :: d
-  integer :: nconfigs, level, npos, atini, atfin, species_index
-  integer :: nop, npos_eqm
-  integer, allocatable :: eqmatrix(:, :)
-  logical :: use_symmetry
+  integer :: nconfigs, ntarget, nsubs_tot, max_nk, npos_max
+  integer :: nop, level_t
+  integer, allocatable :: npos_t(:), atini_t(:), atfin_t(:)
+  integer, allocatable :: nk_t(:), nsubs2(:, :)
+  integer, allocatable :: eqmt(:, :, :)
+  logical :: use_symmetry, found
   integer :: iseed                       ! -1 = clock, >0 = fixed
   character(len=64) :: seed_label
 
@@ -45,16 +53,15 @@ program randomsod
   character(len=256) :: arg, val
   logical :: have_nconfigs
 
-  integer, allocatable :: subset(:), canonical(:)
-  integer, allocatable :: unique_subsets(:, :), visit_count(:)
-  integer :: n_unique, max_unique, i_draw, j
-  logical :: found
+  integer, allocatable :: conf(:), canonical(:)
+  integer, allocatable :: unique_confs(:, :), visit_count(:)
+  integer :: n_unique, max_unique, i_draw, j, t, off
 
-  character(len=64) :: nxx_dir
+  character(len=128) :: nxx_dir
   character(len=256) :: ensemble_path
   integer :: unit_ens
 
-  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - randomsod"
+  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - randomsod"
 
   ! --- Defaults ---
   nconfigs      = 0
@@ -110,29 +117,47 @@ program randomsod
     stop 1
   end if
 
-  ! --- Read INSOD and derive the target geometry (INSOD + SGO) ---
+  ! --- Read INSOD ---
   call read_insod('INSOD', d)
-  level = d%nsubs_max
+  ntarget = d%ntarget
+
+  ! Per-target species-per-site counts (nk_t) and per-species substitution
+  ! counts (nsubs2). For the single-target binary case nsubs_max is authoritative
+  ! (it also carries the colon-range upper endpoint, where nsubs_t is left 0).
+  max_nk = maxval(d%nk(1:ntarget))
+  allocate(nk_t(ntarget), nsubs2(ntarget, max_nk))
+  nsubs2 = 0
+  do t = 1, ntarget
+    nk_t(t) = d%nk(t)
+    nsubs2(t, 1:nk_t(t)) = d%nsubs_t(t, 1:nk_t(t))
+  end do
+  if (ntarget == 1 .and. nk_t(1) == 1) nsubs2(1, 1) = d%nsubs_max
   if (d%nsubs_min /= d%nsubs_max) &
-    write(*,'(A,I0)') ' > INSOD range detected; sampling at the upper endpoint: nsubs = ', level
+    write(*,'(A,I0)') ' > INSOD range detected; sampling at the upper endpoint: nsubs = ', d%nsubs_max
 
-  call derive_target_geometry(d, 'SGO', species_index, npos, atini, atfin)
+  ! --- Derive per-target geometry (INSOD + SGO) ---
+  call derive_target_geometry_all(d, 'SGO', npos_t, atini_t, atfin_t)
+  npos_max = maxval(npos_t(1:ntarget))
 
-  if (level < 1 .or. level > npos) then
-    write(error_unit,'(A,I0,A,I0,A)') ' Error: target level (', level, &
-      ') must be between 1 and the number of target sites (', npos, ').'
+  ! --- Validate substitution counts against available sites ---
+  nsubs_tot = 0
+  do t = 1, ntarget
+    level_t = sum(nsubs2(t, 1:nk_t(t)))
+    if (level_t < 0 .or. level_t > npos_t(t)) then
+      write(error_unit,'(A,I0,A,I0,A,I0,A)') ' Error: target ', t, ' requests ', level_t, &
+        ' substitutions but has only ', npos_t(t), ' sites.'
+      stop 1
+    end if
+    nsubs_tot = nsubs_tot + level_t
+  end do
+  if (nsubs_tot < 1) then
+    write(error_unit,'(A)') ' Error: no substitutions requested (all counts zero).'
     stop 1
   end if
 
   ! --- Symmetry operators (only when reducing) ---
-  if (use_symmetry) then
-    call load_eqmatrix('EQMATRIX', eqmatrix, nop, npos_eqm)
-    if (npos_eqm /= npos) then
-      write(error_unit,'(A,I0,A,I0,A)') ' Error: EQMATRIX target count (', npos_eqm, &
-        ') does not match INSOD/SGO target count (', npos, ').'
-      stop 1
-    end if
-  end if
+  if (use_symmetry) &
+    call load_eqmatrix_all('EQMATRIX', ntarget, npos_t, eqmt, nop)
 
   ! --- Seed the RNG ---
   if (iseed > 0) then
@@ -145,7 +170,12 @@ program randomsod
 
   ! --- Report parameters ---
   write(*, '(A)') ' --- Random sampling parameters ---------------------------------------------'
-  write(*, '(A,I0,A,I0,A)') '  Level             : ', level, ' substitutions in ', npos, ' positions'
+  write(*, '(A,I0)')        '  Target sublattices: ', ntarget
+  do t = 1, ntarget
+    level_t = sum(nsubs2(t, 1:nk_t(t)))
+    write(*, '(A,I0,A,I0,A,I0,A)') '   - target ', t, ': ', level_t, &
+      ' substitutions in ', npos_t(t), ' sites'
+  end do
   write(*, '(A,I0)')        '  Draws (nconfigs)  : ', nconfigs
   if (use_symmetry) then
     write(*, '(A,I0,A)')    '  Symmetry          : on (', nop, ' operators; visit-count degeneracies)'
@@ -158,17 +188,26 @@ program randomsod
 
   ! --- Draw loop ---
   max_unique = nconfigs
-  allocate(subset(level), canonical(level))
-  allocate(unique_subsets(level, max_unique), visit_count(max_unique))
+  allocate(conf(nsubs_tot), canonical(nsubs_tot))
+  allocate(unique_confs(nsubs_tot, max_unique), visit_count(max_unique))
   n_unique = 0
 
-  if (use_symmetry) then
-    do i_draw = 1, nconfigs
-      call mc_random_subset(npos, level, subset)
-      call canonicalize_config(subset, level, eqmatrix, nop, canonical)
+  do i_draw = 1, nconfigs
+    ! Uniform colored draw on every target sublattice.
+    off = 0
+    do t = 1, ntarget
+      level_t = sum(nsubs2(t, 1:nk_t(t)))
+      if (level_t > 0) &
+        call mc_random_colored(npos_t(t), nk_t(t), nsubs2(t, 1:nk_t(t)), conf(off+1:off+level_t))
+      off = off + level_t
+    end do
+
+    if (use_symmetry) then
+      ! Fold to the colored orbit representative and accumulate visit counts.
+      call canonicalize_colored(conf, ntarget, nk_t, nsubs2, eqmt, nop, canonical)
       found = .false.
       do j = 1, n_unique
-        if (all(unique_subsets(1:level, j) == canonical(1:level))) then
+        if (all(unique_confs(1:nsubs_tot, j) == canonical(1:nsubs_tot))) then
           visit_count(j) = visit_count(j) + 1
           found = .true.
           exit
@@ -176,21 +215,29 @@ program randomsod
       end do
       if (.not. found) then
         n_unique = n_unique + 1
-        unique_subsets(:, n_unique) = canonical
+        unique_confs(:, n_unique) = canonical
         visit_count(n_unique) = 1
       end if
-    end do
-  else
-    do i_draw = 1, nconfigs
-      call mc_random_subset(npos, level, subset)
-      unique_subsets(:, i_draw) = subset
+    else
+      unique_confs(:, i_draw) = conf
       visit_count(i_draw) = 1
-    end do
-    n_unique = nconfigs
-  end if
+    end if
+  end do
 
-  ! --- Write nXX/random/ENSEMBLE ---
-  nxx_dir = 'n'//trim(npad(level))//'/random'
+  if (.not. use_symmetry) n_unique = nconfigs
+
+  ! --- Output directory name: 'n' + all per-species counts joined by '_' ---
+  nxx_dir = 'n'
+  do t = 1, ntarget
+    do j = 1, nk_t(t)
+      if (t == 1 .and. j == 1) then
+        nxx_dir = 'n'//trim(npad(nsubs2(t, j)))
+      else
+        nxx_dir = trim(nxx_dir)//'_'//trim(npad(nsubs2(t, j)))
+      end if
+    end do
+  end do
+  nxx_dir = trim(nxx_dir)//'/random'
   call execute_command_line('mkdir -p '//trim(nxx_dir), exitstat=mkdir_status)
   if (mkdir_status /= 0) then
     write(error_unit,'(A,A)') ' Error: could not create output directory ', trim(nxx_dir)
@@ -198,17 +245,27 @@ program randomsod
   end if
   ensemble_path = trim(nxx_dir)//'/ENSEMBLE'
 
+  ! --- Write ENSEMBLE ---
   open(newunit=unit_ens, file=trim(ensemble_path), status='replace', action='write')
   block
-    integer, allocatable :: mc_ic(:,:)
-    integer :: m
-    allocate(mc_ic(n_unique, level))
+    integer, allocatable :: mc_ic(:, :), nsubs_flat(:)
+    character(len=3), allocatable :: orig_sym(:)
+    integer :: m, nkflat, foff
+    allocate(mc_ic(n_unique, nsubs_tot))
     do m = 1, n_unique
-      mc_ic(m, 1:level) = unique_subsets(1:level, m)
+      mc_ic(m, 1:nsubs_tot) = unique_confs(1:nsubs_tot, m)
     end do
-    call write_ensemble(unit_ens, 1, [1], [level], [npos], [atini], &
+    nkflat = sum(nk_t(1:ntarget))
+    allocate(nsubs_flat(nkflat), orig_sym(ntarget))
+    foff = 0
+    do t = 1, ntarget
+      nsubs_flat(foff+1:foff+nk_t(t)) = nsubs2(t, 1:nk_t(t))
+      foff = foff + nk_t(t)
+      orig_sym(t) = d%symbol(d%sptarget(t))
+    end do
+    call write_ensemble(unit_ens, ntarget, nk_t, nsubs_flat, npos_t, atini_t, &
                         n_unique, mc_ic, visit_count(1:n_unique), 'uniform', &
-                        [d%symbol(species_index)], d%newsymbol(1:1, 1:2))
+                        orig_sym, d%newsymbol(1:ntarget, 1:max_nk+1))
   end block
   close(unit_ens)
 
@@ -224,8 +281,9 @@ program randomsod
   write(*, '(A)') '  randomsod completed.'
   write(*, '(A)') ' ============================================================================'
 
-  deallocate(subset, canonical, unique_subsets, visit_count)
-  if (allocated(eqmatrix)) deallocate(eqmatrix)
+  deallocate(conf, canonical, unique_confs, visit_count)
+  deallocate(npos_t, atini_t, atfin_t, nk_t, nsubs2)
+  if (allocated(eqmt)) deallocate(eqmt)
 
 contains
 
@@ -235,7 +293,7 @@ contains
     integer :: nd, tmp
     character(len=20) :: fmt
 
-    tmp = max(1, abs(npos))
+    tmp = max(1, abs(npos_max))
     nd = 1
     do while (tmp >= 10)
       nd = nd + 1

@@ -26,6 +26,62 @@ sod_require_project_root() {
   return 1
 }
 
+sod_read_insod_filer() {
+  local insod_path last_data_line
+  insod_path="${1:-INSOD}"
+
+  if [ ! -f "$insod_path" ]; then
+    echo "Error: INSOD file not found: $insod_path" >&2
+    return 1
+  fi
+
+  last_data_line="$(
+    awk '
+      {
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        sub(/[[:space:]]+$/, "", line)
+        if (line != "" && substr(line, 1, 1) != "#") last = line
+      }
+      END {
+        if (last == "") exit 1
+        print last
+      }
+    ' "$insod_path"
+  )" || {
+    echo "Error: could not locate FILER line in $insod_path" >&2
+    return 1
+  }
+
+  if [[ ! "$last_data_line" =~ ^-?[0-9]+$ ]]; then
+    echo "Error: could not parse FILER from INSOD tail line: $last_data_line" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$last_data_line"
+}
+
+sod_parse_model_args() {
+  SOD_MODEL_ARGS=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -model)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          echo "Error: -model requires a filename argument." >&2
+          return 1
+        fi
+        SOD_MODEL_ARGS+=("-model" "$2")
+        shift 2
+        ;;
+      *)
+        echo "Error: unexpected argument: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
 sod_find_enclosing_level_name() {
   local root dir base
   root="$(cd "$1" && pwd -P)" || return 1

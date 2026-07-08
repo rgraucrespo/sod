@@ -59,7 +59,7 @@ program stats
   end if
 
   if (.not. quiet) then
-    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - statsod"
+    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - statsod"
   end if
   write (*, *) " > Statistical mechanics analysis..."
   write (*, *) ""

@@ -1,4 +1,4 @@
-# SOD ENSEMBLE format version 2
-           1  substitutions in           27 sites
-                    1  configurations
-     1     27   28
+Enumerated ensemble: 1 configurations; sum_degeneracies = 27
+27 Fe sites -> 1 Al 26 Fe
+# Configuration  Degeneracy  Al_positions
+1 27 28

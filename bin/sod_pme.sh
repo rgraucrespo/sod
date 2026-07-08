@@ -64,6 +64,8 @@ export PATH="${SCRIPT_DIR}:${PATH}"
 SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
 cd "$SODPROJECT" || exit 1
 
+sod_parse_model_args "$@" || exit 1
+
 clear
 
 # Check that required input files are present before launching
@@ -85,6 +87,5 @@ if [ -z "$n0dir" ] || [ -z "$n1dir" ] || [ -z "$n2dir" ] || \
   exit 1
 fi
 
-# Pass all arguments through to pmesod (-model <filename> is forwarded as-is)
-pmesod "$@"
+pmesod "${SOD_MODEL_ARGS[@]}"
 exit 0

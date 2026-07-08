@@ -28,7 +28,7 @@ program invertensemble
   integer, dimension(:), allocatable:: omega
   integer, dimension(:, :), allocatable:: conf, confinverted
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - invertENSEMBLE"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - invertENSEMBLE"
   write (*, *) " > Inverting ENSEMBLE configurations (n -> npos-n)..."
   write (*, *) ""
 

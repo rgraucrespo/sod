@@ -87,17 +87,19 @@ program combsod
 
 
   integer, dimension(nopmax)   :: op1good
-  real(real64), dimension(nopmax, 3, 3) :: mgroup1, mgroup, mgroup1new
-  real(real64), dimension(nopmax, 3)   :: vgroup1, vgroup, vgroup1new
+  real(real64), dimension(nopmax, 3, 3) :: mgroup1, mgroup1new
+  real(real64), dimension(nopmax, 3)   :: vgroup1, vgroup1new
+  real(real64), allocatable :: mgroup(:, :, :), vgroup(:, :)
   integer, dimension(:, :), allocatable :: fulleqmatrix
   integer, dimension(:, :, :), allocatable :: eqmt
-  integer, dimension(natmax) :: spat0, spat1, spat, spat1r
-  real(real64), dimension(natmax, 3) :: coords0, coords1, coords, coords1r
+  integer, dimension(natmax) :: spat0, spat1, spat1r
+  real(real64), dimension(natmax, 3) :: coords0, coords1, coords1r
+  integer, allocatable :: spat(:)
+  real(real64), allocatable :: coords(:, :), vt(:, :)
   integer, dimension(natmax)   :: as
   integer, dimension(:), allocatable:: degen
   integer, dimension(nspmax) :: natsp0, natsp1, natsp
   real(real64), dimension(3) :: coordstemp
-  real(real64), dimension(ncellmax, 3)   :: vt
   integer, dimension(:, :), allocatable:: conf, indconf
   real(real64) :: a1, b1, c1, alpha, beta, gamma, a, b, c, cc
   real(real64) :: prod, x, maxentropy, ientropy, perc
@@ -148,7 +150,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.83 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
@@ -2231,6 +2233,7 @@ contains
     end do
     natsp(:) = na*nb*nc*natsp1(:)
 
+    allocate (vt(na*nb*nc, 3))
     t = 0
     do ina = 0, na - 1
       do inb = 0, nb - 1
@@ -2312,6 +2315,9 @@ contains
     b = nb*b1
     c = nc*c1
 
+    nat = nat1 * na * nb * nc
+    allocate (coords(nat, 3))
+    allocate (spat(nat))
     at = 0
     do at1 = 1, nat1
       do t = 1, na*nb*nc
@@ -2322,7 +2328,6 @@ contains
         spat(at) = spat1(at1)
       end do
     end do
-    nat = at
   end subroutine build_supercell
 
   ! ---------------------------------------------------------------------------
@@ -2366,6 +2371,9 @@ contains
   ! and set atini_t/atfin_t/npos_t/atini/atfin/npos for all target species.
   ! ---------------------------------------------------------------------------
   subroutine build_symmetry()
+    nop = nop1 * na * nb * nc
+    allocate (mgroup(nop, 3, 3))
+    allocate (vgroup(nop, 3))
     op = 0
     do op1 = 1, nop1
       do t = 1, na*nb*nc
@@ -2376,7 +2384,6 @@ contains
         vgroup(op, 3) = vgroup1(op1, 3)/nc + vt(t, 3)
       end do
     end do
-    nop = op
 
     allocate (fulleqmatrix(1:nop, 1:nat), stat=ierr)
     if (ierr /= 0) then
