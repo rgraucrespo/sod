@@ -21,14 +21,14 @@
 program invertensemble
   implicit none
 
-  integer :: m, mm, npos, pos, nsubs, trash
+  integer :: m, mm, npos, pos, nsubs, nrem, trash, ios, sum_degen
   integer :: posinverted, kpos, kpos2
-  character(len=20) :: trashstr
+  character(len=20) :: trashstr, orig_sym, sub_sym, rem_sym
   character(len=200) :: ensemble_line
   integer, dimension(:), allocatable:: omega
   integer, dimension(:, :), allocatable:: conf, confinverted
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - invertENSEMBLE"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - invertENSEMBLE"
   write (*, *) " > Inverting ENSEMBLE configurations (n -> npos-n)..."
   write (*, *) ""
 
@@ -36,66 +36,67 @@ program invertensemble
   open (unit=11, file="ENSEMBLE_inverted")
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-!      Reading the original ENSEMBLE file (v2 and v3 formats)
+!      Reading the original ENSEMBLE file (format version 3)
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-  ! Read first non-blank line to detect v2 vs v3
+  ! Line 1 is "<type> ensemble[ (T K)]: mm configurations; ..."
   do
     read (10, '(a)') ensemble_line
     if (len_trim(ensemble_line) > 0) exit
   end do
 
-  if (ensemble_line(1:1) == '#') then
-    ! v2: skip comment lines; read "nsubs substitutions in npos sites"
-    do while (ensemble_line(1:1) == '#')
-      read (10, '(a)') ensemble_line
-    end do
-    read (ensemble_line, *) nsubs, trashstr
-    if (trim(trashstr) /= 'substitutions') then
-      write (*, *) 'ERROR: invertENSEMBLE only supports single-site binary substitutions.'
-      write (*, *) '       Multi-target or multi-nary ENSEMBLE detected. Aborting.'
-      stop 1
-    end if
-    read (ensemble_line, *) nsubs, trashstr, trashstr, npos
-    read (10, *) mm
-  else
-    ! v3: first line is "... ensemble ...: mm configurations"
-    kpos  = index(ensemble_line, ':', back=.true.)
-    kpos2 = index(ensemble_line, 'configurations')
-    if (kpos > 0 .and. kpos2 > kpos) then
-      read (ensemble_line(kpos+1:kpos2-1), *) mm
-    else
-      write (*, *) 'ERROR: could not parse ENSEMBLE_original header.'
-      stop 1
-    end if
-    ! Read target line (must be single binary target) and column-header comment
-    nsubs = -1
-    npos  = -1
-    do
-      read (10, '(a)') ensemble_line
-      if (len_trim(ensemble_line) == 0) cycle
-      if (ensemble_line(1:1) == '#') exit   ! column-header comment — at data rows
-      if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
-        if (nsubs >= 0) then
-          write (*, *) 'ERROR: invertENSEMBLE only supports single-site binary substitutions.'
-          write (*, *) '       Multi-target ENSEMBLE detected. Aborting.'
-          stop 1
-        end if
-        read (ensemble_line, *) npos
-        kpos = index(ensemble_line, '->')
-        read (ensemble_line(kpos+2:), *) nsubs
-      end if
-    end do
-    if (nsubs < 0) then
-      write (*, *) 'ERROR: no target line found in ENSEMBLE_original.'
-      stop 1
-    end if
+  kpos  = index(ensemble_line, ':', back=.true.)
+  kpos2 = index(ensemble_line, 'configurations')
+  if (ensemble_line(1:1) == '#' .or. kpos <= 0 .or. kpos2 <= kpos) then
+    write (*, *) 'ERROR: ENSEMBLE_original is not a version 3 ENSEMBLE.'
+    write (*, *) '       Version 2 ENSEMBLE files are no longer supported;'
+    write (*, *) '       regenerate the level with sod_comb.sh or sod_random.sh.'
+    stop 1
+  end if
+  read (ensemble_line(kpos+1:kpos2-1), *, iostat=ios) mm
+  if (ios /= 0 .or. mm < 1) then
+    write (*, *) 'ERROR: could not parse the configuration count of ENSEMBLE_original.'
+    stop 1
   end if
 
-  ! Write inverted header (v2 format for broad compatibility)
-  write (11, '(a)') "# SOD ENSEMBLE format version 2 (inverted)"
-  write (11, *) npos - nsubs, "substitutions in", npos, "sites"
-  write (11, *) mm, "configurations"
+  ! Target line: "<npos> <orig_sym> sites -> <nsubs> <sub_sym> <nrem> <rem_sym>"
+  nsubs = -1
+  npos  = -1
+  do
+    read (10, '(a)') ensemble_line
+    if (len_trim(ensemble_line) == 0) cycle
+    if (ensemble_line(1:1) == '#') exit   ! column-header comment - at data rows
+    if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
+      if (nsubs >= 0) then
+        write (*, *) 'ERROR: invertENSEMBLE only supports single-site binary substitutions.'
+        write (*, *) '       Multi-target ENSEMBLE detected. Aborting.'
+        stop 1
+      end if
+      kpos = index(ensemble_line, 'sites')
+      read (ensemble_line(1:kpos-1), *, iostat=ios) npos, orig_sym
+      if (ios /= 0) then
+        write (*, *) 'ERROR: could not parse the target line of ENSEMBLE_original.'
+        stop 1
+      end if
+      kpos = index(ensemble_line, '->')
+      read (ensemble_line(kpos+2:), *, iostat=ios) nsubs, sub_sym, nrem, rem_sym
+      if (ios /= 0) then
+        write (*, *) 'ERROR: could not parse the target line of ENSEMBLE_original.'
+        stop 1
+      end if
+      ! A fifth item means more than one substituting species on this target.
+      read (ensemble_line(kpos+2:), *, iostat=ios) nsubs, sub_sym, nrem, rem_sym, trashstr
+      if (ios == 0 .or. nrem /= npos - nsubs) then
+        write (*, *) 'ERROR: invertENSEMBLE only supports single-site binary substitutions.'
+        write (*, *) '       Multi-nary ENSEMBLE detected. Aborting.'
+        stop 1
+      end if
+    end if
+  end do
+  if (nsubs < 0) then
+    write (*, *) 'ERROR: no target line found in ENSEMBLE_original.'
+    stop 1
+  end if
 
   allocate (conf(1:mm, 1:nsubs))
   allocate (confinverted(1:mm, 1:npos - nsubs))
@@ -104,6 +105,7 @@ program invertensemble
   do m = 1, mm
     read (10, *) trash, omega(m), conf(m, 1:nsubs)
   end do
+  sum_degen = sum(omega(1:mm))
 
   do m = 1, mm
     posinverted = 0
@@ -115,9 +117,22 @@ program invertensemble
     end do
   end do
 
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+!      Writing the inverted ENSEMBLE file (format version 3)
+!ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+  ! The substituted set becomes its complement, so the roles of the parent and
+  ! the substituting species swap: nrem sites of orig_sym are now listed, and
+  ! nsubs sites of sub_sym remain.
+  write (11, '(A,I0,A,I0)') &
+    'Enumerated ensemble: ', mm, ' configurations; sum_degeneracies = ', sum_degen
+  write (11, '(I0,1X,A,A,1X,I0,1X,A,1X,I0,1X,A)') &
+    npos, trim(sub_sym), ' sites ->', npos - nsubs, trim(orig_sym), nsubs, trim(sub_sym)
+  write (11, '(3A)') '# Configuration  Degeneracy  ', trim(orig_sym), '_positions'
+
   do m = 1, mm
     write (11, 10) m, omega(m), confinverted(m, 1:npos - nsubs)
-10  format(i6, 1x, i6, *(1x, i4))
+10  format(i0, 1x, i0, *(1x, i0))
   end do
 
   deallocate (conf)

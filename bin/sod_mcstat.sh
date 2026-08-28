@@ -2,10 +2,10 @@
 # sod_mcstat.sh — Thermodynamic integration over MC temperatures.
 #
 # Run from nXX/ (where the MCT_*K/ directories reside).
-# Reads E_ave from each MCT_TTTK/PMEx/ENSEMBLE + MCT_TTTK/PMEx/ENERGIES and
+# Reads E_ave from each MCT_TTTK/CPMEx/ENSEMBLE + MCT_TTTK/CPMEx/ENERGIES and
 # performs Gibbs-Helmholtz thermodynamic integration with the T=∞ reference
-# S(∞) = kB ln(C(npos,lev)).  The PMEx variant is read from ../pme.model when
-# present, otherwise it defaults to PMEh (matching mcsod's default).
+# S(∞) = kB ln(C(npos,lev)).  The CPMEx variant is read from ../cpme.model when
+# present, otherwise it defaults to CPMEh (matching mcsod's default).
 #
 # Output: thermodynamics.dat  (same format as statsod/gcstatsod)
 

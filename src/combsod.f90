@@ -80,7 +80,7 @@ program combsod
 ! Stage 2: recursive enumeration variables
   integer :: nsubs_prev, ncand, ncand_max, ic, jpar, jj, k, j_remove, nic_prev, idummy, npos_check
   integer(int64) :: cand
-  logical :: going_upward, use_recursive, prev_is_v3
+  logical :: going_upward, use_recursive
   character(len=20) :: prev_ensemble, prev_dir
   integer, dimension(:, :), allocatable :: indconf_prev
   integer, dimension(:), allocatable :: degen_prev
@@ -150,7 +150,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
@@ -175,6 +175,17 @@ program combsod
   ntarget        = insod%ntarget
   sptarget(1:ntarget) = insod%sptarget(1:ntarget)
   nk(1:ntarget)  = insod%nk(1:ntarget)
+  do t = 1, ntarget
+    if (nk(t) > 3) then
+      write (*, '(a,i0,a,i0,a)') " Error: combsod full enumeration supports at most 3 " // &
+        "substituent species per target (quaternary disorder); target ", t, " requests ", &
+        nk(t), " substituent species."
+      write (*, '(a)') "        Full enumeration is combinatorially infeasible for " // &
+        "quinary/senary compositions anyway; use randomsod (uniform sampling) + sqssod " // &
+        "(SQS scoring) instead. See example19."
+      stop 1
+    end if
+  end do
   nsubs_t(1:ntarget, 1:nkmax) = insod%nsubs_t(1:ntarget, 1:nkmax)
   nsubs_min      = insod%nsubs_min
   nsubs_max      = insod%nsubs_max
@@ -280,30 +291,35 @@ program combsod
     use_recursive = (ierr == 0)
 
     if (use_recursive) then
-! Read header: detect v2 ("N substitutions in M sites") or v3 ("... ensemble: N configurations")
-      prev_is_v3 = .false.
+! Read header: v3 line 1 is "<type> ensemble[ (T K)]: N configurations; ..."
       do
         read (50, '(A)') line_buffer
         if (line_buffer(1:1) /= '#') exit
       end do
-      if (index(line_buffer, 'substitutions') > 0) then
-        ! v2 format: "nsubs_prev substitutions in npos_check sites"
-        read (line_buffer, *) nsubs_prev
-        k = index(line_buffer, ' in ')
-        read (line_buffer(k + 4:), *) npos_check
+      if (index(line_buffer, 'configurations') == 0) then
+        write (*, *) "Warning: ", trim(prev_ensemble), " is not a version 3 ENSEMBLE."
+        write (*, *) "         Falling back to direct generation of the full space."
+        use_recursive = .false.
+        close (50)
       else
-        ! v3 format: line 1 = "... ensemble: nic_prev configurations"
-        prev_is_v3 = .true.
         block
           integer :: tmp_buf(20), tmp_n, iv, pos_, len_s, ios_
           character(len=64) :: tok
           len_s = index(line_buffer, 'configurations') - 1
           pos_ = 1; tmp_n = 0
           do while (pos_ <= len_s .and. tmp_n < 20)
-            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) == ' '); pos_ = pos_ + 1; end do
+            do
+              if (pos_ > len_s) exit
+              if (line_buffer(pos_:pos_) /= ' ') exit
+              pos_ = pos_ + 1
+            end do
             if (pos_ > len_s) exit
             k = pos_
-            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) /= ' '); pos_ = pos_ + 1; end do
+            do
+              if (pos_ > len_s) exit
+              if (line_buffer(pos_:pos_) == ' ') exit
+              pos_ = pos_ + 1
+            end do
             tok = line_buffer(k:pos_-1)
             read(tok, *, iostat=ios_) iv
             if (ios_ == 0) then; tmp_n = tmp_n + 1; tmp_buf(tmp_n) = iv; end if
@@ -319,10 +335,18 @@ program combsod
           character(len=64) :: tok
           len_s = len_trim(line_buffer); pos_ = k + 2
           do while (pos_ <= len_s)
-            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) == ' '); pos_ = pos_ + 1; end do
+            do
+              if (pos_ > len_s) exit
+              if (line_buffer(pos_:pos_) /= ' ') exit
+              pos_ = pos_ + 1
+            end do
             if (pos_ > len_s) exit
             k = pos_
-            do while (pos_ <= len_s .and. line_buffer(pos_:pos_) /= ' '); pos_ = pos_ + 1; end do
+            do
+              if (pos_ > len_s) exit
+              if (line_buffer(pos_:pos_) == ' ') exit
+              pos_ = pos_ + 1
+            end do
             tok = line_buffer(k:pos_-1)
             read(tok, *, iostat=ios_) iv
             if (ios_ == 0) then; nsubs_prev = iv; exit; end if  ! first integer after '->'
@@ -330,6 +354,9 @@ program combsod
         end block
         read (50, '(A)') line_buffer  ! skip column-header comment line
       end if
+    end if
+
+    if (use_recursive) then
       if (npos_check /= npos) then
         write (*, *) "Warning: npos in adjacent ENSEMBLE (", npos_check, &
                      ") does not match current npos (", npos, "). Falling back to direct."
@@ -339,11 +366,6 @@ program combsod
     end if
 
     if (use_recursive) then
-      if (.not. prev_is_v3) then
-        ! v2: nic is on a separate line
-        read (50, '(A)') line_buffer
-        read (line_buffer, *) nic_prev
-      end if
       allocate (indconf_prev(1:nic_prev, 1:nsubs_prev))
       allocate (degen_prev(1:nic_prev))
       if (nsubs_prev == 0) then
@@ -384,16 +406,18 @@ program combsod
         do ic = 1, nic_prev
           jpar = 1
           do pos = 1, npos
-            if (jpar <= nsubs_prev .and. indconf_prev(ic, jpar) == pos) then
-              jpar = jpar + 1  ! pos is in the parent; skip it
-            else
+            if (jpar <= nsubs_prev) then
+              if (indconf_prev(ic, jpar) == pos) then
+                jpar = jpar + 1  ! pos is in the parent; skip it
+                cycle
+              end if
+            end if
 ! pos is not in the parent; create child by inserting pos into the sorted parent
 ! Sites indconf_prev(ic,1:jpar-1) are < pos; sites indconf_prev(ic,jpar:nsubs_prev) are > pos
-              ncand = ncand + 1
-              conf(ncand, 1:jpar - 1) = indconf_prev(ic, 1:jpar - 1)
-              conf(ncand, jpar) = pos
-              conf(ncand, jpar + 1:nsubs) = indconf_prev(ic, jpar:nsubs_prev)
-            end if
+            ncand = ncand + 1
+            conf(ncand, 1:jpar - 1) = indconf_prev(ic, 1:jpar - 1)
+            conf(ncand, jpar) = pos
+            conf(ncand, jpar + 1:nsubs) = indconf_prev(ic, jpar:nsubs_prev)
           end do
         end do
 
@@ -1189,12 +1213,14 @@ program combsod
       jj = 0
       j = 1
       do i = 1, nsubs
-        if (j <= nsubs_t(1,1) .and. as_B(j) == i) then
-          j = j + 1
-        else
-          jj = jj + 1
-          as_notB_tmp(jj) = i
+        if (j <= nsubs_t(1,1)) then
+          if (as_B(j) == i) then
+            j = j + 1
+            cycle
+          end if
         end if
+        jj = jj + 1
+        as_notB_tmp(jj) = i
       end do
 
 !     Inner loop: enumerate sp2 colouring (nsubs_t(1,2) from n2rem)
@@ -1287,12 +1313,14 @@ program combsod
             jj = 0
             j = 1
             do i = 1, nsubs
-              if (j <= nsubs_t(1,1) .and. new_as_B(j) == i) then
-                j = j + 1
-              else
-                jj = jj + 1
-                new_notB_tmp(jj) = newconf_A(i)
+              if (j <= nsubs_t(1,1)) then
+                if (new_as_B(j) == i) then
+                  j = j + 1
+                  cycle
+                end if
               end if
+              jj = jj + 1
+              new_notB_tmp(jj) = newconf_A(i)
             end do
 
 !           Image of sp2 positions
@@ -1946,12 +1974,14 @@ program combsod
 !           Build new_notcol1_t: values in newpos_t not at new_col1_t indices
             jj = 0; j = 1
             do i = 1, nsubs_tot_t(t)
-              if (j <= nsubs_t(t,1) .and. new_col1_t(t,j) == i) then
-                j = j + 1
-              else
-                jj = jj + 1
-                new_notcol1_t(t, jj) = newpos_t(t, i)
+              if (j <= nsubs_t(t,1)) then
+                if (new_col1_t(t,j) == i) then
+                  j = j + 1
+                  cycle
+                end if
               end if
+              jj = jj + 1
+              new_notcol1_t(t, jj) = newpos_t(t, i)
             end do
           end if
 
@@ -2358,7 +2388,11 @@ contains
     write (31, '(a)') "_atom_site_fract_z"
     atsp = 0
     do at = 1, nat
-      if (at == 1 .or. spat(at) /= spat(at - 1)) atsp = 0
+      if (at == 1) then
+        atsp = 0
+      else if (spat(at) /= spat(at - 1)) then
+        atsp = 0
+      end if
       atsp = atsp + 1
       write (31, '(a, i0, 2x, a, 3(2x, f11.7))') trim(symbol(spat(at))), atsp, &
             trim(symbol(spat(at))), coords(at, 1), coords(at, 2), coords(at, 3)
@@ -2552,12 +2586,14 @@ contains
     m = 0
     j = 1
     do i = 1, n
-      if (j <= k .and. as(j) == i) then
-        j = j + 1
-      else
-        m = m + 1
-        notAs(m) = i
+      if (j <= k) then
+        if (as(j) == i) then
+          j = j + 1
+          cycle
+        end if
       end if
+      m = m + 1
+      notAs(m) = i
     end do
   end subroutine complement_indices
 

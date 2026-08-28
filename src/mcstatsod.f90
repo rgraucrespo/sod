@@ -1,8 +1,8 @@
 !*******************************************************************************
 !    mcstatsod — Thermodynamic integration over MC temperatures.
 !
-!    Reads E_ave(T) from MCT_TTTK/PMEx/ENSEMBLE + MCT_TTTK/PMEx/ENERGIES for each
-!    temperature in ../TEMPERATURES (PMEx is read from pme.model).
+!    Reads E_ave(T) from MCT_TTTK/CPMEx/ENSEMBLE + MCT_TTTK/CPMEx/ENERGIES for each
+!    temperature in ../TEMPERATURES (CPMEx is read from cpme.model).
 !    Uses the Gibbs-Helmholtz relation d(βF)/dβ = U(β) with
 !    the infinite-temperature reference F(T→∞) = −kBT ln Ω_total, where
 !    Ω_total = C(npos, lev) is the total number of configurations (binomial).
@@ -13,16 +13,16 @@
 !    The tail from β=0 to the highest sampled β is handled by linear extrapolation
 !    of U(β) to β=0.
 !
-!    Run from nXX/ (where the MCT_*K/ directories and pme.model reside).
+!    Run from nXX/ (where the MCT_*K/ directories and cpme.model reside).
 !    Output: thermodynamics.dat  (same format as statsod)
 !
-!    Part of the SOD package (v0.84) — GNU GPL v3+.
+!    Part of the SOD package (v0.90) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcstatsod
   use iso_fortran_env, only: real64, error_unit
   use ensemble_io,     only: read_energies_file
-  use pmemod,          only: pme_variant_dir_from_model
+  use cpmemod,          only: cpme_variant_dir_from_model
   implicit none
 
   integer,      parameter :: ntempmax  = 1000
@@ -62,27 +62,27 @@ program mcstatsod
   integer :: unit_temps, unit_ensemble, unit_out
   integer :: n_missing
   logical :: ene_ok
-  character(len=32)  :: txx, pme_variant
+  character(len=32)  :: txx, cpme_variant
   logical            :: variant_ok
   character(len=256) :: ensemble_path, energies_path
   character(len=256) :: ensemble_line
   integer :: k, m, j, kpos_mc, kpos2_mc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - mcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - mcstatsod"
 
   ! -----------------------------------------------------------------------
-  ! 0. Resolve the PME variant subdirectory (sampling method first, Hamiltonian
-  !    variant second: MCT_*K/PMEx/).  pme.model lives in the main problem
+  ! 0. Resolve the CPME variant subdirectory (sampling method first, Hamiltonian
+  !    variant second: MCT_*K/CPMEx/).  cpme.model lives in the main problem
   !    directory (../ from here) and is optional: when absent, mcsod builds the
-  !    Hamiltonian directly from reference ENERGIES and defaults to PMEh, so we
-  !    default to PMEh here too for consistency.
+  !    Hamiltonian directly from reference ENERGIES and defaults to CPMEh, so we
+  !    default to CPMEh here too for consistency.
   ! -----------------------------------------------------------------------
-  call pme_variant_dir_from_model('../pme.model', pme_variant, variant_ok)
+  call cpme_variant_dir_from_model('../cpme.model', cpme_variant, variant_ok)
   if (variant_ok) then
-    write(*, '(A,A)') '  PME variant (from ../pme.model): ', trim(pme_variant)
+    write(*, '(A,A)') '  CPME variant (from ../cpme.model): ', trim(cpme_variant)
   else
-    pme_variant = 'PMEh'
-    write(*, '(A)') '  No readable ../pme.model; defaulting to PME variant PMEh.'
+    cpme_variant = 'CPMEh'
+    write(*, '(A)') '  No readable ../cpme.model; defaulting to CPME variant CPMEh.'
   end if
 
   ! -----------------------------------------------------------------------
@@ -118,7 +118,7 @@ program mcstatsod
   write(*, '(A,I0,A)') '  Found ', n_temp, ' temperatures in ../TEMPERATURES.'
 
   ! -----------------------------------------------------------------------
-  ! 2. Read TXX/PMEx/ENSEMBLE + TXX/PMEx/ENERGIES for each temperature → E_ave(T)
+  ! 2. Read TXX/CPMEx/ENSEMBLE + TXX/CPMEx/ENERGIES for each temperature → E_ave(T)
   ! -----------------------------------------------------------------------
   got_geometry = .false.
   npos = 0; lev = 0
@@ -127,8 +127,8 @@ program mcstatsod
 
   do i_temp = 1, n_temp
     call format_metropolis_directory(temp_raw(i_temp), txx)
-    ensemble_path = trim(txx)//'/'//trim(pme_variant)//'/ENSEMBLE'
-    energies_path = trim(txx)//'/'//trim(pme_variant)//'/ENERGIES'
+    ensemble_path = trim(txx)//'/'//trim(cpme_variant)//'/ENSEMBLE'
+    energies_path = trim(txx)//'/'//trim(cpme_variant)//'/ENERGIES'
 
     open(newunit=unit_ensemble, file=trim(ensemble_path), status='old', action='read', iostat=ios)
     if (ios /= 0) then
@@ -136,7 +136,7 @@ program mcstatsod
       stop 1
     end if
 
-    ! Read first non-blank line; detect v2 ('#') vs v3 ('ensemble:')
+    ! Read first non-blank line: v3 header "... ensemble ...: nic configurations"
     do
       read(unit_ensemble, '(A)', iostat=ios) ensemble_line
       if (ios /= 0) then
@@ -146,78 +146,47 @@ program mcstatsod
       if (len_trim(ensemble_line) > 0) exit
     end do
 
-    if (ensemble_line(1:1) == '#') then
-      ! v2: skip comment lines; first non-comment line: "lev substitutions in npos sites"
-      do while (ensemble_line(1:1) == '#')
-        read(unit_ensemble, '(A)', iostat=ios) ensemble_line
-        if (ios /= 0) then
-          write(error_unit,'(A,A)') ' Error: unexpected end of file in ', trim(ensemble_path)
-          stop 1
-        end if
-      end do
-      if (.not. got_geometry) then
-        block
-          character(len=64) :: w1, w2
-          read(ensemble_line, *, iostat=ios) lev, w1, w2, npos
-        end block
-        if (ios /= 0) then
-          write(error_unit,'(A)') ' Error: could not parse geometry from ENSEMBLE.'
-          stop 1
-        end if
-        got_geometry = .true.
-        ln_omega = log_gamma(real(npos + 1, real64)) &
-                 - log_gamma(real(lev + 1, real64)) &
-                 - log_gamma(real(npos - lev + 1, real64))
-        write(*, '(A,I0,A,I0,A)') '  System: ', lev, ' substitutions in ', npos, ' sites'
-        write(*, '(A,ES14.6)') '  ln(Omega_total) = ln(C(npos,lev)) = ', ln_omega
-      else
-        read(ensemble_line, *, iostat=ios) mm_check
-        if (ios /= 0 .or. mm_check /= lev) then
-          write(error_unit,'(A,A)') &
+    if (index(ensemble_line, 'configurations') == 0 .or. ensemble_line(1:1) == '#') then
+      write(error_unit,'(A,A,A)') ' Error: ', trim(ensemble_path), ' is not a version 3 ENSEMBLE.'
+      write(error_unit,'(A)')     '        Version 2 ENSEMBLE files are no longer supported;'
+      write(error_unit,'(A)')     '        regenerate the level with sod_comb.sh or sod_mc.sh.'
+      stop 1
+    end if
+
+    ! v3: first line is "Metropolis ensemble (T K): nic configurations"
+    kpos_mc  = index(ensemble_line, ':', back=.true.)
+    kpos2_mc = index(ensemble_line, 'configurations')
+    if (kpos_mc > 0 .and. kpos2_mc > kpos_mc) then
+      read(ensemble_line(kpos_mc+1:kpos2_mc-1), *, iostat=ios) mm
+      if (ios /= 0 .or. mm <= 0 .or. mm > nconfmax) then
+        write(error_unit,'(A,A)') ' Error: invalid configuration count in ', trim(ensemble_path)
+        stop 1
+      end if
+    end if
+    ! Read target line(s) and column-header comment; extract lev and npos
+    do
+      read(unit_ensemble, '(A)', iostat=ios) ensemble_line
+      if (ios /= 0) exit
+      if (len_trim(ensemble_line) == 0) cycle
+      if (ensemble_line(1:1) == '#') exit  ! column-header comment — at first data row
+      if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
+        if (.not. got_geometry) then
+          read(ensemble_line, *, iostat=ios) npos
+          kpos_mc = index(ensemble_line, '->')
+          read(ensemble_line(kpos_mc+2:), *, iostat=ios) lev
+          got_geometry = .true.
+          ln_omega = log_gamma(real(npos + 1, real64)) &
+                   - log_gamma(real(lev + 1, real64)) &
+                   - log_gamma(real(npos - lev + 1, real64))
+          write(*, '(A,I0,A,I0,A)') '  System: ', lev, ' substitutions in ', npos, ' sites'
+          write(*, '(A,ES14.6)') '  ln(Omega_total) = ln(C(npos,lev)) = ', ln_omega
+        else
+          read(ensemble_line, *, iostat=ios) npos; read(ensemble_line(index(ensemble_line,'->')+2:), *, iostat=ios) mm_check
+          if (mm_check /= lev) write(error_unit,'(A,A)') &
             ' Warning: substitution level mismatch in ', trim(ensemble_path)
         end if
       end if
-      read(unit_ensemble, *, iostat=ios) mm
-      if (ios /= 0 .or. mm <= 0 .or. mm > nconfmax) then
-        write(error_unit,'(A,A,I0)') ' Error: invalid mm in ', trim(ensemble_path), mm
-        stop 1
-      end if
-    else
-      ! v3: first line is "Metropolis ensemble (T K): nic configurations"
-      kpos_mc  = index(ensemble_line, ':', back=.true.)
-      kpos2_mc = index(ensemble_line, 'configurations')
-      if (kpos_mc > 0 .and. kpos2_mc > kpos_mc) then
-        read(ensemble_line(kpos_mc+1:kpos2_mc-1), *, iostat=ios) mm
-        if (ios /= 0 .or. mm <= 0 .or. mm > nconfmax) then
-          write(error_unit,'(A,A)') ' Error: invalid configuration count in ', trim(ensemble_path)
-          stop 1
-        end if
-      end if
-      ! Read target line(s) and column-header comment; extract lev and npos
-      do
-        read(unit_ensemble, '(A)', iostat=ios) ensemble_line
-        if (ios /= 0) exit
-        if (len_trim(ensemble_line) == 0) cycle
-        if (ensemble_line(1:1) == '#') exit  ! column-header comment — at first data row
-        if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
-          if (.not. got_geometry) then
-            read(ensemble_line, *, iostat=ios) npos
-            kpos_mc = index(ensemble_line, '->')
-            read(ensemble_line(kpos_mc+2:), *, iostat=ios) lev
-            got_geometry = .true.
-            ln_omega = log_gamma(real(npos + 1, real64)) &
-                     - log_gamma(real(lev + 1, real64)) &
-                     - log_gamma(real(npos - lev + 1, real64))
-            write(*, '(A,I0,A,I0,A)') '  System: ', lev, ' substitutions in ', npos, ' sites'
-            write(*, '(A,ES14.6)') '  ln(Omega_total) = ln(C(npos,lev)) = ', ln_omega
-          else
-            read(ensemble_line, *, iostat=ios) npos; read(ensemble_line(index(ensemble_line,'->')+2:), *, iostat=ios) mm_check
-            if (mm_check /= lev) write(error_unit,'(A,A)') &
-              ' Warning: substitution level mismatch in ', trim(ensemble_path)
-          end if
-        end if
-      end do
-    end if
+    end do
 
     ! Read omega values (index, omega, site_indices — skip site indices via list-directed I/O)
     do m = 1, mm

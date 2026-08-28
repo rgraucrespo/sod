@@ -6,11 +6,11 @@ Glossary
 
    calibration energies
       Energies of selected configurations at the *target* intermediate
-      composition ``nXX``, used to fit the ε scale factors of a :term:`PME`
+      composition ``nXX``, used to fit the ε scale factors of a :term:`CPME`
       Hamiltonian.  They are stored in ``nXX/ENERGIES`` (two-column format
       ``m  E_nm``: configuration index and energy in eV) and are read at the
       row indices listed in the ``calib_config_list`` line of
-      :term:`pme.model`.  The number of indices actually consumed is set by
+      :term:`cpme.model`.  The number of indices actually consumed is set by
       the ``n_calib`` field (0–9).  Calibration energies are distinct from
       :term:`reference energies`: reference energies define the Hamiltonian's
       V terms; calibration energies tune the ε corrections.
@@ -127,7 +127,7 @@ Glossary
       Temperature is not stored in ``INMC``; instead, ``TEMPERATURES`` in
       :term:`SODPROJECT` lists one temperature per line for the ``sod_mc.sh``
       loop.  Read by :term:`mcsod` via ``sod_mc.sh``.  A copy is saved next to
-      each MC run's output (``nXX/MCT_TTTK/PMEx/``) for reference.  Uniform
+      each MC run's output (``nXX/MCT_TTTK/CPMEx/``) for reference.  Uniform
       random sampling uses :term:`randomsod` and does not read ``INMC``.
 
    INGC
@@ -137,17 +137,17 @@ Glossary
       :term:`chemical potential` (``mu``) or the composition fraction
       (``x``). Optionally enables the :term:`stress-volume correction`.
 
-   pme.model
-      Input/control file for the :term:`PME` Hamiltonian at a given
+   cpme.model
+      Input/control file for the :term:`CPME` Hamiltonian at a given
       composition level.  The editable control file is placed at
-      ``SODPROJECT/pme.model`` and applies to the target level specified by
-      :term:`INSOD`; SOD copies it to ``nXX/pme.model`` as a run record.
+      ``SODPROJECT/cpme.model`` and applies to the target level specified by
+      :term:`INSOD`; SOD copies it to ``nXX/cpme.model`` as a run record.
       The file has 7 data lines:
 
-      - **PME choice** — which Hamiltonian variant to use: ``0`` (PME0,
-        low-side only), ``1`` (PME1, high-side only), or ``2`` (PMEh,
+      - **CPME choice** — which Hamiltonian variant to use: ``0`` (CPME0,
+        low-side only), ``1`` (CPME1, high-side only), or ``2`` (CPMEh,
         weighted hybrid).
-      - **PMEorder** — cap on the expansion order (must be 2, 3, or 4); a
+      - **CPMEorder** — cap on the expansion order (must be 2, 3, or 4); a
         lower effective order is used with a warning if training data is
         insufficient.
       - **n_calib** — how many :term:`calibration energies` to use when
@@ -156,26 +156,26 @@ Glossary
         first ``n_calib`` indices of ``calib_config_list``).
       - **calib_config_list** — space-separated configuration indices (up
         to 9) selected from ``nXX/ENERGIES`` for calibration.  Auto-filled
-        by ``pmesod`` via recursive bisection of the predicted energy range
-        when writing ``pme.model.tmp``.
-      - **epsilon_low** — ε₀..ε_{PMEorder} for the low-side expansion
-        (``PMEorder + 1`` values; defaults 0, 1, 1, ...; ε₀ is an additive
+        by ``cpmesod`` via recursive bisection of the predicted energy range
+        when writing ``cpme.model.tmp``.
+      - **epsilon_low** — ε₀..ε_{CPMEorder} for the low-side expansion
+        (``CPMEorder + 1`` values; defaults 0, 1, 1, ...; ε₀ is an additive
         energy offset in eV, ε₁..ε_K are multiplicative scale factors).
-      - **epsilon_high** — ε₀..ε_{PMEorder} for the high-side expansion
+      - **epsilon_high** — ε₀..ε_{CPMEorder} for the high-side expansion
         (same format as ``epsilon_low``).
-      - **alpha eta** — PMEh hybrid weighting parameters (``alpha`` > 1
+      - **alpha eta** — CPMEh hybrid weighting parameters (``alpha`` > 1
         sharpness of the low/high blend, default ``2.0``; ``eta``
         log-scale asymmetry, default ``0.0``; ``> 0`` favours low-end,
-        ``< 0`` favours high-end).  Always present but only used for PMEh.
+        ``< 0`` favours high-end).  Always present but only used for CPMEh.
 
-      Optionally followed by ``# PME energy terms`` and the fitted V₀ and
-      V_k coefficients (low and high side), which are written by ``pmesod``
+      Optionally followed by ``# CPME energy terms`` and the fitted V₀ and
+      V_k coefficients (low and high side), which are written by ``cpmesod``
       after fitting and are read back on subsequent runs to skip refitting.
 
-      When ``SODPROJECT/pme.model`` is absent, ``pmesod`` defaults to PMEh
-      (or PME0 if no high-side reference data is available) with ε = 1,
+      When ``SODPROJECT/cpme.model`` is absent, ``cpmesod`` defaults to CPMEh
+      (or CPME0 if no high-side reference data is available) with ε = 1,
       ``alpha = 2.0``, ``eta = 0.0``, and writes
-      ``SODPROJECT/pme.model.tmp`` plus a copy at ``nXX/pme.model.tmp`` as a
+      ``SODPROJECT/cpme.model.tmp`` plus a copy at ``nXX/cpme.model.tmp`` as a
       starting template.
 
    INSOD
@@ -189,8 +189,11 @@ Glossary
    INSQS
       Input file for :term:`SQS` and :term:`GQS` analysis, placed in the
       :term:`SODPROJECT` or a specific ``nXX/`` folder. Specifies the
-      maximum cluster order, cutoff radii, cluster weights, and the
-      scoring mode (least-squares or van de Walle).
+      maximum cluster order, cutoff radii, cluster weights, and van de
+      Walle scoring parameters. For the generalized ``sqssod`` scorer,
+      order 2 controls the species-resolved pair score; higher-order
+      entries are accepted for compatibility and currently ignored by
+      ``sqssod``.
 
    MAINFOLDER
       Former name for :term:`SODPROJECT`. Retained here for reference;
@@ -202,18 +205,18 @@ Glossary
       Lives directly under ``nXX/`` (sampling method first); because the
       Metropolis walk is Hamiltonian-driven, the run's ``ENSEMBLE``,
       ``ENERGIES``, ``OUTMC``, ``INMC`` and optional ``MCTRACE`` are written
-      in a ``PMEx`` subdirectory, ``nXX/MCT_TTTK/PMEx/``.  All ``MCT_*K``
+      in a ``CPMEx`` subdirectory, ``nXX/MCT_TTTK/CPMEx/``.  All ``MCT_*K``
       directories are processed together by ``sod_mcstat.sh`` to perform
       thermodynamic integration.
 
    mcsod
-      The Metropolis Monte Carlo sampling executable.  Uses a :term:`PME`
+      The Metropolis Monte Carlo sampling executable.  Uses a :term:`CPME`
       effective Hamiltonian to drive sampling of the configuration space at a
       single temperature.  The loop over multiple temperatures is handled by
       ``sod_mc.sh``, which invokes one single-temperature MC run per
       ``TEMPERATURES`` entry.  Reads :term:`INSOD`, :term:`INMC`, and
-      ``SODPROJECT/pme.model`` when present, and writes output to
-      ``nXX/MCT_TTTK/PMEx/``.  Any ε corrections from
+      ``SODPROJECT/cpme.model`` when present, and writes output to
+      ``nXX/MCT_TTTK/CPMEx/``.  Any ε corrections from
       :term:`calibration energies` are already baked into the loaded
       Hamiltonian before sampling begins.  Normally invoked via
       ``sod_mc.sh``.  For energy-free uniform random sampling, see
@@ -232,10 +235,10 @@ Glossary
 
    mcstatsod
       The Monte Carlo thermodynamics program.  Run from ``nXX/``, it reads
-      ``../TEMPERATURES`` and the ``MCT_TTTK/PMEx/ENSEMBLE`` and
-      ``MCT_TTTK/PMEx/ENERGIES`` files for each sampled temperature (the
-      ``PMEx`` variant is taken from ``../pme.model``, defaulting to
-      ``PMEh``), computes
+      ``../TEMPERATURES`` and the ``MCT_TTTK/CPMEx/ENSEMBLE`` and
+      ``MCT_TTTK/CPMEx/ENERGIES`` files for each sampled temperature (the
+      ``CPMEx`` variant is taken from ``../cpme.model``, defaulting to
+      ``CPMEh``), computes
       :math:`E_\mathrm{ave}(T) = \sum \omega E / \sum \omega` from MC
       visit counts, and integrates :math:`d(\beta F)/d\beta = U(\beta)`
       by trapezoidal quadrature.  The exact high-temperature reference
@@ -309,62 +312,64 @@ Glossary
       it contains one line per :term:`inequivalent configuration` listing its
       index, :term:`degeneracy`, and substituted atom positions. For Monte
       Carlo output from ``mcsod``, rows and Omega have sampler-dependent
-      meanings documented in ``OUTMC`` and the PME/MC guide. ENSEMBLE is
+      meanings documented in ``OUTMC`` and the CPME/MC guide. ENSEMBLE is
       required by :term:`statsod`, :term:`gcstatsod`, and
       ``sqssod``. Known as ``OUTSOD`` in versions of SOD before 0.80.
 
    OUTSQS
       Output file written by ``sqssod`` (via ``sod_sqs.sh``). A ranked
       list of :term:`inequivalent configuration`\s, from best to worst
-      :term:`SQS` candidate, with their :term:`Warren parameters` and
-      deviation scores. Rank 0 is the configuration closest to ideal random
-      mixing. See :term:`SQS`.
+      :term:`SQS` candidate, with matched distance, total species-pair
+      probability error, score, and target-pair family errors. Rank 1 is the
+      configuration closest to ideal random mixing. Detailed channel
+      probabilities for the best configuration are written to
+      ``SQS_CORRELATIONS``. See :term:`SQS`.
 
    pair correlations
       See :term:`Warren parameters`.
 
-   PME
-   Periodic Motif Expansion
+   CPME
+   Constrained Periodic Motif Expansion
       An effective Hamiltonian for SOD that expresses the energy of a
       configuration as a sum of interaction terms up to 4-body, fitted
       from :term:`reference energies` at low and/or high substitution
       levels.  Three variants are available:
 
-      - **PME0** — low-side expansion only; energy evaluated as
+      - **CPME0** — low-side expansion only; energy evaluated as
         :math:`E_0^\mathrm{low} + \sum_i \varepsilon_i V_i^\mathrm{low}`.
-      - **PME1** — high-side (hole) expansion only; energy evaluated
+      - **CPME1** — high-side (hole) expansion only; energy evaluated
         symmetrically in terms of the unoccupied sites.
-      - **PMEh** — weighted hybrid of PME0 and PME1,
+      - **CPMEh** — weighted hybrid of CPME0 and CPME1,
         :math:`w_\mathrm{low}(x) E_\mathrm{low} + w_\mathrm{high}(x) E_\mathrm{high}`,
         where :math:`x` is the substitution fraction and the weights
         follow a piecewise power-law scheme controlled by ``alpha``
         (sharpness, default 2.0) and ``eta`` (log-scale asymmetry,
-        default 0.0).  Edge regions within ``PMEorder/N`` of either
-        boundary use the corresponding end-member PME with full weight.
+        default 0.0).  Edge regions within ``CPMEorder/N`` of either
+        boundary use the corresponding end-member CPME with full weight.
 
       The expansion order and ε scale factors are controlled via
-      :term:`pme.model`.  PME energies for all enumerated configurations at
-      the target level are written to ``nXX/PMEx/ENERGIES``.  For large
-      target levels where full enumeration is intractable, the PME
+      :term:`cpme.model`.  CPME energies for all enumerated configurations at
+      the target level are written to ``nXX/CPMEx/ENERGIES``.  For large
+      target levels where full enumeration is intractable, the CPME
       Hamiltonian drives Monte Carlo sampling (see :term:`mcsod`).
 
-   pmesod
-      The PME fitting and evaluation executable.  Reads :term:`INSOD`, the
+   cpmesod
+      The CPME fitting and evaluation executable.  Reads :term:`INSOD`, the
       reference energy files (``n00/ENERGIES``, ``n01/ENERGIES``, …), and
-      optionally :term:`pme.model` (with any sparse calibration energies in
+      optionally :term:`cpme.model` (with any sparse calibration energies in
       ``nXX/ENERGIES`` referenced by ``calib_config_list``).  Fits the
-      :term:`PME` V terms from :term:`reference energies`, applies any
+      :term:`CPME` V terms from :term:`reference energies`, applies any
       :term:`calibration energies` via the ε corrections, evaluates the
       resulting Hamiltonian for all enumerated configurations at the target
-      level, and writes predictions under ``nXX/PME0/``, ``nXX/PME1/``,
-      and/or ``nXX/PMEh/``.  When no ``pme.model`` is present it also writes
-      ``SODPROJECT/pme.model.tmp`` as a suggested control file, with a
+      level, and writes predictions under ``nXX/CPME0/``, ``nXX/CPME1/``,
+      and/or ``nXX/CPMEh/``.  When no ``cpme.model`` is present it also writes
+      ``SODPROJECT/cpme.model.tmp`` as a suggested control file, with a
       bisection-selected ``calib_config_list`` spanning the predicted
-      energy range.  Normally invoked via ``sod_pme.sh``.
+      energy range.  Normally invoked via ``sod_cpme.sh``.
 
    reference energies
       Energies of low-x (n00–n04) or high-x (n(M)–n(M-4)) configurations
-      used to fit the V1–V4 interaction terms that define a :term:`PME`
+      used to fit the V1–V4 interaction terms that define a :term:`CPME`
       Hamiltonian.  They are stored in the respective ``nXX/ENERGIES`` files
       in two-column format ``m  E_nm`` (configuration index and energy in eV),
       and are the *training data* for the Hamiltonian.  Contrast with
@@ -386,7 +391,7 @@ Glossary
       template files, ``TEMPERATURES``, ``INMC``, and receives
       :term:`EQMATRIX` and ``supercell.cif`` after running
       :term:`combsod`.  Composition-level subdirectories ``nXX/`` hold
-      enumeration results, calculator runs, and PME outputs; ``x???/``
+      enumeration results, calculator runs, and CPME outputs; ``x???/``
       directories hold grand-canonical inputs.
 
    site-occupancy disorder

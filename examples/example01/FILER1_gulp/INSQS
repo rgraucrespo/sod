@@ -9,3 +9,6 @@
 
 # omega and eps_tol for van de Walle scoring
 10  1.0E-8
+
+# n_top_sqs: number of top configurations listed in OUTSQS (0 = rank and list all)
+10

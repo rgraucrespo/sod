@@ -59,7 +59,7 @@ program stats
   end if
 
   if (.not. quiet) then
-    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - statsod"
+    write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - statsod"
   end if
   write (*, *) " > Statistical mechanics analysis..."
   write (*, *) ""
@@ -102,7 +102,7 @@ program stats
   end if
 
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-  !      Read the ENSEMBLE file (supports v2 and v3 formats)
+  !      Read the ENSEMBLE file (format version 3)
   !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
   ! Read first non-blank line
@@ -115,75 +115,59 @@ program stats
     if (len_trim(ensemble_line) > 0) exit
   end do
 
-  if (ensemble_line(1:1) == '#') then
-    ! v2: first non-blank line starts with '#'
-    do while (ensemble_line(1:1) == '#')
-      if (index(ensemble_line, 'Sampling temperature') > 0) then
-        colon_pos = index(ensemble_line, ':')
-        if (colon_pos > 0 .and. colon_pos < len_trim(ensemble_line)) then
-          read (ensemble_line(colon_pos+1:), *, iostat=ios) tsampling
-          if (ios /= 0) tsampling = -1.0_real64
-        end if
-      end if
-      read (11, '(a)', iostat=ios) ensemble_line
-      if (ios /= 0) then
-        write (*, *) "Error: could not read ENSEMBLE."
-        stop 1
-      end if
-    end do
-    ! ensemble_line is "N substitutions in M sites" — skip it, read nic next
-    read (11, *) mm
-    do m = 1, mm
-      read (11, *) auxm, omega(m)
-    end do
-  else
-    ! v3: first line is "<Type> ensemble [...]: nic configurations"
-    if (index(ensemble_line, 'Metropolis') > 0) then
-      kpos  = index(ensemble_line, '(')
-      kpos2 = index(ensemble_line, 'K)')
-      if (kpos > 0 .and. kpos2 > kpos) then
-        read (ensemble_line(kpos+1:kpos2-1), *, iostat=ios) tsampling
-        if (ios /= 0) tsampling = -1.0_real64
-      end if
+  if (ensemble_line(1:1) == '#' .or. index(ensemble_line, 'configurations') == 0) then
+    write (*, *) "Error: ENSEMBLE is not a version 3 file."
+    write (*, *) "       Version 2 ENSEMBLE files are no longer supported;"
+    write (*, *) "       regenerate the level with sod_comb.sh or sod_random.sh."
+    stop 1
+  end if
+
+  ! v3: first line is "<Type> ensemble [...]: nic configurations"
+  if (index(ensemble_line, 'Metropolis') > 0) then
+    kpos  = index(ensemble_line, '(')
+    kpos2 = index(ensemble_line, 'K)')
+    if (kpos > 0 .and. kpos2 > kpos) then
+      read (ensemble_line(kpos+1:kpos2-1), *, iostat=ios) tsampling
+      if (ios /= 0) tsampling = -1.0_real64
     end if
-    colon_pos = index(ensemble_line, ':', back=.true.)
-    kpos      = index(ensemble_line, 'configurations')
-    if (colon_pos > 0 .and. kpos > colon_pos) then
-      read (ensemble_line(colon_pos+1:kpos-1), *, iostat=ios) mm
-      if (ios /= 0) then
-        write (*, *) "Error: could not parse ENSEMBLE configuration count."
-        stop 1
-      end if
-    else
-      write (*, *) "Error: could not parse ENSEMBLE header."
+  end if
+  colon_pos = index(ensemble_line, ':', back=.true.)
+  kpos      = index(ensemble_line, 'configurations')
+  if (colon_pos > 0 .and. kpos > colon_pos) then
+    read (ensemble_line(colon_pos+1:kpos-1), *, iostat=ios) mm
+    if (ios /= 0) then
+      write (*, *) "Error: could not parse ENSEMBLE configuration count."
       stop 1
     end if
-    ! Skip target lines (contain 'sites' and '->') and column-header comment ('#')
-    do
-      read (11, '(a)', iostat=ios) ensemble_line
-      if (ios /= 0) then
-        write (*, *) "Error: could not read ENSEMBLE data."
-        stop 1
-      end if
-      if (len_trim(ensemble_line) == 0) cycle
-      if (ensemble_line(1:1) == '#') cycle
-      if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) cycle
-      exit
-    end do
-    ! ensemble_line holds first data row; read omega(1) from it, then continue
-    read (ensemble_line, *, iostat=ios) auxm, omega(1)
+  else
+    write (*, *) "Error: could not parse ENSEMBLE header."
+    stop 1
+  end if
+  ! Skip target lines (contain 'sites' and '->') and column-header comment ('#')
+  do
+    read (11, '(a)', iostat=ios) ensemble_line
+    if (ios /= 0) then
+      write (*, *) "Error: could not read ENSEMBLE data."
+      stop 1
+    end if
+    if (len_trim(ensemble_line) == 0) cycle
+    if (ensemble_line(1:1) == '#') cycle
+    if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) cycle
+    exit
+  end do
+  ! ensemble_line holds first data row; read omega(1) from it, then continue
+  read (ensemble_line, *, iostat=ios) auxm, omega(1)
+  if (ios /= 0) then
+    write (*, *) "Error: could not read ENSEMBLE data row."
+    stop 1
+  end if
+  do m = 2, mm
+    read (11, *, iostat=ios) auxm, omega(m)
     if (ios /= 0) then
       write (*, *) "Error: could not read ENSEMBLE data row."
       stop 1
     end if
-    do m = 2, mm
-      read (11, *, iostat=ios) auxm, omega(m)
-      if (ios /= 0) then
-        write (*, *) "Error: could not read ENSEMBLE data row."
-        stop 1
-      end if
-    end do
-  end if
+  end do
   close (11)
 
   metropolis_sample = (tsampling >= 0.0_real64)

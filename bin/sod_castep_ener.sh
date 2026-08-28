@@ -45,11 +45,11 @@ if [ -z "$LEVEL_NAME" ]; then
     echo "Error: no nXX/ folders found in SODPROJECT/."
     exit 1
   fi
-  for ndir in $(ls -d n*/ 2>/dev/null | sort); do
+  for ndir in $(ls -d n[0-9]*/ 2>/dev/null | sort); do
     cdirs=()
-    while IFS= read -r line; do
-      cdirs+=("$line")
-    done < <(ls -d "${ndir}"c*/ 2>/dev/null | sort)
+    while IFS= read -r name; do
+      cdirs+=("${ndir}${name}/")
+    done < <(sod_config_dirs_in_order "$ndir")
     process_level "${ndir}ENERGIES" "${cdirs[@]}"
   done
 else
@@ -60,8 +60,8 @@ else
     exit 1
   fi
   cdirs=()
-  while IFS= read -r line; do
-    cdirs+=("$line")
-  done < <(ls -d c*/ 2>/dev/null | sort)
+  while IFS= read -r name; do
+    cdirs+=("${name}/")
+  done < <(sod_config_dirs_in_order)
   process_level "ENERGIES" "${cdirs[@]}"
 fi

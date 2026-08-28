@@ -70,7 +70,7 @@ program gcstatsod
   real(real64) lambda, v0, v1, bv, bm0, bm1, bb, vol, bm, voln, xn, eta
   real(real64), dimension(0:nensemblesmax)  :: evsc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - gcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - gcstatsod"
   write (*, *) " > Grand-canonical statistical analysis..."
   write (*, *) ""
 
@@ -170,63 +170,51 @@ program gcstatsod
 
   do nsubs = nsubsmin, nsubsmax
 
-    ! Read first non-blank line to detect v2 vs v3 format
+    ! Read first non-blank line: v3 header "... ensemble ...: nic configurations"
     do
       read (100 + nsubs, '(a)') ensemble_line
       if (len_trim(ensemble_line) > 0) exit
     end do
 
-    if (ensemble_line(1:1) == '#') then
-      ! v2: skip comment lines
-      do while (ensemble_line(1:1) == '#')
-        read (100 + nsubs, '(a)') ensemble_line
-      end do
-      read (ensemble_line, *) nsubsread, auxstring
-      if (trim(auxstring) /= 'substitutions') then
-        write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
-        write (*, *) '       Multi-target or multi-nary ENSEMBLE detected. Aborting.'
+    if (index(ensemble_line, 'configurations') == 0 .or. ensemble_line(1:1) == '#') then
+      write (*, *) 'ERROR: ENSEMBLE_xx for nsubs =', nsubs, ' is not a version 3 ENSEMBLE.'
+      write (*, *) '       Version 2 ENSEMBLE files are no longer supported;'
+      write (*, *) '       regenerate the levels with sod_comb.sh. Aborting.'
+      stop 1
+    end if
+
+    ! v3: first line is "... ensemble ...: nic configurations"
+    kpos_gc  = index(ensemble_line, ':', back=.true.)
+    kpos2_gc = index(ensemble_line, 'configurations')
+    if (kpos_gc > 0 .and. kpos2_gc > kpos_gc) then
+      read (ensemble_line(kpos_gc+1:kpos2_gc-1), *, iostat=iostatus) mm(nsubs)
+      if (iostatus /= 0) then
+        write (*, *) 'ERROR: could not parse ENSEMBLE_xx configuration count.'
         stop 1
       end if
-      read (ensemble_line, *) nsubsread, auxstring, auxstring, npos
-      if (nsubsread /= nsubs) then
-        write (*, *) 'ERROR: nsubsread.ne.nsubs'
-        stop 1
-      end if
-      read (100 + nsubs, *) mm(nsubs)
-    else
-      ! v3: first line is "... ensemble ...: nic configurations"
-      kpos_gc  = index(ensemble_line, ':', back=.true.)
-      kpos2_gc = index(ensemble_line, 'configurations')
-      if (kpos_gc > 0 .and. kpos2_gc > kpos_gc) then
-        read (ensemble_line(kpos_gc+1:kpos2_gc-1), *, iostat=iostatus) mm(nsubs)
-        if (iostatus /= 0) then
-          write (*, *) 'ERROR: could not parse ENSEMBLE_xx configuration count.'
+    end if
+    ! Read target line(s) and column-header comment; abort if multi-target
+    nsubsread = -1
+    npos = -1
+    do
+      read (100 + nsubs, '(a)', iostat=iostatus) ensemble_line
+      if (iostatus /= 0) exit
+      if (len_trim(ensemble_line) == 0) cycle
+      if (ensemble_line(1:1) == '#') exit   ! column-header comment — file now at first data row
+      if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
+        if (nsubsread >= 0) then
+          write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
+          write (*, *) '       Multi-target ENSEMBLE detected. Aborting.'
           stop 1
         end if
+        read (ensemble_line, *, iostat=iostatus) npos
+        kpos_gc = index(ensemble_line, '->')
+        read (ensemble_line(kpos_gc+2:), *, iostat=iostatus) nsubsread
       end if
-      ! Read target line(s) and column-header comment; abort if multi-target
-      nsubsread = -1
-      npos = -1
-      do
-        read (100 + nsubs, '(a)', iostat=iostatus) ensemble_line
-        if (iostatus /= 0) exit
-        if (len_trim(ensemble_line) == 0) cycle
-        if (ensemble_line(1:1) == '#') exit   ! column-header comment — file now at first data row
-        if (index(ensemble_line, 'sites') > 0 .and. index(ensemble_line, '->') > 0) then
-          if (nsubsread >= 0) then
-            write (*, *) 'ERROR: grand-canonical analysis supports only single-site binary substitutions.'
-            write (*, *) '       Multi-target ENSEMBLE detected. Aborting.'
-            stop 1
-          end if
-          read (ensemble_line, *, iostat=iostatus) npos
-          kpos_gc = index(ensemble_line, '->')
-          read (ensemble_line(kpos_gc+2:), *, iostat=iostatus) nsubsread
-        end if
-      end do
-      if (nsubsread /= nsubs) then
-        write (*, *) 'ERROR: ENSEMBLE_xx nsubs mismatch or multi-nary substitution detected.'
-        stop 1
-      end if
+    end do
+    if (nsubsread /= nsubs) then
+      write (*, *) 'ERROR: ENSEMBLE_xx nsubs mismatch or multi-nary substitution detected.'
+      stop 1
     end if
 
     write (*, '(a, i4, a, i10)') "   - Level nsubs =", nsubs, ": ", mm(nsubs), " independent configurations"

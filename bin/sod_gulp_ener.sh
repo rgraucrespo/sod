@@ -8,7 +8,22 @@ LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
 
 extract_energy() {
   local cdir="$1"
-  awk '{if (($1 == "Final") && ($2 == "energy")) {print $4}}' "${cdir}output.gout"
+  awk '
+    $1 == "Final" && $2 == "energy" {
+      value = $4
+      pv = 0.0
+    }
+    $1 == "Final" && $2 == "enthalpy" {
+      value = $4
+      pv = 0.0
+    }
+    $1 == "Pressure*volume" {
+      pv = $3
+    }
+    END {
+      if (value != "") printf "%.10f\n", value - pv
+    }
+  ' "${cdir}output.gout"
 }
 
 process_level() {
@@ -45,11 +60,11 @@ if [ -z "$LEVEL_NAME" ]; then
     echo "Error: no nXX/ folders found in SODPROJECT/."
     exit 1
   fi
-  for ndir in $(ls -d n*/ 2>/dev/null | sort); do
+  for ndir in $(ls -d n[0-9]*/ 2>/dev/null | sort); do
     cdirs=()
-    while IFS= read -r line; do
-      cdirs+=("$line")
-    done < <(ls -d "${ndir}"c*/ 2>/dev/null | sort)
+    while IFS= read -r name; do
+      cdirs+=("${ndir}${name}/")
+    done < <(sod_config_dirs_in_order "$ndir")
     process_level "${ndir}ENERGIES" "${cdirs[@]}"
   done
 else
@@ -60,8 +75,8 @@ else
     exit 1
   fi
   cdirs=()
-  while IFS= read -r line; do
-    cdirs+=("$line")
-  done < <(ls -d c*/ 2>/dev/null | sort)
+  while IFS= read -r name; do
+    cdirs+=("${name}/")
+  done < <(sod_config_dirs_in_order)
   process_level "ENERGIES" "${cdirs[@]}"
 fi

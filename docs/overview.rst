@@ -24,8 +24,8 @@ by an ensemble of ordered supercell configurations. Its main tasks are:
 - **Input generation** for external calculators (GULP, LAMMPS, VASP, CASTEP, QE)
 - **Energy and property extraction** from calculated results
 - **Statistical-mechanical analysis** in canonical and grand-canonical ensembles
-- **Periodic Motif Expansion (PME)** effective Hamiltonian fitting from ab initio training data
-- **Monte Carlo (MC)** sampling of configuration space at finite temperature using the PME Hamiltonian
+- **Constrained Periodic Motif Expansion (CPME)** effective Hamiltonian fitting from ab initio training data
+- **Monte Carlo (MC)** sampling of configuration space at finite temperature using the CPME Hamiltonian
 - **Special Quasirandom Structures (SQS)** identification for optimized short-range order
 - **Thermal averaging** of pair correlations (GQS)
 
@@ -71,9 +71,9 @@ The release build provides the following core executables:
 - ``statsod``: performs canonical statistical-mechanical analysis, including
   Metropolis-sampled ENSEMBLE files when sampling metadata is present
 - ``gcstatsod``: performs grand-canonical statistical-mechanical analysis
-- ``pmesod``: fits a periodic motif expansion Hamiltonian and evaluates energies
+- ``cpmesod``: fits a periodic motif expansion Hamiltonian and evaluates energies
 - ``mcsod``: explores configuration space via Metropolis or Uniform Monte Carlo
-  using the PME Hamiltonian
+  using the CPME Hamiltonian
 - ``sqssod`` / ``gqssod``: identify Special and Generalized Quasirandom Structures
 - ``invertENSEMBLE``: post-processes or transforms ``ENSEMBLE`` data
 - ``peaks2spec``: converts peak data into spectra
@@ -87,8 +87,8 @@ standard workflow. These include:
 - ``sod_comb.sh`` for configuration generation and workflow setup
 - ``sod_stat.sh`` for canonical statistics
 - ``sod_gcstat.sh`` for grand-canonical statistics
-- ``sod_pme.sh`` for periodic motif expansion (PME) fitting and evaluation
-- ``sod_mc.sh`` for Monte Carlo sampling using the PME Hamiltonian
+- ``sod_cpme.sh`` for periodic motif expansion (CPME) fitting and evaluation
+- ``sod_mc.sh`` for Monte Carlo sampling using the CPME Hamiltonian
 - ``sod_sqs.sh`` / ``sod_gqs.sh`` for SQS/GQS structure identification
 - calculator-specific extraction scripts such as
   ``sod_gulp_ener.sh``, ``sod_vasp_ener.sh``, ``sod_castep_ener.sh``, and
@@ -165,7 +165,7 @@ The main ``README.md`` in the repository provides:
 - Comprehensive documentation of all input/output file formats
 - Detailed descriptions of each of the 14 worked examples
 - Guides for each supported calculator (GULP, LAMMPS, VASP, CASTEP, QE)
-- Extended workflow examples (PME, MC, SQS, GQS, etc.)
+- Extended workflow examples (CPME, MC, SQS, GQS, etc.)
 
 For questions or issues, contact the SOD developers.
 

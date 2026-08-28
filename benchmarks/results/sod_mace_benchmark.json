@@ -1,0 +1,347 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti",
+  "gpu_total_mib": 16310.5625,
+  "model": "medium-0b2",
+  "level": "/home/ricardo/software/sod/sod_dev/examples/example01/FILER0_mace/n04",
+  "n_configs": 71,
+  "n_atoms": 64,
+  "repeats": 4,
+  "single_point": [
+    {
+      "backend": "cueq",
+      "batch": 1,
+      "best_s": 1.086218689000816,
+      "median_s": 1.1446596644964302,
+      "worst_s": 1.1542848589961068,
+      "per_s": 65.36436973415641
+    },
+    {
+      "backend": "cueq",
+      "batch": 2,
+      "best_s": 0.5671158019977156,
+      "median_s": 0.5791677040033392,
+      "worst_s": 0.597762220997538,
+      "per_s": 125.19488920939288
+    },
+    {
+      "backend": "cueq",
+      "batch": 4,
+      "best_s": 0.2730305210061488,
+      "median_s": 0.29985715750081,
+      "worst_s": 0.3324311639953521,
+      "per_s": 260.0441875082568
+    },
+    {
+      "backend": "cueq",
+      "batch": 8,
+      "best_s": 0.16200889899482718,
+      "median_s": 0.1776300950004952,
+      "worst_s": 0.19564808099676156,
+      "per_s": 438.24753109560345
+    },
+    {
+      "backend": "cueq",
+      "batch": 16,
+      "best_s": 0.10868262800067896,
+      "median_s": 0.1140682024997659,
+      "worst_s": 0.12058714299928397,
+      "per_s": 653.2782773669813
+    },
+    {
+      "backend": "cueq",
+      "batch": 32,
+      "best_s": 0.0860703169964836,
+      "median_s": 0.08861262450227514,
+      "worst_s": 0.08920720699825324,
+      "per_s": 824.9069188730965
+    },
+    {
+      "backend": "cueq",
+      "batch": 71,
+      "best_s": 0.062170593002520036,
+      "median_s": 0.0634865624961094,
+      "worst_s": 0.06471649400191382,
+      "per_s": 1142.0190249290702
+    },
+    {
+      "backend": "e3nn",
+      "batch": 1,
+      "best_s": 1.0476155689975712,
+      "median_s": 1.0714119899967045,
+      "worst_s": 1.0831883890059544,
+      "per_s": 67.77295231297255
+    },
+    {
+      "backend": "e3nn",
+      "batch": 2,
+      "best_s": 0.7452387760058627,
+      "median_s": 0.7609899825038156,
+      "worst_s": 0.7919939850035007,
+      "per_s": 95.27147846563669
+    },
+    {
+      "backend": "e3nn",
+      "batch": 4,
+      "best_s": 0.5866918329993496,
+      "median_s": 0.6019295690020954,
+      "worst_s": 0.6138174970037653,
+      "per_s": 121.01753596436839
+    },
+    {
+      "backend": "e3nn",
+      "batch": 8,
+      "best_s": 0.511808192000899,
+      "median_s": 0.5128133690013783,
+      "worst_s": 0.520282972996938,
+      "per_s": 138.72384441997227
+    },
+    {
+      "backend": "e3nn",
+      "batch": 16,
+      "best_s": 0.4793359280010918,
+      "median_s": 0.4841138734991546,
+      "worst_s": 0.4877826149968314,
+      "per_s": 148.12159041797986
+    },
+    {
+      "backend": "e3nn",
+      "batch": 32,
+      "best_s": 11.361453753001115,
+      "median_s": 11.566357079002046,
+      "worst_s": 11.8016557880037,
+      "per_s": 6.249200282247809
+    },
+    {
+      "backend": "e3nn",
+      "batch": 71,
+      "best_s": 7.237295965001977,
+      "median_s": 7.303805834493687,
+      "worst_s": 7.463468154004659,
+      "per_s": 9.81029383672312
+    }
+  ],
+  "memory": [
+    {
+      "backend": "cueq",
+      "batch": 1,
+      "peak_mib": 231.0234375
+    },
+    {
+      "backend": "cueq",
+      "batch": 2,
+      "peak_mib": 379.6591796875
+    },
+    {
+      "backend": "cueq",
+      "batch": 4,
+      "peak_mib": 681.95751953125
+    },
+    {
+      "backend": "cueq",
+      "batch": 8,
+      "peak_mib": 1291.126953125
+    },
+    {
+      "backend": "cueq",
+      "batch": 16,
+      "peak_mib": 2494.5693359375
+    },
+    {
+      "backend": "cueq",
+      "batch": 32,
+      "peak_mib": 4905.35888671875
+    },
+    {
+      "backend": "cueq",
+      "batch": 71,
+      "peak_mib": 5503.9990234375
+    },
+    {
+      "backend": "e3nn",
+      "batch": 1,
+      "peak_mib": 695.79833984375
+    },
+    {
+      "backend": "e3nn",
+      "batch": 2,
+      "peak_mib": 1281.42919921875
+    },
+    {
+      "backend": "e3nn",
+      "batch": 4,
+      "peak_mib": 2450.5556640625
+    },
+    {
+      "backend": "e3nn",
+      "batch": 8,
+      "peak_mib": 4794.34814453125
+    },
+    {
+      "backend": "e3nn",
+      "batch": 16,
+      "peak_mib": 9489.703125
+    },
+    {
+      "backend": "e3nn",
+      "batch": 32,
+      "peak_mib": 18861.91162109375
+    },
+    {
+      "backend": "e3nn",
+      "batch": 71,
+      "peak_mib": 27576.5068359375
+    }
+  ],
+  "relaxation": [
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 1,
+      "best_s": 16.67841328799841,
+      "median_s": 17.808580402495863,
+      "worst_s": 23.009846410997852,
+      "per_s": 4.256999678206245,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 2,
+      "best_s": 10.541055642999709,
+      "median_s": 10.599453505499696,
+      "worst_s": 10.648438446005457,
+      "per_s": 6.735568277466682,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 4,
+      "best_s": 6.501921069000673,
+      "median_s": 6.533750710499589,
+      "worst_s": 6.579306029998406,
+      "per_s": 10.919849571614764,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 8,
+      "best_s": 4.015731207000499,
+      "median_s": 4.042391255497932,
+      "worst_s": 4.076825919000839,
+      "per_s": 17.680466231461885,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 16,
+      "best_s": 2.9208341350022238,
+      "median_s": 2.9301656749994436,
+      "worst_s": 2.943900096004654,
+      "per_s": 24.308124569335035,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 32,
+      "best_s": 2.4257258729994646,
+      "median_s": 2.4684381449987995,
+      "worst_s": 2.4832002179973642,
+      "per_s": 29.269589276469606,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 71,
+      "best_s": 1.944338200999482,
+      "median_s": 1.957114258500951,
+      "worst_s": 1.9924026899971068,
+      "per_s": 36.51628094510648,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 2,
+      "best_s": 8.693636521995359,
+      "median_s": 9.325419844499265,
+      "worst_s": 10.34229957700154,
+      "per_s": 8.16689308557659,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 4,
+      "best_s": 5.059567051001068,
+      "median_s": 5.566907068499859,
+      "worst_s": 5.693028346999199,
+      "per_s": 14.032821244250966,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 8,
+      "best_s": 3.242868704001012,
+      "median_s": 3.299225272003241,
+      "worst_s": 3.3816085110011045,
+      "per_s": 21.894195072529783,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 16,
+      "best_s": 2.604177052999148,
+      "median_s": 2.8478186290012673,
+      "worst_s": 2.9427121660046396,
+      "per_s": 27.263891262013676,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 32,
+      "best_s": 2.177289703002316,
+      "median_s": 2.2834549574981793,
+      "worst_s": 2.35995378500229,
+      "per_s": 32.609349092174746,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 71,
+      "best_s": 1.974814080997021,
+      "median_s": 2.073513738003385,
+      "worst_s": 2.088161473002401,
+      "per_s": 35.95275154416276,
+      "converged": 71,
+      "total_steps": 662
+    },
+    {
+      "mode": "variable cell, fixed batches",
+      "batch": 16,
+      "best_s": 17.077292873997067,
+      "median_s": 17.622949336499005,
+      "worst_s": 18.076321776999976,
+      "per_s": 4.157567626430355,
+      "converged": 71,
+      "total_steps": 5779
+    },
+    {
+      "mode": "variable cell, refill",
+      "batch": 16,
+      "best_s": 15.112009556003613,
+      "median_s": 15.28120969450174,
+      "worst_s": 15.627709940003115,
+      "per_s": 4.698250073021792,
+      "converged": 71,
+      "total_steps": 5779
+    }
+  ]
+}

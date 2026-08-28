@@ -1,5 +1,28 @@
 ## Unreleased
 
+## Version 0.90 (28 August 2026)
+
+Feature release. Machine-learning interatomic potentials, species-resolved SQS,
+and the PME → CPME rename.
+
+- **MACE machine-learning potentials (`sod_mace.sh`, new `pysod/` package)**: SOD can now evaluate energies with a MACE foundation model instead of a DFT or forcefield code, over the same `nXX/cYY/` layout as every other calculator. `sod_mace.sh` writes `nXX/ENERGIES` in the usual two-column `m  E` format, so `sod_stat.sh` consumes it unchanged. Structures are evaluated in GPU batches through NVIDIA ALCHEMI, with optional cuEquivariance kernels; on the documented 710-configuration benchmark, batching single-point evaluation up to 64 structures at a time is a 16x speedup over one structure at a time, and batched relaxation reaches 9.15x, with `-batchmode refill` worth a further 1.14x-1.34x at equal batch size. `-relax` performs FIRE2 relaxation of the atomic positions, `-relaxcell` also relaxes the cell against the MACE stress at a chosen `-pressure`, and `-lattice` writes `nXX/CELL` in the same columns as `sod_vasp_cell.sh`. Options can be set in a `mace_settings.yaml` file (in `nXX/`, else in SODPROJECT) as well as on the command line. The whole Python stack is optional: nothing in the Fortran build or the shell wrappers requires it. See `docs/mace.rst` and `pysod/README.md`.
+
+- **Species-resolved pair SQS for multinary and multi-target disorder (`sqssod`)**: SQS scoring now handles several substituting species and several substituted sublattices at once, scoring each species pair channel separately rather than collapsing the problem to a binary one. `INSQS` gained a user-configurable `n_top_sqs`; `sqssod` reports a top-10 ranking with a deterministic tie-break instead of a full ordering. New example19 (equimolar fcc CoCrFeNi, a Cantor-alloy subsystem) demonstrates the random-sampling → SQS route for a composition far beyond enumeration.
+
+- **High-entropy alloy compositions (INSOD)**: the per-target cap rose from 3 to 5 substituents (6 species including the parent), which is what quaternary and quinary high-entropy alloys need.
+
+- **PME renamed to CPME (Constrained Periodic Motif Expansion)**: the Hamiltonian, its executable, its wrapper and its input file were renamed throughout — `pmesod` → `cpmesod`, `sod_pme.sh` → `sod_cpme.sh`, and the model file is now `cpme.model` (with `cpme.model.tmp` for the auto-generated suggestion). Output directories are `CPME0/`, `CPME1/` and `CPMEh/`. The name describes what the expansion does: it is constrained to motifs that are periodic in the supercell.
+
+- **Internal energies and enthalpies are separate outputs**: `ENERGIES` always holds the internal energy E. A calculation run under an applied pressure additionally writes `ENTHALPIES` (H = E + PV), through the new `sod_vasp_enth.sh` and `sod_gulp_enth.sh`, and through `sod_mace.sh` at nonzero `-pressure`. Previously a constant-pressure run silently put an enthalpy in `ENERGIES`.
+
+- **`CELL` requires complete ensemble coverage**: `CELL` rows are positional, with no configuration index, so a gap would shift every later row onto the wrong configuration. Every producer (`sod_vasp_cell.sh`, `sod_gulp_cell.sh`, `sod_mace.sh -lattice`) now writes `CELL` only when results cover the level's whole `ENSEMBLE`, and reports why when they do not. Sparse calibration subsets remain valid indexed `ENERGIES` input.
+
+- **ENSEMBLE format version 2 is no longer read** (breaking): all programs require the version 3 `ENSEMBLE` written since 0.80. Regenerate an old file with `sod_comb.sh` or `sod_random.sh`.
+
+- **Energy and free-energy collectors no longer trip over spare directories**: a directory sitting beside the configuration directories whose name begins with `c` but is not a configuration index — `c01_backup`, `cpme_test_ref` and the like — made `sod_gulp_ener.sh` and the other collectors print a shell arithmetic error and exit non-zero on an otherwise successful run. All of them now skip such directories, as the `CELL` extractors already did.
+
+- **`sod_gulp_free.sh` fixed** (data loss): run from SODPROJECT, it deleted every `nXX/ENERGIES` and appended all levels' free energies into a single file in the wrong directory — while exiting 0, so the loss was silent. It also wrote a bare one-column file that `statsod` cannot read at all. It now behaves like the other collectors: one indexed two-column `nXX/ENERGIES` per level.
+
 ## Version 0.84 (8 July 2026)
 
 Minor release.

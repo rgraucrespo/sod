@@ -298,7 +298,7 @@ test_wrapper_filer_tail() {
 
 # ── test_wrapper_model_flag_error ─────────────────────────────────────────────
 # Ensure wrapper-level -model parsing fails fast and returns nonzero instead of
-# hanging (sod_mc.sh) or returning success after an argument error (sod_pme.sh).
+# hanging (sod_mc.sh) or returning success after an argument error (sod_cpme.sh).
 #
 # $1 = display label   $2 = script path   $3 = example directory
 test_wrapper_model_flag_error() {
@@ -330,6 +330,338 @@ test_wrapper_model_flag_error() {
     rm -rf "$tmp"
 }
 
+# ── CELL completeness policy ─────────────────────────────────────────────────
+
+test_cell_completeness() {
+    local label="$1"
+    local tmp source_file config_name out mismatch=0
+    tmp=$(mktemp -d)
+
+    # Complete VASP results invoked from SODPROJECT/ must write nXX/CELL (not a
+    # combined root CELL), preserving the established extractor output exactly.
+    cp "$EX/example01/FILER11_vasp/INSOD" "$EX/example01/FILER11_vasp/SGO" "$tmp/"
+    mkdir "$tmp/n04"
+    cp "$EX/example01/FILER11_vasp/n04/ENSEMBLE" "$tmp/n04/"
+    for source_file in "$EX/example01/FILER11_vasp/n04"/c*/CONTCAR; do
+        config_name=$(basename "$(dirname "$source_file")")
+        mkdir "$tmp/n04/$config_name"
+        cp "$source_file" "$tmp/n04/$config_name/"
+    done
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" sod_vasp_cell.sh cub 2>&1)
+    if [ $? -ne 0 ] || [ ! -f "$tmp/n04/CELL" ] || [ -f "$tmp/CELL" ] || \
+       ! diff -q "$EX/example01/FILER11_vasp/n04/CELL" "$tmp/n04/CELL" >/dev/null; then
+        fail_line "$label" "[complete VASP results did not produce the reference n04/CELL]"
+        mismatch=1
+    fi
+
+    # Removing one result makes the set sparse: CELL must be removed/skipped
+    # rather than shift every later positional row onto the wrong configuration.
+    rm -f "$tmp/n04/c71/CONTCAR"
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_vasp_cell.sh cub 2>&1)
+    if [ $? -ne 0 ] || [ -f "$tmp/n04/CELL" ] || \
+       ! printf '%s' "$out" | grep -q "70 of 71 ENSEMBLE configurations"; then
+        fail_line "$label" "[sparse VASP results were allowed to write CELL]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    cp "$EX/example01/FILER1_gulp/INSOD" "$EX/example01/FILER1_gulp/SGO" "$tmp/"
+    mkdir "$tmp/n04"
+    cp "$EX/example01/FILER1_gulp/n04/ENSEMBLE" "$tmp/n04/"
+    for source_file in "$EX/example01/FILER1_gulp/n04"/c*/output.gout; do
+        config_name=$(basename "$(dirname "$source_file")")
+        mkdir "$tmp/n04/$config_name"
+        cp "$source_file" "$tmp/n04/$config_name/"
+    done
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_gulp_cell.sh cub 2>&1)
+    if [ $? -ne 0 ] || [ ! -f "$tmp/n04/CELL" ] || \
+       [ "$(wc -l < "$tmp/n04/CELL")" -ne 71 ]; then
+        fail_line "$label" "[complete GULP results did not produce a 71-row CELL]"
+        mismatch=1
+    fi
+
+    # A spare cYY directory holding no output.gout leaves coverage complete, so
+    # the extractor must skip it silently rather than let awk report it fatal.
+    mkdir "$tmp/n04/c99"
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_gulp_cell.sh cub 2>&1)
+    if [ $? -ne 0 ] || [ "$(wc -l < "$tmp/n04/CELL")" -ne 71 ] || \
+       printf '%s' "$out" | grep -q "awk"; then
+        fail_line "$label" "[a spare cYY directory disturbed GULP CELL extraction]"
+        printf '%s\n' "$out" | sed -n '1,3p' | indent
+        mismatch=1
+    fi
+    rmdir "$tmp/n04/c99"
+
+    rm -f "$tmp/n04/c71/output.gout"
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_gulp_cell.sh cub 2>&1)
+    if [ $? -ne 0 ] || [ -f "$tmp/n04/CELL" ] || \
+       ! printf '%s' "$out" | grep -q "70 of 71 ENSEMBLE configurations"; then
+        fail_line "$label" "[sparse GULP results were allowed to write CELL]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+# ── MACE result-file protection (preflight only, no MLIP stack needed) ─────
+
+test_mace_result_protection() {
+    local label="$1"
+    local tmp py out i mismatch=0
+    py="${SOD_PYTHON:-python3}"
+    if ! command -v "$py" >/dev/null 2>&1; then
+        skip_line "$label" "(no python interpreter — set SOD_PYTHON)"
+        skip=$((skip+1)); return
+    fi
+
+    tmp=$(mktemp -d)
+    touch "$tmp/INSOD" "$tmp/SGO"
+    mkdir -p "$tmp/n01"
+    printf 'Enumerated ensemble: 40 configurations; sum_degeneracies = 40\n' > "$tmp/n01/ENSEMBLE"
+    for i in $(seq -w 1 40); do
+        mkdir -p "$tmp/n01/c$i"
+        touch "$tmp/n01/c$i/relaxed_POSCAR"
+    done
+
+    # The clash list must name the total and stay short: a level can hold
+    # thousands of cYY/ directories.
+    out=$(cd "$tmp" && "$py" "$ROOT/pysod/sod_mace.py" -relax -structure POSCAR 2>&1)
+    if [ $? -eq 0 ] || ! printf '%s' "$out" | grep -q "40 existing result files" || \
+       ! printf '%s' "$out" | grep -q "and 32 more" || \
+       [ "$(printf '%s' "$out" | head -1 | wc -c)" -gt 400 ]; then
+        fail_line "$label" "[relaxed-structure clash list was not summarised]"
+        printf '%s\n' "$out" | sed -n '1,2p' | cut -c1-120 | indent
+        mismatch=1
+    fi
+    rm -rf "$tmp"
+
+    # A rerun narrower than the one before it must not silently keep the wider
+    # run's summary files: they pair with the ENERGIES that produced them.
+    tmp=$(mktemp -d)
+    touch "$tmp/INSOD" "$tmp/SGO"
+    mkdir -p "$tmp/n01/c1"
+    printf 'Enumerated ensemble: 1 configurations; sum_degeneracies = 1\n' > "$tmp/n01/ENSEMBLE"
+    echo old > "$tmp/n01/MACE_RELAXATION.dat"
+    echo old > "$tmp/n01/CELL"
+    echo old > "$tmp/n01/ENTHALPIES"
+
+    out=$(cd "$tmp" && "$py" "$ROOT/pysod/sod_mace.py" -structure POSCAR 2>&1)
+    if [ $? -eq 0 ]; then
+        fail_line "$label" "[single-point rerun ignored stale summary files]"
+        mismatch=1
+    fi
+    for i in ENTHALPIES MACE_RELAXATION.dat CELL; do
+        if ! printf '%s' "$out" | grep -q "n01/$i"; then
+            fail_line "$label" "[stale $i was not reported by the preflight]"
+            mismatch=1
+        fi
+    done
+
+    # -force removes them before the run proceeds, whether or not the MLIP
+    # stack is present for the run itself.
+    (cd "$tmp" && "$py" "$ROOT/pysod/sod_mace.py" -structure POSCAR -force >/dev/null 2>&1)
+    for i in ENTHALPIES MACE_RELAXATION.dat CELL; do
+        if [ -f "$tmp/n01/$i" ]; then
+            fail_line "$label" "[-force left stale $i in place]"
+            mismatch=1
+        fi
+    done
+    rm -rf "$tmp"
+
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+# ── ENSEMBLE format version 3 is the only accepted format ────────────────────
+
+test_ensemble_v3_only() {
+    local label="$1"
+    local tmp source_file config_name out rc mismatch=0
+    tmp=$(mktemp -d)
+
+    # A complete VASP level, plus a directory whose name starts with c<digit>
+    # but is not a configuration directory. It must be ignored, not parsed as a
+    # base-10 index, and must not add a spurious CELL row.
+    cp "$EX/example01/FILER11_vasp/INSOD" "$EX/example01/FILER11_vasp/SGO" "$tmp/"
+    mkdir "$tmp/n04"
+    cp "$EX/example01/FILER11_vasp/n04/ENSEMBLE" "$tmp/n04/"
+    for source_file in "$EX/example01/FILER11_vasp/n04"/c*/CONTCAR; do
+        config_name=$(basename "$(dirname "$source_file")")
+        mkdir "$tmp/n04/$config_name"
+        cp "$source_file" "$tmp/n04/$config_name/"
+    done
+    mkdir "$tmp/n04/c01_backup"
+    cp "$tmp/n04/c01/CONTCAR" "$tmp/n04/c01_backup/"
+
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_vasp_cell.sh cub 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ] || [ ! -f "$tmp/n04/CELL" ] || \
+       ! diff -q "$EX/example01/FILER11_vasp/n04/CELL" "$tmp/n04/CELL" >/dev/null; then
+        fail_line "$label" "[a non-numeric cYY-like directory broke CELL extraction]"
+        printf '%s\n' "$out" | sed -n '1,3p' | indent
+        mismatch=1
+    fi
+
+    # A version 2 ENSEMBLE must be a hard error, and must leave any existing
+    # CELL untouched: coverage cannot be judged, so nothing is known to be stale.
+    rm -rf "$tmp/n04/c01_backup"
+    printf '# SOD ENSEMBLE format version 2\n4 substitutions in 32 sites\n71\n' > "$tmp/n04/ENSEMBLE"
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_vasp_cell.sh cub 2>&1)
+    rc=$?
+    if [ $rc -eq 0 ] || [ ! -f "$tmp/n04/CELL" ] || \
+       ! printf '%s' "$out" | grep -q "is not a version 3 ENSEMBLE"; then
+        fail_line "$label" "[a version 2 ENSEMBLE did not fail loudly and preserve CELL]"
+        printf '%s\n' "$out" | sed -n '1,3p' | indent
+        mismatch=1
+    fi
+    rm -rf "$tmp"
+
+    # statsod reads ENSEMBLE with its own parser; it must reject version 2 too.
+    tmp=$(mktemp -d)
+    printf '# SOD ENSEMBLE format version 2\n2 substitutions in 6 sites\n3\n1 3 1 2\n2 6 1 3\n3 3 2 5\n' > "$tmp/ENSEMBLE"
+    printf '1 -10.0\n2 -11.0\n3 -12.0\n' > "$tmp/ENERGIES"
+    out=$(cd "$tmp" && "$BIN/statsod" 2>&1)
+    rc=$?
+    if [ $rc -eq 0 ] || ! printf '%s' "$out" | grep -q "not a version 3"; then
+        fail_line "$label" "[statsod accepted a version 2 ENSEMBLE]"
+        printf '%s\n' "$out" | sed -n '1,4p' | indent
+        mismatch=1
+    fi
+    rm -rf "$tmp"
+
+    # invertENSEMBLE writes version 3, so inverting twice returns the original.
+    tmp=$(mktemp -d)
+    printf 'Enumerated ensemble: 3 configurations; sum_degeneracies = 12\n6 Fe sites -> 2 Al 4 Fe\n# Configuration  Degeneracy  Al_positions\n1 3 1 2\n2 6 1 3\n3 3 2 5\n' > "$tmp/ENSEMBLE_original"
+    cp "$tmp/ENSEMBLE_original" "$tmp/reference"
+    out=$(cd "$tmp" && "$BIN/invertENSEMBLE" 2>&1)
+    if [ $? -ne 0 ] || ! grep -q "^6 Al sites -> 4 Fe 2 Al$" "$tmp/ENSEMBLE_inverted"; then
+        fail_line "$label" "[invertENSEMBLE did not write a version 3 target line]"
+        printf '%s\n' "$out" | sed -n '1,4p' | indent
+        mismatch=1
+    fi
+    cp "$tmp/ENSEMBLE_inverted" "$tmp/ENSEMBLE_original"
+    (cd "$tmp" && "$BIN/invertENSEMBLE" >/dev/null 2>&1)
+    if ! diff -q "$tmp/reference" "$tmp/ENSEMBLE_inverted" >/dev/null; then
+        fail_line "$label" "[inverting twice did not reproduce the original ENSEMBLE]"
+        diff "$tmp/reference" "$tmp/ENSEMBLE_inverted" | sed -n '1,6p' | indent
+        mismatch=1
+    fi
+
+    printf '# SOD ENSEMBLE format version 2\n2 substitutions in 6 sites\n3\n1 3 1 2\n' > "$tmp/ENSEMBLE_original"
+    out=$(cd "$tmp" && "$BIN/invertENSEMBLE" 2>&1)
+    if [ $? -eq 0 ] || ! printf '%s' "$out" | grep -q "not a version 3 ENSEMBLE"; then
+        fail_line "$label" "[invertENSEMBLE accepted a version 2 ENSEMBLE]"
+        mismatch=1
+    fi
+    rm -rf "$tmp"
+
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+test_energy_enthalpy_extractors() {
+    local label="$1"
+    local tmp got expected out mismatch=0
+    tmp=$(mktemp -d)
+    touch "$tmp/INSOD" "$tmp/SGO"
+
+    mkdir -p "$tmp/n01/c02" "$tmp/n01/c17"
+    cat > "$tmp/n01/c02/OUTCAR" <<'EOF'
+  energy  without entropy=      -12.2000  energy(sigma->0) =      -12.0000
+  enthalpy is  TOTEN     =      -11.8000 eV   P V=       0.2000
+  energy  without entropy=      -10.1000  energy(sigma->0) =      -10.0000
+  enthalpy is  TOTEN     =       -9.6000 eV   P V=       0.4000
+EOF
+    cat > "$tmp/n01/c17/OUTCAR" <<'EOF'
+  energy  without entropy=      -11.1000  energy(sigma->0) =      -11.0000
+EOF
+
+    (cd "$tmp/n01" && PATH="$BIN:$PATH" sod_vasp_ener.sh >/dev/null 2>&1)
+    got=$(cat "$tmp/n01/ENERGIES" 2>/dev/null)
+    expected=$(printf "2  -10.0000\n17  -11.0000")
+    if [ "$got" != "$expected" ]; then
+        fail_line "$label" "[VASP ENERGIES did not keep final energy(sigma->0)]"
+        mismatch=1
+    fi
+
+    # c17 has no "P V=" line, so it carries no enthalpy: it is missing from
+    # ENTHALPIES rather than recorded with its internal energy.
+    (cd "$tmp/n01" && PATH="$BIN:$PATH" sod_vasp_enth.sh >/dev/null 2>&1)
+    got=$(cat "$tmp/n01/ENTHALPIES" 2>/dev/null)
+    expected="2  -9.6000000000"
+    if [ "$got" != "$expected" ]; then
+        fail_line "$label" "[VASP ENTHALPIES did not compute E+PV with sparse indices]"
+        mismatch=1
+    fi
+
+    # A level with no PSTRESS anywhere must write no ENTHALPIES and clear a
+    # stale one, matching sod_mace.sh at zero pressure.
+    mkdir -p "$tmp/n03/c01"
+    cp "$tmp/n01/c17/OUTCAR" "$tmp/n03/c01/OUTCAR"
+    echo "stale" > "$tmp/n03/ENTHALPIES"
+    out=$(cd "$tmp/n03" && PATH="$BIN:$PATH" sod_vasp_enth.sh 2>&1)
+    if [ -f "$tmp/n03/ENTHALPIES" ] || ! printf '%s' "$out" | grep -q "zero pressure"; then
+        fail_line "$label" "[zero-pressure VASP level still produced ENTHALPIES]"
+        mismatch=1
+    fi
+
+    mkdir -p "$tmp/n02/c02" "$tmp/n02/c17"
+    cat > "$tmp/n02/c02/output.gout" <<'EOF'
+  Final enthalpy =        -24.000000 eV
+  Pressure*volume =         1.000000 eV
+  Final enthalpy =        -20.000000 eV
+  Pressure*volume =         1.500000 eV
+EOF
+    cat > "$tmp/n02/c17/output.gout" <<'EOF'
+  Final energy =        -30.000000 eV
+EOF
+
+    (cd "$tmp/n02" && PATH="$BIN:$PATH" sod_gulp_ener.sh >/dev/null 2>&1)
+    got=$(cat "$tmp/n02/ENERGIES" 2>/dev/null)
+    expected=$(printf "2  -21.5000000000\n17  -30.0000000000")
+    if [ "$got" != "$expected" ]; then
+        fail_line "$label" "[GULP ENERGIES did not subtract Pressure*volume from enthalpy]"
+        mismatch=1
+    fi
+
+    # As for VASP, c17 has no Pressure*volume term and so has no enthalpy.
+    (cd "$tmp/n02" && PATH="$BIN:$PATH" sod_gulp_enth.sh >/dev/null 2>&1)
+    got=$(cat "$tmp/n02/ENTHALPIES" 2>/dev/null)
+    expected="2  -20.0000000000"
+    if [ "$got" != "$expected" ]; then
+        fail_line "$label" "[GULP ENTHALPIES did not keep native final enthalpy]"
+        mismatch=1
+    fi
+
+    mkdir -p "$tmp/n04/c01"
+    cp "$tmp/n02/c17/output.gout" "$tmp/n04/c01/output.gout"
+    echo "stale" > "$tmp/n04/ENTHALPIES"
+    out=$(cd "$tmp/n04" && PATH="$BIN:$PATH" sod_gulp_enth.sh 2>&1)
+    if [ -f "$tmp/n04/ENTHALPIES" ] || ! printf '%s' "$out" | grep -q "zero pressure"; then
+        fail_line "$label" "[zero-pressure GULP level still produced ENTHALPIES]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
 # ── test_stat ────────────────────────────────────────────────────────────────
 # $1 = display label   $2 = n-level directory (must contain ENSEMBLE, ENERGIES;
 #      optionally TEMPERATURES, DATA and SPECTRA)
@@ -338,6 +670,537 @@ test_wrapper_model_flag_error() {
 #   thermodynamics.dat   (always)
 #   ave_data.dat         (if DATA is present)
 #   ave_spectra.dat      (if SPECTRA is present)
+test_sod_mace() {
+    local label="$1" xdir="$2" nxx="$3"
+    local py="${SOD_PYTHON:-python3}"
+
+    if [ ! -f "$xdir/INSOD" ] || [ ! -f "$xdir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    # The MLIP stack is an optional dependency: CI installs gfortran only, so a
+    # missing torch/MACE/ALCHEMI must skip rather than fail. Set SOD_PYTHON to
+    # the interpreter that has them (see pysod/README.md).
+    if ! command -v "$py" >/dev/null 2>&1; then
+        skip_line "$label" "(no python interpreter — set SOD_PYTHON)"
+        skip=$((skip+1)); return
+    fi
+    if ! "$py" -c 'import torch, ase, mace, nvalchemi' >/dev/null 2>&1; then
+        skip_line "$label" "(python MACE stack not installed)"
+        skip=$((skip+1)); return
+    fi
+
+    # Only a handful of configurations: this checks identifier mapping and output
+    # format, not energies, which depend on model version, device and precision.
+    local tmp; tmp=$(mktemp -d)
+    cp "$xdir/INSOD" "$xdir/SGO" "$tmp/"
+    mkdir -p "$tmp/$nxx"
+    local n=0 c
+    for c in "$xdir/$nxx"/c*/; do
+        [ -d "$c" ] || continue
+        cp -r "$c" "$tmp/$nxx/" || true
+        # Drop any relaxed structure a previous sod_mace.sh run left in the
+        # example tree: copying it in would trip the result-file protection.
+        rm -f "$tmp/$nxx/$(basename "${c%/}")"/relaxed.* \
+              "$tmp/$nxx/$(basename "${c%/}")"/relaxed_*
+        n=$((n+1))
+        [ $n -ge 4 ] && break
+    done
+    if [ $n -eq 0 ]; then
+        skip_line "$label" "(no cYY/ folders in $nxx)"
+        skip=$((skip+1)); rm -rf "$tmp"; return
+    fi
+
+    local out rc
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off -batch 2 -q 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[sod_mace.sh error]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local mismatch=0
+    if [ ! -f "$tmp/$nxx/ENERGIES" ]; then
+        fail_line "$label" "[no ENERGIES written]"
+        mismatch=1
+    else
+        # Two-column "m  E" with dense 1-based indices, as read_energies_file expects.
+        local check
+        check=$(awk -v want="$n" '
+            /^[[:space:]]*(#|$)/ { next }
+            { rows++
+              if ($1 != rows) { printf "index %s out of order at row %d\n", $1, rows; exit }
+              if ($2 !~ /^-?[0-9]+\.?[0-9]*([eE][-+]?[0-9]+)?$/) { printf "bad energy %s\n", $2; exit }
+              if (NF != 2) { printf "expected 2 columns, got %d\n", NF; exit } }
+            END { if (rows != want) printf "expected %d rows, got %d\n", want, rows }
+        ' "$tmp/$nxx/ENERGIES")
+        if [ -n "$check" ]; then
+            fail_line "$label" "[$check]"
+            mismatch=1
+        fi
+    fi
+
+    # A second run must refuse to overwrite existing energies unless -force.
+    local before after
+    before=$(cat "$tmp/$nxx/ENERGIES" 2>/dev/null)
+    if (cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off -q >/dev/null 2>&1); then
+        fail_line "$label" "[rerun overwrote ENERGIES without -force]"
+        mismatch=1
+    fi
+    after=$(cat "$tmp/$nxx/ENERGIES" 2>/dev/null)
+    if [ "$before" != "$after" ]; then
+        fail_line "$label" "[ENERGIES changed by a refused rerun]"
+        mismatch=1
+    fi
+
+    # A stale pressure-run ENTHALPIES file must not be left beside fresh
+    # zero-pressure energies. Without -force the run refuses; with -force it
+    # removes the stale file and proceeds.
+    rm -f "$tmp/$nxx/ENERGIES"
+    printf "1  0.0\n" > "$tmp/$nxx/ENTHALPIES"
+    if (cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off -q >/dev/null 2>&1); then
+        fail_line "$label" "[zero-pressure rerun ignored stale ENTHALPIES]"
+        mismatch=1
+    fi
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off -force -q 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ] || [ -f "$tmp/$nxx/ENTHALPIES" ]; then
+        fail_line "$label" "[-force did not remove stale ENTHALPIES]"
+        [ -n "$out" ] && echo "$out" | tail -3 | indent
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+test_sod_mace_relax() {
+    local label="$1" xdir="$2" nxx="$3"
+    local py="${SOD_PYTHON:-python3}"
+
+    if [ ! -f "$xdir/INSOD" ] || [ ! -f "$xdir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    if ! command -v "$py" >/dev/null 2>&1 || \
+       ! "$py" -c 'import torch, ase, mace, nvalchemi' >/dev/null 2>&1; then
+        skip_line "$label" "(python MACE stack not installed)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$xdir/INSOD" "$xdir/SGO" "$tmp/"
+    mkdir -p "$tmp/$nxx"
+    local n=0 c
+    for c in "$xdir/$nxx"/c*/; do
+        [ -d "$c" ] || continue
+        cp -r "$c" "$tmp/$nxx/" || true
+        # Drop any relaxed structure a previous sod_mace.sh run left in the
+        # example tree: copying it in would trip the result-file protection.
+        rm -f "$tmp/$nxx/$(basename "${c%/}")"/relaxed.* \
+              "$tmp/$nxx/$(basename "${c%/}")"/relaxed_*
+        n=$((n+1))
+        [ $n -ge 4 ] && break
+    done
+
+    # batch 2 over 4 structures guarantees the refill path actually fires.
+    local mode rc out
+    for mode in fixed refill; do
+        out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+              -batch 2 -relax -batchmode "$mode" -maxsteps 20 -force -q 2>&1)
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            fail_line "$label" "[-batchmode $mode error]"
+            echo "$out" | tail -3 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+        cp "$tmp/$nxx/MACE_RELAXATION.dat" "$tmp/table_$mode.dat"
+    done
+
+    local mismatch=0
+    # Relaxed geometries are written beside their inputs, never over them.
+    local missing=0 i
+    for i in $(seq 1 "$n"); do
+        local d; d=$(printf "%s/%s/c%02d" "$tmp" "$nxx" "$i")
+        [ -f "$d/relaxed.cif" ] || missing=$((missing+1))
+        [ -f "$d/configuration.cif" ] || missing=$((missing+1))
+    done
+    if [ $missing -ne 0 ]; then
+        fail_line "$label" "[$missing expected cif file(s) missing]"
+        mismatch=1
+    fi
+
+    # Refill reuses batch slots, so a broken source_index mapping would attach
+    # results to the wrong configuration. Configurations here differ by ~0.1 eV,
+    # far more than the ~1e-4 eV float32 spread between the two paths.
+    local check
+    check=$(awk '
+        FNR==NR { if (!/^#/) { e[$1]=$3; s[$1]=$5; n++ } ; next }
+        !/^#/ {
+            if (!($1 in e)) { printf "config %s only in refill\n", $1; exit }
+            d = e[$1] - $3; if (d < 0) d = -d
+            if (d > 1.0e-3) { printf "config %s energy differs by %.3e eV\n", $1, d; exit }
+            if (s[$1] != $5) { printf "config %s steps %s vs %s\n", $1, s[$1], $5; exit }
+            m++
+        }
+        END { if (m != n) printf "fixed has %d rows, refill %d\n", n, m }
+    ' "$tmp/table_fixed.dat" "$tmp/table_refill.dat")
+    if [ -n "$check" ]; then
+        fail_line "$label" "[$check]"
+        mismatch=1
+    fi
+
+    # Removing ENERGIES used to let a relaxation rerun overwrite the remaining
+    # relaxation artifacts. The preflight must still catch MACE_RELAXATION.dat
+    # or cYY/relaxed.cif before doing any work.
+    rm -f "$tmp/$nxx/ENERGIES"
+    before=$(cat "$tmp/$nxx/MACE_RELAXATION.dat" 2>/dev/null)
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -batch 2 -relax -maxsteps 20 -q 2>&1)
+    rc=$?
+    after=$(cat "$tmp/$nxx/MACE_RELAXATION.dat" 2>/dev/null)
+    if [ $rc -eq 0 ] || ! printf '%s' "$out" | grep -q "MACE_RELAXATION.dat"; then
+        fail_line "$label" "[rerun did not refuse existing relaxation artifacts]"
+        mismatch=1
+    fi
+    if [ "$before" != "$after" ]; then
+        fail_line "$label" "[MACE_RELAXATION.dat changed by a refused rerun]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+test_sod_mace_relaxcell() {
+    local label="$1" xdir="$2" nxx="$3"
+    local py="${SOD_PYTHON:-python3}"
+
+    if [ ! -f "$xdir/INSOD" ] || [ ! -f "$xdir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    if ! command -v "$py" >/dev/null 2>&1 || \
+       ! "$py" -c 'import torch, ase, mace, nvalchemi' >/dev/null 2>&1; then
+        skip_line "$label" "(python MACE stack not installed)"
+        skip=$((skip+1)); return
+    fi
+
+    # A position-only skin cache is unsafe when the periodic cell moves: new
+    # image neighbours can enter the cutoff while Cartesian atoms stay fixed.
+    # The production hook factory must therefore disable the skin for
+    # variable-cell work. This tiny geometry reproduces the original bug.
+    local neighbor_check
+    neighbor_check=$("$py" - "$ROOT" 2>/dev/null <<'PYEOF'
+import pathlib
+import sys
+
+import torch
+from ase import Atoms
+from nvalchemi.data import AtomicData, Batch
+from nvalchemi.models.base import NeighborConfig
+
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "pysod"))
+import mace_backend as mb
+
+atoms = Atoms("HH", positions=[[0, 0, 0], [4, 0, 0]], cell=[10, 10, 10], pbc=True)
+data = AtomicData.from_atoms(atoms, device="cpu", dtype=torch.float32)
+batch = Batch.from_data_list([data], device="cpu")
+hook = mb._neighbor_hook(NeighborConfig(cutoff=3.0), 0.3, variable_cell=True)
+if hook.skin != 0.0:
+    raise SystemExit(f"variable-cell neighbour skin is {hook.skin}, expected 0")
+mb._rebuild_edges(batch, hook)
+if batch.neighbor_list.shape[0] != 0:
+    raise SystemExit("test geometry unexpectedly has initial neighbours")
+batch.cell[0, 0, 0] = 5.0
+mb._rebuild_edges(batch, hook)
+if batch.neighbor_list.shape[0] != 2:
+    raise SystemExit(
+        f"cell-only contraction produced {batch.neighbor_list.shape[0]} directed neighbours, expected 2"
+    )
+PYEOF
+    )
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[cell-aware neighbour-list regression: $neighbor_check]"
+        fail=$((fail+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$xdir/INSOD" "$xdir/SGO" "$tmp/"
+    mkdir -p "$tmp/$nxx"
+    local n=0 c
+    for c in "$xdir/$nxx"/c*/; do
+        [ -d "$c" ] || continue
+        cp -r "$c" "$tmp/$nxx/" || true
+        # Drop any relaxed structure a previous sod_mace.sh run left in the
+        # example tree: copying it in would trip the result-file protection.
+        rm -f "$tmp/$nxx/$(basename "${c%/}")"/relaxed.* \
+              "$tmp/$nxx/$(basename "${c%/}")"/relaxed_*
+        n=$((n+1))
+        [ $n -ge 2 ] && break
+    done
+    # This focused test intentionally copies only two configurations, so give
+    # it a matching two-row ENSEMBLE. CELL is valid only when these agree.
+    awk -v want="$n" '
+        NR == 1 { sub(/[0-9]+ configurations/, want " configurations") }
+        data && $1 ~ /^[0-9]+$/ { rows++; if (rows > want) next }
+        /^# Configuration/ { data=1 }
+        { print }
+    ' "$xdir/$nxx/ENSEMBLE" > "$tmp/$nxx/ENSEMBLE"
+
+    # Few steps: this checks the machinery and the direction of motion, not
+    # convergence, which would be slow on CPU.
+    local out rc
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -batch 2 -relax -relaxcell -lattice cub -maxsteps 15 -force -q 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[-relaxcell error]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local mismatch=0 check
+    # CELL: one row per configuration, cubic columns "a V", no index column.
+    check=$(awk -v want="$n" '
+        /^[[:space:]]*(#|$)/ { next }
+        { rows++; if (NF != 2) { printf "row %d has %d columns, expected 2\n", rows, NF; exit }
+          if ($1 <= 0 || $2 <= 0) { printf "non-positive value in row %d\n", rows; exit } }
+        END { if (rows != want) printf "expected %d rows, got %d\n", want, rows }
+    ' "$tmp/$nxx/CELL" 2>/dev/null)
+    if [ ! -f "$tmp/$nxx/CELL" ]; then
+        fail_line "$label" "[no CELL written]"; mismatch=1
+    elif [ -n "$check" ]; then
+        fail_line "$label" "[CELL: $check]"; mismatch=1
+    fi
+    rm -f "$tmp/$nxx/ENERGIES"
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -batch 2 -relax -relaxcell -lattice cub -maxsteps 15 -q 2>&1)
+    if [ $? -eq 0 ] || ! printf '%s' "$out" | grep -q "CELL"; then
+        fail_line "$label" "[rerun did not refuse existing CELL]"
+        mismatch=1
+    fi
+
+    # The table must carry the variable-cell columns, and the cell must move the
+    # right way: this system is under positive pressure, so it expands at P=0.
+    check=$("$py" - "$tmp/$nxx" <<'PYEOF'
+import sys, pathlib
+from ase.io import read
+level = pathlib.Path(sys.argv[1])
+head, *rows = [l.split() for l in (level/"MACE_RELAXATION.dat").read_text().splitlines() if l.strip()]
+for col in ("initial_volume_A3", "final_volume_A3", "final_pressure_GPa"):
+    if col not in head:
+        print(f"{col} missing from MACE_RELAXATION.dat header"); sys.exit()
+vi, vf = head.index("initial_volume_A3") - 1, head.index("final_volume_A3") - 1
+for row in rows:
+    if float(row[vf]) <= float(row[vi]):
+        print(f"config {row[0]}: volume did not expand at P=0 "
+              f"({row[vi]} -> {row[vf]})"); sys.exit()
+for d in sorted(level.glob("c*")):
+    if not d.is_dir():
+        continue
+    a = read(d/"configuration.cif").cell.lengths()[0]
+    b = read(d/"relaxed.cif").cell.lengths()[0]
+    if abs(a - b) < 1e-6:
+        print(f"{d.name}: relaxed.cif kept the input cell ({a})"); sys.exit()
+PYEOF
+)
+    if [ -n "$check" ]; then
+        fail_line "$label" "[$check]"; mismatch=1
+    fi
+    if [ -f "$tmp/$nxx/ENTHALPIES" ]; then
+        fail_line "$label" "[zero-pressure MACE run wrote ENTHALPIES]"
+        mismatch=1
+    fi
+
+    # Sign guard: a large target pressure must compress instead. FIRE2VariableCell
+    # reads the cell force from batch.stress, so a target pressure that never
+    # reaches the stored stress would silently expand here too.
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -batch 2 -relax -relaxcell -pressure 50 -maxsteps 15 -force -q 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[-pressure error]"
+        echo "$out" | tail -3 | indent
+        mismatch=1
+    else
+        check=$(awk '
+            /^#/ { for (i=1;i<=NF;i++) { if ($i=="initial_volume_A3") vi=i-1
+                                         if ($i=="final_volume_A3") vf=i-1 } ; next }
+            NF { if ($vf >= $vi) { printf "config %s: volume did not compress at 50 GPa (%s -> %s)\n", $1, $vi, $vf; exit } }
+        ' "$tmp/$nxx/MACE_RELAXATION.dat")
+        if [ -n "$check" ]; then
+            fail_line "$label" "[$check]"; mismatch=1
+        fi
+        check=$("$py" - "$tmp/$nxx" 2>&1 <<'PYEOF'
+import pathlib
+import sys
+
+GPA_PER_EV_A3 = 160.21766208
+level = pathlib.Path(sys.argv[1])
+energy_lines = (level / "ENERGIES").read_text().splitlines()
+enthalpy_lines = (level / "ENTHALPIES").read_text().splitlines()
+if "internal energy E" not in energy_lines[0]:
+    print("ENERGIES header does not identify values as internal energies")
+    raise SystemExit(1)
+if "enthalpy H=E+PV" not in enthalpy_lines[0]:
+    print("ENTHALPIES header does not identify values as enthalpies")
+    raise SystemExit(1)
+energies = {
+    int(words[0]): float(words[1])
+    for line in energy_lines
+    if line.strip() and not line.lstrip().startswith("#")
+    for words in [line.split()]
+}
+enthalpies = {
+    int(words[0]): float(words[1])
+    for line in enthalpy_lines
+    if line.strip() and not line.lstrip().startswith("#")
+    for words in [line.split()]
+}
+lines = [line.split() for line in (level / "MACE_RELAXATION.dat").read_text().splitlines()]
+header, rows = lines[0], lines[1:]
+energy_col = header.index("final_energy_eV") - 1
+volume_col = header.index("final_volume_A3") - 1
+for row in rows:
+    index = int(row[0])
+    energy = float(row[energy_col])
+    expected_h = energy + 50.0 * float(row[volume_col]) / GPA_PER_EV_A3
+    if abs(energies[index] - energy) > 1.0e-4:
+        print(
+            f"config {index}: ENERGIES {energies[index]:.8f}, "
+            f"expected internal energy {energy:.8f}"
+        )
+        raise SystemExit(1)
+    if abs(enthalpies[index] - expected_h) > 1.0e-4:
+        print(
+            f"config {index}: ENTHALPIES {enthalpies[index]:.8f}, "
+            f"expected E+PV {expected_h:.8f}"
+        )
+        raise SystemExit(1)
+PYEOF
+        )
+        rc=$?
+        if [ $rc -ne 0 ] || [ -n "$check" ]; then
+            fail_line "$label" "[$check]"; mismatch=1
+        fi
+    fi
+
+    # MACE follows the same general policy: even valid cells for a sparse
+    # subset must not become an unindexed, apparently dense CELL file.
+    check=$("$py" - "$ROOT" "$tmp/$nxx" 2>&1 <<'PYEOF'
+import pathlib
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "pysod"))
+import sod_mace
+
+level = pathlib.Path(sys.argv[2])
+result = SimpleNamespace(cell=np.eye(3))
+sod_mace.write_cell_file(level, {1: result}, "cub", lambda message: None)
+if (level / "CELL").exists():
+    raise SystemExit("sparse MACE results wrote CELL")
+PYEOF
+    )
+    if [ $? -ne 0 ] || ! printf '%s' "$check" | grep -q "1 of 2 ENSEMBLE configurations"; then
+        fail_line "$label" "[sparse MACE results were allowed to write CELL]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
+test_sod_mace_settings() {
+    local label="$1" xdir="$2" nxx="$3"
+    local py="${SOD_PYTHON:-python3}"
+
+    if [ ! -f "$xdir/INSOD" ] || [ ! -f "$xdir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    if ! command -v "$py" >/dev/null 2>&1 || \
+       ! "$py" -c 'import torch, ase, mace, nvalchemi, yaml' >/dev/null 2>&1; then
+        skip_line "$label" "(python MACE stack not installed)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$xdir/INSOD" "$xdir/SGO" "$tmp/"
+    mkdir -p "$tmp/$nxx"
+    local n=0 c
+    for c in "$xdir/$nxx"/c*/; do
+        [ -d "$c" ] || continue
+        cp -r "$c" "$tmp/$nxx/" || true
+        # Drop any relaxed structure a previous sod_mace.sh run left in the
+        # example tree: copying it in would trip the result-file protection.
+        rm -f "$tmp/$nxx/$(basename "${c%/}")"/relaxed.* \
+              "$tmp/$nxx/$(basename "${c%/}")"/relaxed_*
+        n=$((n+1))
+        [ $n -ge 2 ] && break
+    done
+
+    # Values chosen so the run is only explicable by the file having been read:
+    # they are echoed verbatim into the ENERGIES provenance header.
+    cat > "$tmp/$nxx/mace_settings.yaml" <<'YAML'
+device: cpu
+cueq: off
+batch: 2
+relax: true
+batchmode: refill
+fmax: 0.06
+maxsteps: 20
+q: true
+YAML
+
+    local mismatch=0 out rc
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[sod_mace.sh error with settings file]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local header; header=$(head -1 "$tmp/$nxx/ENERGIES" 2>/dev/null)
+    case "$header" in
+        *"refill batching"*"fmax 0.06"*"max 20 steps"*) ;;
+        *)  fail_line "$label" "[settings not applied]"
+            printf '%s\n' "$header" | indent
+            mismatch=1 ;;
+    esac
+
+    # An unknown key must be rejected, not silently ignored.
+    echo "batchsize: 4" >> "$tmp/$nxx/mace_settings.yaml"
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -force 2>&1)
+    if [ $? -eq 0 ] || ! printf '%s' "$out" | grep -q "unknown option"; then
+        fail_line "$label" "[unknown settings key not rejected]"
+        mismatch=1
+    fi
+
+    rm -rf "$tmp"
+    if [ $mismatch -eq 0 ]; then
+        pass_line "$label"; pass=$((pass+1))
+    else
+        fail=$((fail+1))
+    fi
+}
+
 test_stat() {
     local label="$1" ndir="$2"
 
@@ -383,12 +1246,12 @@ test_stat() {
     fi
 }
 
-# ── test_pmesod ───────────────────────────────────────────────────────────────
+# ── test_cpmesod ───────────────────────────────────────────────────────────────
 # $1 = display label
 # $2 = main example directory (contains INSOD, SGO, n00-n03, n21-n24)
 # $3 = target level
-# Reference file must already be committed in $2/pme_test_ref/ENERGIES
-test_pmesod() {
+# Reference file must already be committed in $2/cpme_test_ref/ENERGIES
+test_cpmesod() {
     local label="$1" maindir="$2" tlvl="$3"
 
     if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ]; then
@@ -430,19 +1293,19 @@ test_pmesod() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Run pmesod
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1)
+    # Run cpmesod
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1)
     rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"
+        fail_line "$label" "[cpmesod error]"
         echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Check PMEh ENERGIES from target level
+    # Check CPMEh ENERGIES from target level
     local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
-    local ref="$maindir/pme_test_ref/ENERGIES"
-    local gen="$tmp/$tdir/PMEh/ENERGIES"
+    local ref="$maindir/cpme_test_ref/ENERGIES"
+    local gen="$tmp/$tdir/CPMEh/ENERGIES"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[ENERGIES has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -456,21 +1319,21 @@ test_pmesod() {
     pass_line "$label"; pass=$((pass+1))
 }
 
-# ── test_pmesod_example17 ─────────────────────────────────────────────────────
-# example17: n00–n03 (low, order_cap=3) + n24–n27 (high), target n04/PMEh.
-# pme.model is copied so pmesod sees pme_ch=2/order_cap=3/n_calib=0/alpha=2/eta=0.
+# ── test_cpmesod_example17 ─────────────────────────────────────────────────────
+# example17: n00–n03 (low, order_cap=3) + n24–n27 (high), target n04/CPMEh.
+# cpme.model is copied so cpmesod sees cpme_ch=2/order_cap=3/n_calib=0/alpha=2/eta=0.
 # n04 is the prediction target, not a training level.
 # n04/ENSEMBLE and n04/ENERGIES are deliberately included in the tmp dir to
-# verify that pmesod does NOT use them as training data (the target-level guard).
-# Without the guard, pmesod would crash with a "training data conflict" error.
-# n_calib=0 → manual eps mode (eps=1, alpha=2, eta=0): "epsilon read/fitted from pme.model."
+# verify that cpmesod does NOT use them as training data (the target-level guard).
+# Without the guard, cpmesod would crash with a "training data conflict" error.
+# n_calib=0 → manual eps mode (eps=1, alpha=2, eta=0): "epsilon read/fitted from cpme.model."
 # $1 = display label
 # $2 = main example directory
-test_pmesod_example17() {
+test_cpmesod_example17() {
     local label="$1" maindir="$2"
 
-    if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ] || [ ! -f "$maindir/pme.model" ]; then
-        skip_line "$label" "(missing INSOD, SGO or pme.model)"
+    if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ] || [ ! -f "$maindir/cpme.model" ]; then
+        skip_line "$label" "(missing INSOD, SGO or cpme.model)"
         skip=$((skip+1)); return
     fi
 
@@ -485,9 +1348,9 @@ test_pmesod_example17() {
     [ $missing -ne 0 ] && { fail=$((fail+1)); return; }
 
     local tmp; tmp=$(mktemp -d)
-    cp "$maindir/INSOD" "$maindir/SGO" "$maindir/pme.model" "$tmp/"
+    cp "$maindir/INSOD" "$maindir/SGO" "$maindir/cpme.model" "$tmp/"
 
-    # Include n04 so the target-level guard is exercised: pmesod must not use
+    # Include n04 so the target-level guard is exercised: cpmesod must not use
     # n04/ENERGIES as a training reference even though the file is present.
     for i in 0 1 2 3 4 24 25 26 27; do
         local ndir; ndir=$(sod_level_dir_by_number "$maindir" $i)
@@ -503,17 +1366,17 @@ test_pmesod_example17() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1)
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1)
     rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"
+        fail_line "$label" "[cpmesod error]"
         echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
     local tdir; tdir=$(sod_level_dir_by_number "$maindir" 4)
-    local ref="$maindir/pme_test_ref/ENERGIES"
-    local gen="$tmp/$tdir/PMEh/ENERGIES"
+    local ref="$maindir/cpme_test_ref/ENERGIES"
+    local gen="$tmp/$tdir/CPMEh/ENERGIES"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[ENERGIES has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -527,23 +1390,23 @@ test_pmesod_example17() {
     pass_line "$label"; pass=$((pass+1))
 }
 
-# ── test_pme_delta ────────────────────────────────────────────────────────────
+# ── test_cpme_delta ────────────────────────────────────────────────────────────
 # $1 = display label
 # $2 = main example directory (contains INSOD, SGO, n*/ENSEMBLE+ENERGIES)
 # $3 = space-separated level list to copy (low + high side)
-# Builds the same PME model mcsod would use (combsod + pmesod), then runs the
-# test_pme_delta driver, which checks the incremental pme_evaluate_swap_delta
-# against the full pme_evaluate_configuration over a level sweep and a long
+# Builds the same CPME model mcsod would use (combsod + cpmesod), then runs the
+# test_cpme_delta driver, which checks the incremental cpme_evaluate_swap_delta
+# against the full cpme_evaluate_configuration over a level sweep and a long
 # swap chain. The driver exits non-zero on any mismatch.
-test_pme_delta_case() {
+test_cpme_delta_case() {
     local label="$1" maindir="$2" levels="$3"
 
     if [ ! -f "$maindir/INSOD" ] || [ ! -f "$maindir/SGO" ]; then
         skip_line "$label" "(missing INSOD or SGO)"
         skip=$((skip+1)); return
     fi
-    if [ ! -x "$BIN/test_pme_delta" ]; then
-        skip_line "$label" "(test_pme_delta not built — run 'make testbin')"
+    if [ ! -x "$BIN/test_cpme_delta" ]; then
+        skip_line "$label" "(test_cpme_delta not built — run 'make testbin')"
         skip=$((skip+1)); return
     fi
 
@@ -559,7 +1422,7 @@ test_pme_delta_case() {
 
     local tmp; tmp=$(mktemp -d)
     cp "$maindir/INSOD" "$maindir/SGO" "$tmp/"
-    [ -f "$maindir/pme.model" ] && cp "$maindir/pme.model" "$tmp/"
+    [ -f "$maindir/cpme.model" ] && cp "$maindir/cpme.model" "$tmp/"
     for i in $levels; do
         ndir=$(sod_level_dir_by_number "$maindir" "$i")
         mkdir -p "$tmp/$ndir"
@@ -572,12 +1435,12 @@ test_pme_delta_case() {
         fail_line "$label" "[combsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1); rc=$?
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"; echo "$out" | head -3 | indent
+        fail_line "$label" "[cpmesod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" test_pme_delta 2>&1); rc=$?
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" test_cpme_delta 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[delta != full]"
         echo "$out" | grep -iE "mismatch|drift|max |error" | head -8 | indent
@@ -592,7 +1455,7 @@ test_pme_delta_case() {
 # $1 = display label
 # $2 = main example directory (contains INSOD, SGO, INMC, n00-n03, n21-n24)
 # $3 = target level (where OUTMC is written)
-# Reference file must already be committed in $2/pme_ref/OUTMC
+# Reference file must already be committed in $2/cpme_ref/OUTMC
 test_mcsod() {
     local label="$1" maindir="$2" tlvl="$3"
 
@@ -627,7 +1490,7 @@ test_mcsod() {
         cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
-    # Run combsod then pmesod to generate Hamiltonian (needed for mcsod)
+    # Run combsod then cpmesod to generate Hamiltonian (needed for mcsod)
     local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
     local rc=$?
     if [ $rc -ne 0 ]; then
@@ -636,10 +1499,10 @@ test_mcsod() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1)
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1)
     rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"
+        fail_line "$label" "[cpmesod error]"
         echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
@@ -655,8 +1518,8 @@ test_mcsod() {
 
     # Check OUTMC from target level
     local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
-    local ref="$maindir/pme_test_ref/OUTMC"
-    local gen="$tmp/$tdir/MCT_300K/PMEh/OUTMC"
+    local ref="$maindir/cpme_test_ref/OUTMC"
+    local gen="$tmp/$tdir/MCT_300K/CPMEh/OUTMC"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[OUTMC has no reference]"
         fail=$((fail+1)); rm -rf "$tmp"; return
@@ -676,7 +1539,7 @@ test_mcsod() {
 # $3 = target level (where the MCT_*K/ directories are written)
 # Runs the MC chain over a multi-temperature ladder, then thermodynamic
 # integration (mcstatsod) at the target level.
-# Reference file must already be committed in $2/pme_test_ref/thermodynamics.dat
+# Reference file must already be committed in $2/cpme_test_ref/thermodynamics.dat
 test_mcstat() {
     local label="$1" maindir="$2" tlvl="$3"
 
@@ -710,7 +1573,7 @@ test_mcstat() {
         cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
-    # Run combsod then pmesod to generate the Hamiltonian (needed for mcsod)
+    # Run combsod then cpmesod to generate the Hamiltonian (needed for mcsod)
     local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
     local rc=$?
     if [ $rc -ne 0 ]; then
@@ -719,10 +1582,10 @@ test_mcstat() {
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1)
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1)
     rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"
+        fail_line "$label" "[cpmesod error]"
         echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
@@ -737,7 +1600,7 @@ test_mcstat() {
     fi
 
     # Thermodynamic integration over the sampled temperatures.
-    # Layout is sampling-first: MC output lives in nXX/MCT_*K/PMEx/, so mcstatsod
+    # Layout is sampling-first: MC output lives in nXX/MCT_*K/CPMEx/, so mcstatsod
     # runs from nXX/ and writes thermodynamics.dat there.
     local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
     local nxxdir="$tmp/$tdir"
@@ -754,7 +1617,7 @@ test_mcstat() {
     fi
 
     # Check thermodynamics.dat against the committed reference
-    local ref="$maindir/pme_test_ref/thermodynamics.dat"
+    local ref="$maindir/cpme_test_ref/thermodynamics.dat"
     local gen="$nxxdir/thermodynamics.dat"
     if [ ! -f "$ref" ]; then
         fail_line "$label" "[thermodynamics.dat has no reference]"
@@ -771,8 +1634,8 @@ test_mcstat() {
 
 # ── test_mcstat_vs_enum ───────────────────────────────────────────────────────
 # Cross-check: thermodynamic integration (mcstatsod) vs the exact full
-# enumeration (statsod) on the *same* PMEh Hamiltonian. Both paths use the PMEh
-# energies that pmesod predicts for every configuration of the target level, so
+# enumeration (statsod) on the *same* CPMEh Hamiltonian. Both paths use the CPMEh
+# energies that cpmesod predicts for every configuration of the target level, so
 # any disagreement is pure method error (MC sampling + TI discretization).
 # Asserts max|F_TI(T) - F_exact(T)| <= tol over the temperature ladder.
 # $1 = display label  $2 = main example dir  $3 = target level  $4 = tol (eV)
@@ -805,42 +1668,42 @@ test_mcstat_vs_enum() {
         cp "$maindir/$ndir/ENSEMBLE" "$maindir/$ndir/ENERGIES" "$tmp/$ndir/"
     done
 
-    # combsod (full enumeration of target level) + pmesod (PMEh energies)
+    # combsod (full enumeration of target level) + cpmesod (CPMEh energies)
     local out rc
     out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[combsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
-    out=$(cd "$tmp" && PATH="$BIN:$PATH" pmesod 2>&1); rc=$?
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" cpmesod 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
-        fail_line "$label" "[pmesod error]"; echo "$out" | head -3 | indent
+        fail_line "$label" "[cpmesod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
     local tdir; tdir=$(sod_level_dir_by_number "$maindir" $tlvl)
     local nxxdir="$tmp/$tdir"
-    local pmedir="$nxxdir/PMEh"   # pmesod enumeration energies (nXX/PMEh/ENERGIES)
-    if [ ! -f "$pmedir/ENERGIES" ] || [ ! -f "$nxxdir/ENSEMBLE" ]; then
+    local cpmedir="$nxxdir/CPMEh"   # cpmesod enumeration energies (nXX/CPMEh/ENERGIES)
+    if [ ! -f "$cpmedir/ENERGIES" ] || [ ! -f "$nxxdir/ENSEMBLE" ]; then
         fail_line "$label" "[$tdir enumeration/ENERGIES not generated]"
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Exact path: statsod over the full enumeration with the PMEh energies.
-    # pmesod writes single-column energies in configuration order; statsod wants
+    # Exact path: statsod over the full enumeration with the CPMEh energies.
+    # cpmesod writes single-column energies in configuration order; statsod wants
     # the two-column "m E" form, so prepend the 1-based index.
     mkdir -p "$tmp/enum"
     cp "$nxxdir/ENSEMBLE" "$tmp/enum/ENSEMBLE"
     cp "$tmp/TEMPERATURES"      "$tmp/enum/TEMPERATURES"
-    awk '{printf "%d  %s\n", NR, $1}' "$pmedir/ENERGIES" > "$tmp/enum/ENERGIES"
+    awk '{printf "%d  %s\n", NR, $1}' "$cpmedir/ENERGIES" > "$tmp/enum/ENERGIES"
     out=$(cd "$tmp/enum" && PATH="$BIN:$PATH" statsod 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[statsod error]"; echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
-    # Approximate path: mcsod MC sampling (same PMEh) + mcstatsod TI.
-    # MC output is sampling-first (nXX/MCT_*K/PMEh/), so mcstatsod runs from nXX/.
+    # Approximate path: mcsod MC sampling (same CPMEh) + mcstatsod TI.
+    # MC output is sampling-first (nXX/MCT_*K/CPMEh/), so mcstatsod runs from nXX/.
     out=$(cd "$tmp" && PATH="$BIN:$PATH" sod_mc.sh 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[mcsod error]"; echo "$out" | head -3 | indent
@@ -1006,6 +1869,199 @@ test_sqssod() {
     if ! diff -q "$ref" "$gen" >/dev/null 2>&1; then
         fail_line "$label" "[OUTSQS differs]"
         diff "$ref" "$gen" | head -6 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_sqssod_general ───────────────────────────────────────────────────────
+# Smoke-test generalized SQS paths without committing bulky reference outputs.
+# $1 = display label
+# $2 = main example directory (contains INSOD, EQMATRIX, supercell.cif)
+# $3 = nXX directory name
+# $4 = extended grep pattern expected in OUTSQS
+# $5 = extended grep pattern expected in SQS_CORRELATIONS
+test_sqssod_general() {
+    local label="$1" maindir="$2" nxx="$3" out_pat="$4" corr_pat="$5"
+    local ndir="$maindir/$nxx"
+
+    for f in INSOD EQMATRIX supercell.cif; do
+        if [ ! -f "$maindir/$f" ]; then
+            skip_line "$label" "(missing $f)"
+            skip=$((skip+1)); return
+        fi
+    done
+    if [ ! -f "$ndir/ENSEMBLE" ]; then
+        skip_line "$label" "(missing $nxx/ENSEMBLE)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$maindir/INSOD" "$maindir/EQMATRIX" "$maindir/supercell.cif" "$tmp/"
+    mkdir -p "$tmp/$nxx"
+    cp "$ndir/ENSEMBLE" "$tmp/$nxx/"
+    cat > "$tmp/INSQS" <<'EOF'
+# Maximum cluster order
+2
+
+# Cutoff radii (Angstroms) for orders 2..MaxOrder
+8.0
+
+# Weights for orders 2..MaxOrder
+1.0
+
+# omega and eps_tol for van de Walle scoring
+10  1.0E-6
+
+# n_top_sqs: number of top configurations listed in OUTSQS (0 = rank and list all)
+10
+EOF
+
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" sqssod "$nxx" 2>&1)
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[sqssod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if [ ! -s "$tmp/$nxx/OUTSQS" ] || [ ! -s "$tmp/$nxx/SQS_CORRELATIONS" ]; then
+        fail_line "$label" "[missing generalized SQS outputs]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! grep -Eq "$out_pat" "$tmp/$nxx/OUTSQS"; then
+        fail_line "$label" "[OUTSQS missing expected family columns]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! grep -Eq "$corr_pat" "$tmp/$nxx/SQS_CORRELATIONS"; then
+        fail_line "$label" "[SQS_CORRELATIONS missing expected species]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_species_cap ─────────────────────────────────────────────────────────
+# Validates the shared INSOD species-per-target cap: up to 5 substituent
+# species (senary disorder, 6 species total) parse and flow through
+# randomsod -> sqssod; a 6th substituent is rejected with a clear error
+# instead of being silently truncated; and combsod's full-enumeration path
+# (structurally limited to 3 substituents) rejects 4+ with a clear error.
+# $1 = display label   $2 = main example dir (INSOD, SGO, EQMATRIX, supercell.cif)
+test_species_cap() {
+    local label="$1" maindir="$2"
+
+    for f in SGO EQMATRIX supercell.cif; do
+        if [ ! -f "$maindir/$f" ]; then
+            skip_line "$label" "(missing $f)"
+            skip=$((skip+1)); return
+        fi
+    done
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$maindir/SGO" "$maindir/EQMATRIX" "$maindir/supercell.cif" "$tmp/"
+    cat > "$tmp/INSOD" <<'EOF'
+# Title
+Senary species-cap smoke test (CoCrFeMnCu on Ni, fcc 2x2x2)
+
+# a, b, c, alpha, beta, gamma
+3.5400  3.5400  3.5400  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+1
+
+# symbol(1:nsp): Atom symbols
+Ni
+
+# natsp0(1:nsp): Number of atoms per species (asymmetric unit is sufficient)
+1
+
+# coords0: Fractional coordinates
+0.0  0.0  0.0
+
+# na, nb, nc: Supercell multipliers along a, b, c
+2 2 2
+
+# sptarget: Index of species to substitute
+1
+
+# nsubs: Substitution counts for Co, Cr, Fe, Mn, Cu; remaining sites are Ni.
+6 5 5 5 5
+
+# newsymbol: new species followed by remaining species
+Co Cr Fe Mn Cu Ni
+
+# FILER: -1 none | 0 CIF | 1 GULP | 2 LAMMPS | 11 VASP | 12 CASTEP | 13 QE
+0
+EOF
+
+    # 5 substituents (6 species total): randomsod -sym on must succeed and
+    # produce the expected per-species ENSEMBLE header.
+    local out
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconf 200 -sym on -seed 20260710 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[randomsod rejected a valid 5-substituent target]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local ens="$tmp/n06_05_05_05_05/random/ENSEMBLE"
+    if ! grep -q "Co.*Cr.*Fe.*Mn.*Cu.*Ni" "$ens" 2>/dev/null; then
+        fail_line "$label" "[ENSEMBLE missing expected 6-species target line]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # sqssod on that ensemble: 4 fcc pair orbits within the default cutoff,
+    # each with 6x6=36 species channels.
+    cat > "$tmp/INSQS" <<'EOF'
+# Maximum cluster order
+2
+
+# Cutoff radii (Angstroms) for orders 2..MaxOrder
+6.0
+
+# Weights for orders 2..MaxOrder
+1.0
+
+# omega and eps_tol for van de Walle scoring
+10  1.0E-6
+
+# n_top_sqs: number of top configurations listed in OUTSQS (0 = rank and list all)
+10
+EOF
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" sqssod n06_05_05_05_05/random 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[sqssod error on 6-species ensemble]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! grep -q "n_channels=144" "$tmp/n06_05_05_05_05/random/OUTSQS"; then
+        fail_line "$label" "[expected n_channels=144 (4 orbits x 6x6 species)]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # 6 substituents (7 species) on the same target: must be rejected with a
+    # clear error, not silently truncated to 5 (dropping the 6th species).
+    sed 's/^6 5 5 5 5$/6 5 5 5 5 5/; s/^Co Cr Fe Mn Cu Ni$/Co Cr Fe Mn Cu Zn Ni/' \
+        "$tmp/INSOD" > "$tmp/INSOD.overflow"
+    mv "$tmp/INSOD.overflow" "$tmp/INSOD"
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" randomsod -nconf 10 -sym off -seed 1 2>&1)
+    if [ $? -eq 0 ] || ! echo "$out" | grep -q "at most 5 substituent species"; then
+        fail_line "$label" "[6-substituent target not rejected with expected error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # combsod: 5 substituents (valid for the shared parser) must still be
+    # rejected because full enumeration only supports up to 3.
+    sed 's/^6 5 5 5 5 5$/6 5 5 5 5/; s/^Co Cr Fe Mn Cu Zn Ni$/Co Cr Fe Mn Cu Ni/' \
+        "$tmp/INSOD" > "$tmp/INSOD.quinary"
+    mv "$tmp/INSOD.quinary" "$tmp/INSOD"
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
+    if [ $? -eq 0 ] || ! echo "$out" | grep -q "at most 3 substituent species"; then
+        fail_line "$label" "[combsod did not reject a 5-substituent target]"
+        echo "$out" | head -3 | indent
         fail=$((fail+1)); rm -rf "$tmp"; return
     fi
 
@@ -1220,8 +2276,16 @@ test_genersod "example01/FILER12_castep" "$EX/example01/FILER12_castep" "n04/c01
 test_genersod "example01/FILER13_QE"     "$EX/example01/FILER13_QE"     "n04/c01/pw.in"
 test_wrapper_filer_tail "sod_comb.sh ignores trailing INSOD comment" "comb" "$EX/example01/FILER1_gulp" "n04/c01/input.gin"
 test_wrapper_filer_tail "sod_gener.sh ignores trailing INSOD comment" "gener" "$EX/example01/FILER1_gulp" "job_sender"
-test_wrapper_model_flag_error "sod_pme.sh rejects missing -model filename" "$BIN/sod_pme.sh" "$EX/example15"
+test_wrapper_model_flag_error "sod_cpme.sh rejects missing -model filename" "$BIN/sod_cpme.sh" "$EX/example15"
 test_wrapper_model_flag_error "sod_mc.sh rejects missing -model filename" "$BIN/sod_mc.sh" "$EX/example15"
+
+echo ""
+printf "CELL extractors  (complete-ensemble policy)\n"
+printf "%s\n" "-------------------------------------------"
+test_cell_completeness "VASP/GULP CELL requires complete ENSEMBLE"
+test_energy_enthalpy_extractors "VASP/GULP ENERGIES and ENTHALPIES"
+test_ensemble_v3_only "ENSEMBLE version 3 required everywhere"
+test_mace_result_protection "sod_mace result files protected before a run"
 
 # ── statsod tests (canonical) ────────────────────────────────────────────────
 
@@ -1232,18 +2296,18 @@ printf "%s\n" "-------------------------------------------"
 test_stat "example05/n02 (energy+DATA+SPECTRA)" "$EX/example05/n02"
 test_stat "example16/n08 (8043 configs, T=0/1000/1e6 K)" "$EX/example16/n08"
 
-# ── pmesod tests (Periodic Motif Expansion) ────────────────────────────────────
+# ── cpmesod tests (Constrained Periodic Motif Expansion) ────────────────────────────────────
 
 echo ""
-printf "pmesod  (Periodic Motif Expansion)\n"
+printf "cpmesod  (Constrained Periodic Motif Expansion)\n"
 printf "%s\n" "-------------------------------------------"
 
-test_pmesod "example15/pmesod (n00-n03 low, n21-n24 high, target=n12)" "$EX/example15" 12
-test_pmesod_example17 "example17/pmesod (n00-n03 low, n24-n27 high, target=n04, PMEh)" "$EX/example17"
+test_cpmesod "example15/cpmesod (n00-n03 low, n21-n24 high, target=n12)" "$EX/example15" 12
+test_cpmesod_example17 "example17/cpmesod (n00-n03 low, n24-n27 high, target=n04, CPMEh)" "$EX/example17"
 
 # Incremental swap evaluator vs full recompute (delta == full(new) - full(old))
-test_pme_delta_case "example15/pme_delta (swap evaluator vs full)" "$EX/example15" "0 1 2 3 21 22 23 24"
-test_pme_delta_case "example17/pme_delta (swap evaluator vs full)" "$EX/example17" "0 1 2 3 4 24 25 26 27"
+test_cpme_delta_case "example15/cpme_delta (swap evaluator vs full)" "$EX/example15" "0 1 2 3 21 22 23 24"
+test_cpme_delta_case "example17/cpme_delta (swap evaluator vs full)" "$EX/example17" "0 1 2 3 4 24 25 26 27"
 
 # ── randomsod tests (uniform random sampling) ─────────────────────────────────
 
@@ -1287,6 +2351,10 @@ printf "sqssod  (Special Quasirandom Structures)\n"
 printf "%s\n" "-------------------------------------------"
 
 test_sqssod "example16/sqssod (n08, 8043 configs)" "$EX/example16" "n08"
+test_sqssod "example12/sqssod multitarget (n02_02)" "$EX/example12" "n02_02"
+test_sqssod_general "example10/sqssod multinary target" "$EX/example10" "n04_04" "E11" "Zr|Nb"
+test_sqssod_general "example14/sqssod multinary multitarget" "$EX/example14" "n01_01_01" "E11.*E12.*E22" "Ba|Mn"
+test_species_cap "example19 geometry/species cap (5 ok, 6 rejected, combsod<=3)" "$EX/example19"
 
 # ── gqssod tests (Generalized Quasirandom Structures) ────────────────────────
 
@@ -1295,6 +2363,17 @@ printf "gqssod  (Generalized Quasirandom Structures)\n"
 printf "%s\n" "-------------------------------------------"
 
 test_gqssod "example16/gqssod (n08, T=0/1000/1e6 K)" "$EX/example16" "n08"
+
+# ── sod_mace tests (MACE machine-learning potential) ─────────────────────────
+
+echo ""
+printf "sod_mace  (MACE machine-learning potential)\n"
+printf "%s\n" "-------------------------------------------"
+
+test_sod_mace "example01/FILER0_mace (n04, CIF input, 4 configs)" "$EX/example01/FILER0_mace" "n04"
+test_sod_mace_relax "example01/FILER0_mace relax fixed vs refill parity" "$EX/example01/FILER0_mace" "n04"
+test_sod_mace_relaxcell "example01/FILER0_mace variable cell + CELL + pressure sign" "$EX/example01/FILER0_mace" "n04"
+test_sod_mace_settings "example01/FILER0_mace mace_settings.yaml" "$EX/example01/FILER0_mace" "n04"
 
 # ── summary ───────────────────────────────────────────────────────────────────
 

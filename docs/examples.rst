@@ -15,7 +15,7 @@ Example layout
 The examples directory contains:
 
 - ``README``
-- ``example01`` through ``example18``
+- ``example01`` through ``example19``
 
 The ``example01`` family demonstrates the same substitution problem with
 different calculator backends. The remaining examples cover a broader range of
@@ -31,18 +31,36 @@ the generated input files depend on the selected ``FILER`` option.
 
 Calculator backends illustrated in ``example01`` include:
 
-- GULP
-- LAMMPS
-- VASP
-- CASTEP
-- Quantum ESPRESSO
+- GULP (``FILER1_gulp``)
+- LAMMPS (``FILER2_lammps``)
+- VASP (``FILER11_vasp``)
+- CASTEP (``FILER12_castep``)
+- Quantum ESPRESSO (``FILER13_QE``)
+- CIF, used here for machine-learning potentials (``FILER0_mace``)
 
 This is the best place to learn how SOD generates calculator-specific inputs.
+
+``FILER0_mace`` writes a plain ``configuration.cif`` per configuration and is the
+reference workload for :doc:`mace`, since ASE reads CIF directly.  It carries a
+commented ``mace_settings.yaml``, so the whole machine-learning-potential
+workflow runs with no arguments:
+
+.. code-block:: bash
+
+   cd examples/example01/FILER0_mace
+   sod_mace.sh          # relaxes all 71 configurations, writes n04/ENERGIES
+   cd n04 && sod_stat.sh
+
+The energies MACE writes are in the same format the ``sod_*_ener.sh`` collectors
+produce, so ``sod_stat.sh`` consumes them unchanged and applies the ENSEMBLE
+degeneracies as usual.  Because ``FILER0_mace`` and ``FILER11_vasp`` are the same
+physical problem, this is also a convenient way to compare an MLIP against DFT
+on identical configurations.
 
 Other examples
 --------------
 
-Examples 02–14 cover a wide range of disorder models and statistical workflows:
+Examples 02–19 cover a wide range of disorder models and statistical workflows:
 
 .. list-table::
    :header-rows: 1
@@ -83,7 +101,7 @@ Examples 02–14 cover a wide range of disorder models and statistical workflows
      - **Multi-nary** quaternary substitution on primitive cell
    * - 12
      - La₀.₇₅Sr₀.₂₅Mn₀.₂₅Fe₀.₇₅O₃
-     - **Multi-target** on two sites (La and Fe)
+     - **Multi-target** on two sites (La and Fe); committed SQS reference ranks the best multi-target SQS
    * - 13
      - La₁₋ₓSrₓFe₁₋ᵧMnᵧO₃₋ᵤ
      - **Multi-target** on three sites (La, Fe, O vacancy)
@@ -92,16 +110,19 @@ Examples 02–14 cover a wide range of disorder models and statistical workflows
      - **Multi-target multi-nary** (ternary on La + binary on Fe)
    * - 15
      - Si/Ge in α-quartz (2×2×2, 24 Si sites)
-     - **PME/MC effective Hamiltonian** fitting and finite-temperature sampling
+     - **CPME/MC effective Hamiltonian** fitting and finite-temperature sampling
    * - 16
      - Ni/Mg in MgO rocksalt (8 substitutions)
      - **SQS/GQS workflow** with thermal-weighted quasirandom structure selection
    * - 17
      - Al/Fe in LaFeO₃ (3×3×3, 27 Fe sites)
-     - **PMEh** third-order hybrid PME for target level n04 with full DFT reference energies
+     - **CPMEh** third-order hybrid CPME for target level n04 with full DFT reference energies
    * - 18
      - MAPbI₃–MAPbBr₃ equimolar solid solution (4×4×4 Pm-3m, 192 halide sites)
      - **SQS via random sampling**: 50 000 draws with ``sod_random.sh``, ranked with ``sod_sqs.sh``; ``@MA`` parent-molecule syntax (all A-sites occupied by MA)
+   * - 19
+     - Equimolar fcc CoCrFeNi alloy (2×2×2 conventional fcc, 32 metal sites)
+     - **Multinary SQS via random sampling**: 20 000 draws with ``sod_random.sh``, ranked with ``sod_sqs.sh``; selected SQS written as CIF with ``sod_gener.sh -choose``
 
 Many examples include reference outputs such as ``ENSEMBLE``, ``ENERGIES``,
 ``DATA``, ``SPECTRA``, ``OUTSQS``, ``OUTGQS``, and grand-canonical ``x???/`` folders.
@@ -140,8 +161,8 @@ outputs:
 - **``example05`` gcstatsod tests**: Perform grand-canonical analysis over a
   composition range. Validates multi-level workflows.
 
-- **``example15`` PME/MC tests**: Fit the PME Hamiltonian and run the
-  Metropolis reduced MC workflow. Validates PME fitting, MC output semantics,
+- **``example15`` CPME/MC tests**: Fit the CPME Hamiltonian and run the
+  Metropolis reduced MC workflow. Validates CPME fitting, MC output semantics,
   and the committed ``OUTMC`` reference.
 
 - **``example15`` mcstatsod test**: Run the Metropolis MC workflow over a
@@ -151,7 +172,7 @@ outputs:
   exact T→∞ reference.
 
 - **``example15`` TI-vs-enumeration cross-check**: A physics consistency test.
-  The same PMEh Hamiltonian is evaluated two ways — exactly, via ``statsod``
+  The same CPMEh Hamiltonian is evaluated two ways — exactly, via ``statsod``
   over the full 56846-configuration enumeration, and approximately, via
   ``mcsod`` Monte Carlo sampling plus ``mcstatsod`` thermodynamic integration
   over a 300–4000 K ladder. The test asserts the free energies agree to within
@@ -170,7 +191,7 @@ outputs:
   ``thermodynamics.dat`` (E/F/S vs T). Provides the exact-energy reference that
   the GQS Boltzmann re-analysis approximates.
 
-- **``example17`` PMEh test**: Fit a third-order PMEh Hamiltonian for LaFeO₃
+- **``example17`` CPMEh test**: Fit a third-order CPMEh Hamiltonian for LaFeO₃
   (target level n04) and diff the committed ``ENERGIES`` reference. Validates
   the hybrid low/high-side blending with the ``alpha``/``eta`` power-law
   weighting scheme.

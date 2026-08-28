@@ -1,0 +1,71 @@
+Example 19: SQS via random sampling for equimolar fcc CoCrFeNi
+================================================================
+
+Physical system
+---------------
+CoCrFeNi is the common equiatomic face-centred-cubic Cantor-alloy subsystem.
+This example uses a 2x2x2 conventional fcc supercell with 32 metal sites:
+8 Co, 8 Cr, 8 Fe, and 8 Ni. The number of labelled arrangements is
+32!/(8!^4) ~ 10^17, so full enumeration is not practical. Instead, SOD first
+draws many uniform random configurations and then selects the best Special
+Quasirandom Structure (SQS) from that sampled ensemble.
+
+Workflow
+--------
+1. sod_random.sh -nconf 20000 -sym on -seed 20260710
+   randomsod draws 20,000 uniform configurations at the equimolar CoCrFeNi
+   composition, folds them to full Fm-3m symmetry representatives using the
+   committed EQMATRIX, and writes n08_08_08/random/ENSEMBLE.
+
+2. sod_sqs.sh (run from n08_08_08/random/)
+   sqssod scores each sampled configuration against ideal random quaternary
+   mixing using species-resolved pair probabilities. INSQS sets MaxOrder=2
+   and a 6.0 Angstrom pair cutoff, covering four fcc pair orbits in this
+   supercell. Rankings are written to n08_08_08/random/OUTSQS and the detailed
+   pair-channel table for the best configuration is written to SQS_CORRELATIONS.
+
+3. sod_gener.sh -choose 9367 (run from n08_08_08/random/)
+   Writes the selected SQS as n08_08_08/random/c09367/configuration.cif
+   (FILER=0).
+
+Files
+-----
+  INSOD                                      SOD input (32 fcc metal sites, 8/8/8/8 composition)
+  SGO                                        Fm-3m space-group operators (space group 225)
+  OPERATORS                                  Supercell operator list
+  EQMATRIX                                   Equivalence matrix required for -sym on
+  supercell.cif                              Parent fcc supercell geometry
+  n08_08_08/random/INSQS                     Pair SQS parameters (MaxOrder=2, cutoff 6.0 A)
+  n08_08_08/random/OUTSQS                    Top-10 SQS ranking for the sampled ensemble
+  n08_08_08/random/SQS_CORRELATIONS          Best-configuration pair-channel probabilities
+  n08_08_08/random/c09367/configuration.cif  Selected SQS structure
+
+The sampled ensemble itself is not shipped, because it is about 1.4 MB. Run
+step 1 below to regenerate it:
+
+  n08_08_08/random/ENSEMBLE                  20,000 symmetry-folded random configurations (step 1)
+
+How to run
+----------
+From the example19 directory:
+
+    sod_random.sh -nconf 20000 -sym on -seed 20260710
+
+Then rank the random sample and write the selected structure:
+
+    cd n08_08_08/random
+    sod_sqs.sh
+    sod_gener.sh -choose 9367
+
+The final equimolar INSOD is intentionally too large for full enumeration.
+If you change the cell or composition, regenerate the symmetry files using a
+temporary zero-substitution INSOD before running the random-sampling workflow;
+do not use full enumeration for the 8/8/8/8 composition.
+
+Expected output
+---------------
+20,000 configurations in n08_08_08/random/ENSEMBLE.
+OUTSQS rank 1: configuration c09367, Error = 5.0455729E-03.
+The matched random-alloy diameter L is 0.0 Angstrom for the best sampled
+configuration because none of the four pair shells is matched exactly within
+the requested tolerance.

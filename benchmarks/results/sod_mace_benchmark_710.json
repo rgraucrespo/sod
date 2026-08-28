@@ -1,0 +1,389 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti",
+  "gpu_total_mib": 16310.5625,
+  "model": "medium-0b2",
+  "level": "/tmp/claude-1000/-home-ricardo-software-sod-sod-dev/657dfd27-04b5-493c-a390-95694a79f11c/scratchpad/big/n04",
+  "n_configs": 710,
+  "n_atoms": 64,
+  "repeats": 4,
+  "single_point": [
+    {
+      "backend": "cueq",
+      "batch": 1,
+      "best_s": 10.149781112999335,
+      "median_s": 10.207825695999418,
+      "worst_s": 10.26198448300056,
+      "per_s": 69.9522474519837
+    },
+    {
+      "backend": "cueq",
+      "batch": 2,
+      "best_s": 4.983933575997071,
+      "median_s": 5.010251210000206,
+      "worst_s": 5.143968494001456,
+      "per_s": 142.45775734640677
+    },
+    {
+      "backend": "cueq",
+      "batch": 4,
+      "best_s": 2.5754794599997695,
+      "median_s": 2.5989465860002383,
+      "worst_s": 2.636983980999503,
+      "per_s": 275.67682485033816
+    },
+    {
+      "backend": "cueq",
+      "batch": 8,
+      "best_s": 1.456042724999861,
+      "median_s": 1.4594759089995932,
+      "worst_s": 1.4755910050007515,
+      "per_s": 487.6230537809718
+    },
+    {
+      "backend": "cueq",
+      "batch": 16,
+      "best_s": 0.9750297960017633,
+      "median_s": 0.979769978501281,
+      "worst_s": 1.0000342040002579,
+      "per_s": 728.1828749351532
+    },
+    {
+      "backend": "cueq",
+      "batch": 32,
+      "best_s": 0.7657624439998472,
+      "median_s": 0.7711369264998211,
+      "worst_s": 0.7787095950006915,
+      "per_s": 927.180492544685
+    },
+    {
+      "backend": "cueq",
+      "batch": 64,
+      "best_s": 0.6344337699993048,
+      "median_s": 0.6422244514997146,
+      "worst_s": 0.646722490000684,
+      "per_s": 1119.1081458365277
+    },
+    {
+      "backend": "e3nn",
+      "batch": 1,
+      "best_s": 9.855453351003234,
+      "median_s": 9.886333432499669,
+      "worst_s": 10.019283227004053,
+      "per_s": 72.04133333224348
+    },
+    {
+      "backend": "e3nn",
+      "batch": 2,
+      "best_s": 6.971038035000674,
+      "median_s": 7.000647106000542,
+      "worst_s": 7.025747252999281,
+      "per_s": 101.84996788644423
+    },
+    {
+      "backend": "e3nn",
+      "batch": 4,
+      "best_s": 5.707855679000204,
+      "median_s": 5.786493183997663,
+      "worst_s": 5.843098205004935,
+      "per_s": 124.38997058250159
+    },
+    {
+      "backend": "e3nn",
+      "batch": 8,
+      "best_s": 4.994907201995375,
+      "median_s": 5.047014921499795,
+      "worst_s": 5.138097397997626,
+      "per_s": 142.1447829333782
+    },
+    {
+      "backend": "e3nn",
+      "batch": 16,
+      "best_s": 4.645738273997267,
+      "median_s": 4.659486764001485,
+      "worst_s": 4.666654268003185,
+      "per_s": 152.8282391571544
+    },
+    {
+      "backend": "e3nn",
+      "batch": 32,
+      "best_s": 88.06271869900229,
+      "median_s": 89.81782311200004,
+      "worst_s": 89.85200520999933,
+      "per_s": 8.062435619626674
+    }
+  ],
+  "memory": [
+    {
+      "backend": "cueq",
+      "batch": 1,
+      "peak_mib": 231.0234375,
+      "reserved_mib": 246.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 2,
+      "peak_mib": 379.6591796875,
+      "reserved_mib": 410.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 4,
+      "peak_mib": 682.16357421875,
+      "reserved_mib": 812.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 8,
+      "peak_mib": 1291.6513671875,
+      "reserved_mib": 1512.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 16,
+      "peak_mib": 2503.5693359375,
+      "reserved_mib": 2932.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 32,
+      "peak_mib": 4915.7236328125,
+      "reserved_mib": 5768.0
+    },
+    {
+      "backend": "cueq",
+      "batch": 64,
+      "peak_mib": 9748.439453125,
+      "reserved_mib": 11462.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 1,
+      "peak_mib": 697.2841796875,
+      "reserved_mib": 890.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 2,
+      "peak_mib": 1286.81884765625,
+      "reserved_mib": 1664.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 4,
+      "peak_mib": 2455.16650390625,
+      "reserved_mib": 3198.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 8,
+      "peak_mib": 4794.333984375,
+      "reserved_mib": 6290.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 16,
+      "peak_mib": 9493.03515625,
+      "reserved_mib": 12482.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 32,
+      "peak_mib": 18871.68115234375,
+      "reserved_mib": 24478.0
+    },
+    {
+      "backend": "e3nn",
+      "batch": 64,
+      "peak_mib": 24860.5,
+      "reserved_mib": 29726.0,
+      "memory_only": true
+    }
+  ],
+  "relaxation": [
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 1,
+      "best_s": 162.40216906099886,
+      "median_s": 162.5959638255008,
+      "worst_s": 162.82342564399733,
+      "per_s": 4.371862790412124,
+      "peak_mib": 206.197265625,
+      "reserved_mib": 230.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 2,
+      "best_s": 102.01999038100257,
+      "median_s": 102.16847035799947,
+      "worst_s": 102.44863496499966,
+      "per_s": 6.959420377795008,
+      "peak_mib": 303.8818359375,
+      "reserved_mib": 330.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 4,
+      "best_s": 63.759309921999375,
+      "median_s": 64.20057914850076,
+      "worst_s": 64.65619845800029,
+      "per_s": 11.135628677107485,
+      "peak_mib": 505.84765625,
+      "reserved_mib": 542.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 8,
+      "best_s": 39.661111078999966,
+      "median_s": 39.80120725049892,
+      "worst_s": 41.51533626899982,
+      "per_s": 17.901666914619938,
+      "peak_mib": 904.26953125,
+      "reserved_mib": 950.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 16,
+      "best_s": 27.429046650999226,
+      "median_s": 27.72270616300011,
+      "worst_s": 27.82182534099411,
+      "per_s": 25.88496818842718,
+      "peak_mib": 1704.94677734375,
+      "reserved_mib": 1802.0,
+      "converged": 710,
+      "total_steps": 6620,
+      "remeasured": true
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 32,
+      "best_s": 22.30629934099852,
+      "median_s": 22.477434216500114,
+      "worst_s": 22.71634923100646,
+      "per_s": 31.829573751618877,
+      "peak_mib": 3312.14501953125,
+      "reserved_mib": 3492.0,
+      "converged": 710,
+      "total_steps": 6620,
+      "remeasured": true
+    },
+    {
+      "mode": "fixed cell, fixed batches",
+      "batch": 64,
+      "best_s": 20.675155279997853,
+      "median_s": 20.71268961950227,
+      "worst_s": 20.816715158001898,
+      "per_s": 34.34073361890967,
+      "peak_mib": 6512.859375,
+      "reserved_mib": 6878.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 2,
+      "best_s": 87.57448962700073,
+      "median_s": 88.38785519950034,
+      "worst_s": 127.9108467599981,
+      "per_s": 8.10738381718293,
+      "peak_mib": 331.23779296875,
+      "reserved_mib": 362.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 4,
+      "best_s": 48.19469403900075,
+      "median_s": 51.60928217000037,
+      "worst_s": 68.46860106999884,
+      "per_s": 14.731912177416135,
+      "peak_mib": 999.6015625,
+      "reserved_mib": 1108.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 8,
+      "best_s": 29.597566254000412,
+      "median_s": 29.65530724400378,
+      "worst_s": 30.070279466999636,
+      "per_s": 23.988458845126708,
+      "peak_mib": 1397.1767578125,
+      "reserved_mib": 1534.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 16,
+      "best_s": 22.475971603002108,
+      "median_s": 22.501868967498012,
+      "worst_s": 22.81348239199724,
+      "per_s": 31.589290667423942,
+      "peak_mib": 2190.93603515625,
+      "reserved_mib": 2390.0,
+      "converged": 710,
+      "total_steps": 6620,
+      "remeasured": true
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 32,
+      "best_s": 19.633966784000222,
+      "median_s": 19.671219697502238,
+      "worst_s": 19.71298171399394,
+      "per_s": 36.16182138897072,
+      "peak_mib": 3779.984375,
+      "reserved_mib": 4078.0,
+      "converged": 710,
+      "total_steps": 6620,
+      "remeasured": true
+    },
+    {
+      "mode": "fixed cell, refill",
+      "batch": 64,
+      "best_s": 17.742649974003143,
+      "median_s": 17.77970304149494,
+      "worst_s": 17.849542500000098,
+      "per_s": 40.016570300395095,
+      "peak_mib": 7042.71435546875,
+      "reserved_mib": 8476.0,
+      "converged": 710,
+      "total_steps": 6620
+    },
+    {
+      "mode": "variable cell, fixed batches",
+      "batch": 16,
+      "best_s": 135.11315262399876,
+      "median_s": 135.34490982499847,
+      "worst_s": 135.5784721289965,
+      "per_s": 5.254854810292466,
+      "peak_mib": 1417.76708984375,
+      "reserved_mib": 1526.0,
+      "converged": 710,
+      "total_steps": 57790
+    },
+    {
+      "mode": "variable cell, refill",
+      "batch": 16,
+      "best_s": 127.51288013600424,
+      "median_s": 127.98056243250176,
+      "worst_s": 128.78814498400607,
+      "per_s": 5.568064961302102,
+      "peak_mib": 5639.33837890625,
+      "reserved_mib": 6774.0,
+      "converged": 710,
+      "total_steps": 57790
+    }
+  ],
+  "note": "Relaxation points at batches 16 and 32 were re-measured on an idle GPU: in the original pass another CUDA job overlapped them, giving 17-29% intra-point spread against 0.3-1.4% elsewhere. e3nn peak memory at batch 64 was probed on a 64-structure subset: peak memory depends on how many structures are in flight, not on the level size, and no throughput is quoted for it."
+}

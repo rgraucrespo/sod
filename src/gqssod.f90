@@ -86,7 +86,7 @@ program gqssod
   real(real64), allocatable :: avg_target(:)
   real(real64), parameter :: kb = 8.61734e-5_real64
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - gqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - gqssod"
 
   call read_insqs()
   call read_eqmatrix()
@@ -516,13 +516,12 @@ contains
   end subroutine generate_clusters
 
   ! ================================================================
-  ! Read ENSEMBLE (supports v2 and v3 formats)
+  ! Read ENSEMBLE (format version 3)
   ! ================================================================
   subroutine read_ensemble()
     implicit none
     integer :: iu, ios, ic, m_idx, npos_check
     character(len=256) :: line, path
-    character(len=20) :: word1
 
     path = trim(ensemble_dir) // "/ENSEMBLE"
     iu = 23
@@ -532,7 +531,7 @@ contains
       stop 1
     end if
 
-    ! Read first non-blank line to detect v2 vs v3
+    ! Read first non-blank line: v3 header
     do
       read (iu, '(A)', iostat=ios) line
       if (ios /= 0) then
@@ -542,72 +541,55 @@ contains
       if (len_trim(line) > 0) exit
     end do
 
-    if (line(1:1) == '#') then
-      ! v2: skip comment lines
-      do while (line(1:1) == '#')
-        read (iu, '(A)', iostat=ios) line
+    if (line(1:1) == '#' .or. index(line, 'configurations') == 0) then
+      write (*, '(a,a,a)') " Error: ", trim(path), " is not a version 3 ENSEMBLE."
+      write (*, *) "        Version 2 ENSEMBLE files are no longer supported;"
+      write (*, *) "        regenerate the level with sod_comb.sh or sod_random.sh."
+      stop 1
+    end if
+
+    ! v3: first line is "... ensemble ...: nic configurations"
+    block
+      integer :: cp, kp
+      cp = index(line, ':', back=.true.)
+      kp = index(line, 'configurations')
+      if (cp > 0 .and. kp > cp) then
+        read (line(cp+1:kp-1), *, iostat=ios) nic
         if (ios /= 0) then
-          write (*, *) " Error: cannot read ENSEMBLE."
+          write (*, *) " Error: cannot parse ENSEMBLE configuration count."
           stop 1
         end if
-      end do
-      read (line, *) nsubs, word1
-      if (trim(word1) /= 'substitutions') then
-        write (*, *) "Error: only binary single-target ENSEMBLE is currently supported."
+      else
+        write (*, *) " Error: cannot parse ENSEMBLE header."
         stop 1
       end if
-      m_idx = index(line, ' in ')
-      read (line(m_idx + 4:), *) npos_check
-      if (npos_check /= npos) then
-        write (*, '(a,i0,a,i0)') " Error: ENSEMBLE npos=", npos_check, &
-          " does not match EQMATRIX npos=", npos
-        stop 1
-      end if
-      read (iu, *) nic
-    else
-      ! v3: first line is "... ensemble ...: nic configurations"
-      block
-        integer :: cp, kp
-        cp = index(line, ':', back=.true.)
-        kp = index(line, 'configurations')
-        if (cp > 0 .and. kp > cp) then
-          read (line(cp+1:kp-1), *, iostat=ios) nic
-          if (ios /= 0) then
-            write (*, *) " Error: cannot parse ENSEMBLE configuration count."
-            stop 1
-          end if
-        else
-          write (*, *) " Error: cannot parse ENSEMBLE header."
+    end block
+    ! Read target line(s) and column-header comment; verify binary single-target
+    nsubs = -1
+    npos_check = -1
+    do
+      read (iu, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (len_trim(line) == 0) cycle
+      if (line(1:1) == '#') exit   ! column-header comment — file now at first data row
+      if (index(line, 'sites') > 0 .and. index(line, '->') > 0) then
+        if (nsubs >= 0) then
+          write (*, *) "Error: only binary single-target ENSEMBLE is currently supported."
           stop 1
         end if
-      end block
-      ! Read target line(s) and column-header comment; verify binary single-target
-      nsubs = -1
-      npos_check = -1
-      do
-        read (iu, '(A)', iostat=ios) line
-        if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle
-        if (line(1:1) == '#') exit   ! column-header comment — file now at first data row
-        if (index(line, 'sites') > 0 .and. index(line, '->') > 0) then
-          if (nsubs >= 0) then
-            write (*, *) "Error: only binary single-target ENSEMBLE is currently supported."
-            stop 1
-          end if
-          read (line, *, iostat=ios) npos_check
-          m_idx = index(line, '->')
-          read (line(m_idx+2:), *, iostat=ios) nsubs
-        end if
-      end do
-      if (nsubs < 0) then
-        write (*, *) " Error: no target line found in ENSEMBLE."
-        stop 1
+        read (line, *, iostat=ios) npos_check
+        m_idx = index(line, '->')
+        read (line(m_idx+2:), *, iostat=ios) nsubs
       end if
-      if (npos_check /= npos) then
-        write (*, '(a,i0,a,i0)') " Error: ENSEMBLE npos=", npos_check, &
-          " does not match EQMATRIX npos=", npos
-        stop 1
-      end if
+    end do
+    if (nsubs < 0) then
+      write (*, *) " Error: no target line found in ENSEMBLE."
+      stop 1
+    end if
+    if (npos_check /= npos) then
+      write (*, '(a,i0,a,i0)') " Error: ENSEMBLE npos=", npos_check, &
+        " does not match EQMATRIX npos=", npos
+      stop 1
     end if
 
     allocate (degen(nic), indconf(nic, nsubs))
@@ -664,18 +646,12 @@ contains
   end subroutine read_temperatures
 
   ! ================================================================
-  ! Read ENERGIES and OUTSQS correlations
+  ! Read ENERGIES and compute configuration correlations
   ! ================================================================
   subroutine read_energies_and_correlations()
     implicit none
-    integer :: ic, jc, ios, idum, idum2, idum3, ic_config
-    integer :: outsqs_n_clusters, jc_outsqs, jc_gen
     integer :: n_missing
-    character(len=256) :: line
-    character(len=2048) :: data_line
-    logical :: exists, ene_ok
-    real(real64) :: rdum, rdum2, rdum3
-    real(real64), allocatable :: temp_corr(:)
+    logical :: ene_ok
 
     allocate (ene(nic))
     allocate (corr_all(nic, n_clusters))
@@ -693,66 +669,44 @@ contains
       stop 1
     end if
 
-    ! Map cluster indices to OUTSQS columns (only non-zero weight clusters are in OUTSQS)
-    allocate (cluster_active(n_clusters))
-    cluster_active = 0
-    outsqs_n_clusters = 0
-    do jc_gen = 1, n_clusters
-      if (clusters(jc_gen)%w > 0.0_real64) then
-        outsqs_n_clusters = outsqs_n_clusters + 1
-        cluster_active(jc_gen) = outsqs_n_clusters
-      end if
-    end do
-    ! Initialize corr_all to zero for zero-weight clusters
-    corr_all = 0.0_real64
+    call compute_configuration_correlations()
+  end subroutine read_energies_and_correlations
 
-    ! Read OUTSQS correlations (skip all comment lines, read nic config rows)
-    open (unit=26, file=trim(ensemble_dir) // "/OUTSQS", status='old', IOSTAT=ios)
-    if (ios /= 0) then
-      write (*, '(a,a)') " Error: cannot open ", trim(ensemble_dir) // "/OUTSQS"
-      stop 1
-    end if
-    ! Skip comment lines; 'line' holds the first config row after the loop
-    do
-      read (26, '(a)', IOSTAT=ios) line
-      if (ios /= 0) then
-        write (*, '(a)') " Error: no data rows found in OUTSQS"
-        stop 1
-      end if
-      if (line(1:1) /= '#' .and. len_trim(line) > 0) exit
-    end do
+  ! ================================================================
+  ! Compute binary cluster correlations directly from ENSEMBLE.
+  ! This keeps gqssod independent of the sqssod OUTSQS report format.
+  ! ================================================================
+  subroutine compute_configuration_correlations()
+    implicit none
+    integer :: ic, jc, js, ia2, local_idx
+    integer :: sigma(npos)
+    real(real64) :: prod_val, corr_val
 
-    ! Read configuration correlations and map to full cluster array
-    allocate (temp_corr(outsqs_n_clusters))
     do ic = 1, nic
-      if (ic == 1) then
-        data_line = line    ! first config row already read by the comment-skip loop
-      else
-        read (26, '(a)', iostat=ios) data_line
-        if (ios /= 0) then
-          write (*, '(a,i0)') " Error reading line for config ", ic
+      sigma = 1
+      do js = 1, nsubs
+        local_idx = indconf(ic, js) - atini + 1
+        if (local_idx < 1 .or. local_idx > npos) then
+          write (*, '(a,i0,a,i0,a,i0)') " Error: config ", ic, ", site ", &
+            indconf(ic, js), " maps to local index ", local_idx
           stop 1
         end if
-      end if
-      ! rank config degen L AbsErr Q Pi...
-      read (data_line, *, iostat=ios) idum, ic_config, idum3, rdum, rdum2, rdum3, temp_corr(1:outsqs_n_clusters)
-      if (ios /= 0) then
-        write (*, '(a,i0)') " Error parsing config ", ic
-        write (*, '(a,i0)') " iostat = ", ios
-        stop 1
-      end if
-      ! ic_config is the actual configuration ID (1-71), use it as the index into corr_all
-      ! Map back to full cluster array
-      do jc_gen = 1, n_clusters
-        if (cluster_active(jc_gen) > 0) then
-          jc_outsqs = cluster_active(jc_gen)
-          corr_all(ic_config, jc_gen) = temp_corr(jc_outsqs)
-        end if
+        sigma(local_idx) = -1
+      end do
+
+      do jc = 1, n_clusters
+        corr_val = 0.0_real64
+        do js = 1, clusters(jc)%n_inst
+          prod_val = 1.0_real64
+          do ia2 = 1, clusters(jc)%order
+            prod_val = prod_val * sigma(clusters(jc)%inst(ia2, js))
+          end do
+          corr_val = corr_val + prod_val
+        end do
+        corr_all(ic, jc) = corr_val / real(clusters(jc)%n_inst, real64)
       end do
     end do
-    deallocate (temp_corr)
-    close (26)
-  end subroutine read_energies_and_correlations
+  end subroutine compute_configuration_correlations
 
   ! ================================================================
   ! Compute thermal target correlations at temperature T using Boltzmann averaging

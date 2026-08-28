@@ -1,5 +1,5 @@
 !*******************************************************************************
-!    Structure-file writers shared by genersod and pmemod.
+!    Structure-file writers shared by genersod and cpmemod.
 !
 !    Each writer receives a fully resolved configuration: sym_arr(nat) contains
 !    the final atomic symbols (CIF names for non-GULP, CIF names that the GULP

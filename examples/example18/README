@@ -51,10 +51,14 @@ Files
   EQMATRIX                   Equivalence matrix (required for -sym on)
   supercell.cif              Reference placeholder geometry (CIF, P1)
   MA.xyz                     Methylammonium geometry (DFT-PBE optimised, Angstrom)
-  n096/random/ENSEMBLE       50,000 symmetry-reduced random configurations
   n096/random/INSQS          SQS scoring parameters (4th-order, cutoffs 12/8/8 A)
-  n096/random/OUTSQS         SQS scores and ranking for all 50,000 configurations
   n096/random/c04258/POSCAR  Best-SQS VASP POSCAR (768 atoms)
+
+Two files of the workflow are not shipped, because each is about 19 MB. Run
+steps 1 and 2 below to regenerate them:
+
+  n096/random/ENSEMBLE       50,000 symmetry-reduced random configurations (step 1)
+  n096/random/OUTSQS         SQS scores and ranking for all 50,000 configurations (step 2)
 
 How to run
 ----------

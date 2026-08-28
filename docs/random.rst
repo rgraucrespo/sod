@@ -110,7 +110,7 @@ from within ``nXX/random/``:
    writes ``OUTSQS`` there.  ``EQMATRIX``, ``supercell.cif``, and ``INSOD``
    are taken from SODPROJECT/ automatically.
 
-3. Pick the best SQS from ``OUTSQS`` (rank 0) and generate calculator input
+3. Pick the best SQS from ``OUTSQS`` (rank 1) and generate calculator input
    files for it::
 
       sod_gener.sh -choose <index>
@@ -125,5 +125,5 @@ Relationship to Metropolis MC
 
 - ``randomsod`` samples geometry uniformly with no Hamiltonian, ideal for
   building large candidate sets (e.g. for SQS/GQS selection) before any DFT.
-- ``mcsod`` (see :doc:`pme_mc`) runs an energy-biased Metropolis walk with the
-  PME Hamiltonian to sample the low-energy, finite-temperature ensemble.
+- ``mcsod`` (see :doc:`cpme_mc`) runs an energy-biased Metropolis walk with the
+  CPME Hamiltonian to sample the low-energy, finite-temperature ensemble.

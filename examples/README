@@ -99,13 +99,16 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
                     the full FCC symmetry. GULP input files are generated (FILER=1) using
                     an OpenKIM EAM potential (kim_model directive).
 
-- example12:         Multi-species example: complex perovskite La0.75Sr0.25Mn0.25Fe0.75O3
+- example12:         Multi-target example: complex perovskite La0.75Sr0.25Mn0.25Fe0.75O3
                     in a 2x2x2 supercell (space group Pm-3m). Two target sites substituted
                     simultaneously: 2 Sr on 8 La-sites (binary, site 1) and 2 Mn on 8
                     Fe-sites (binary, site 2). nsubs on two lines: 2 (site 1), 2 (site 2).
-                    13 inequivalent configurations from 784 total. FILER=-1.
+                    13 inequivalent configurations from 784 total. Includes a multi-target
+                    SQS reference in n02_02/OUTSQS: species-resolved La/Sr, Fe/Mn, and
+                    La-site/Fe-site pair probabilities identify configuration 1 as the best
+                    SQS. FILER=-1.
 
-- example13:         Multi-species example with 3 targets: La_{1-x}Sr_x Fe_{1-y}Mn_y O_{3-z}
+- example13:         Multi-target example with 3 targets: La_{1-x}Sr_x Fe_{1-y}Mn_y O_{3-z}
                     in a 2x2x2 supercell of the Pm-3m perovskite (8 La, 8 Fe, 24 O sites).
                     One substitution per site: Sr on La, Mn on Fe, O vacancy (%O syntax).
                     sptarget: 1 2 3; nsubs on three lines: 1, 1, 1.
@@ -118,13 +121,13 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
                     3 inequivalent configurations from 448 total. FILER=-1.
 
 - example15:         Si/Ge substitution in a 2×2×2 supercell of α-quartz (space group P3_221,
-                    24 Si sites). Demonstrates the PME+MC workflow: a Periodic Motif Expansion
+                    24 Si sites). Demonstrates the CPME+MC workflow: a Constrained Periodic Motif Expansion
                     Hamiltonian is fitted using low-side reference data (n00–n03) and high-side
                     reference data (n21–n24), then Metropolis sampling at 300 K explores the
                     target substitution level (n12). The committed INMC uses reduced symmetry
                     storage and requests 5000 symmetry representatives; OUTMC documents the
                     sampler, symmetry mode, ENSEMBLE row type, Omega meaning, and statsod
-                    weighting rule. FILER=-1. Run with sod_pme.sh followed by sod_mc.sh.
+                    weighting rule. FILER=-1. Run with sod_cpme.sh followed by sod_mc.sh.
 
 - example16:         SQS/GQS workflow: 8 Ni/Mg substitutions in a 2×2×2 supercell of rocksalt
                     MgO (space group Fm-3m, 32 Mg sites), giving 8043 inequivalent
@@ -136,16 +139,16 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
                     Run with sod_sqs.sh or sod_gqs.sh.
 
 - example17:         Al/Fe substitution in a 3×3×3 supercell of cubic LaFeO3 perovskite
-                    (space group Pm-3m, 27 Fe sites). Demonstrates the PME-only workflow
-                    (without MC): a Periodic Motif Expansion Hamiltonian is calibrated from
+                    (space group Pm-3m, 27 Fe sites). Demonstrates the CPME-only workflow
+                    (without MC): a Constrained Periodic Motif Expansion Hamiltonian is calibrated from
                     low-side reference data (n00–n03, 0–3 Al substitutions; 1, 1, 3, 10
                     inequivalent configurations) and high-side reference data (n24–n27,
                     24–27 Al substitutions; 10, 3, 1, 1 configurations), then used to predict
                     ordering energies at target compositions n04 (34 configs), n05 (105 configs),
-                    and n06 (321 configs). All three PME modes (PME0 low-side only, PME1
-                    high-side only, PMEh hybrid) are pre-computed in each target folder for
+                    and n06 (321 configs). All three CPME modes (CPME0 low-side only, CPME1
+                    high-side only, CPMEh hybrid) are pre-computed in each target folder for
                     comparison. FILER=-1. Set the target composition in INSOD and run with
-                    sod_pme.sh.
+                    sod_cpme.sh.
 
 - example18:         SQS identification via random sampling: equimolar MAPbI1.5Br1.5
                     (x=0.5 MAPbI3-MAPbBr3 solid solution), 4×4×4 supercell of cubic
@@ -164,3 +167,13 @@ each FILER*/ subdirectory holds its own INSOD with the appropriate FILER value.
                     Contrast with example08, where MA substitutes for Cs on a fraction of
                     A-sites, and with example16, where SQS is found on a fully enumerated
                     ensemble. Run with sod_random.sh then sod_sqs.sh.
+
+- example19:         SQS identification via random sampling: equimolar fcc CoCrFeNi
+                    in a 2×2×2 conventional fcc supercell (32 metal sites: 8 Co,
+                    8 Cr, 8 Fe, 8 Ni). The labelled configuration space
+                    32!/(8!^4)≈10^17 is too large for full enumeration, so 20,000
+                    uniform random configurations are drawn with sod_random.sh
+                    (-nconf 20000 -sym on -seed 20260710), ranked with sod_sqs.sh
+                    using species-resolved pair probabilities up to 6.0 Å, and the
+                    best sampled SQS (configuration c09367) is written as a CIF with
+                    sod_gener.sh -choose 9367 (FILER=0).

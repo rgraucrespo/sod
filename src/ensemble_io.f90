@@ -19,7 +19,7 @@
 !******************************************************************************
 
 module ensemble_io
-  use iso_fortran_env, only: real64
+  use iso_fortran_env, only: real64, error_unit
   implicit none
   private
   public :: write_ensemble, read_ensemble, read_energies_file
@@ -128,7 +128,7 @@ contains
   end subroutine write_ensemble
 
 
-  ! Read an ENSEMBLE file (supports format version 3 and backward-compat version 2).
+  ! Read an ENSEMBLE file (format version 3 only).
   !
   ! Returns:
   !   ntarget_out    : number of targets
@@ -169,72 +169,26 @@ contains
     end do
 
     if (index(line, 'configurations') > 0 .and. line(1:1) /= '#') then
-      ! ── Version 3 (new format: "... ensemble ...: N configurations") ────────
+      ! Line 1 is "<type> ensemble[ (T K)]: N configurations; ..."
       call read_v3(unit_in, line)
     else
-      ! ── Version 2 (old format: # comments then "N substitutions in M sites")
-      ! Works for both v2 with and without leading # header.
-      call read_v2(unit_in, line)
+      call report_not_v3(filename)
     end if
 
     close(unit_in)
 
   contains
 
-    ! ── Version 2 parser (kept for backward compatibility) ────────────────────
-    subroutine read_v2(u, first_line)
-      integer,          intent(in) :: u
-      character(len=*), intent(in) :: first_line
-
-      integer :: kpos, kpos2, kpos3, n_nsubs, n_npos
-      integer :: nsubs_buf(25), npos_buf(5)
-      logical :: rows_ok
-      character(len=ensemble_line_len) :: ln, rest
-
-      ln = first_line
-
-      ! Skip remaining comment/blank lines; detect optional Metropolis temperature
-      do while (ln(1:1) == '#')
-        kpos = index(ln, 'Sampling temperature')
-        if (kpos > 0) then
-          kpos2 = index(ln, ':')
-          if (kpos2 > 0) read(ln(kpos2+1:), *, iostat=ios) tsampling
-        end if
-        read(u, '(A)', iostat=ios) ln
-        if (ios /= 0) return
-      end do
-
-      ! Parse "N1 [N2 ...] substitutions in M1 [M2 ...] sites"
-      kpos = index(ln, 'substitutions')
-      if (kpos <= 1) return
-      call count_and_read_ints(ln(1:kpos-1), nsubs_buf, n_nsubs)
-      if (n_nsubs == 0) return
-
-      rest = ln(kpos+13:)
-      kpos2 = index(rest, ' in ')
-      if (kpos2 <= 0) return
-      rest = rest(kpos2+4:)
-      kpos3 = index(rest, 'sites')
-      if (kpos3 <= 0) return
-      call count_and_read_ints(rest(1:kpos3-1), npos_buf, n_npos)
-      if (n_npos == 0) return
-      ntarget_out = n_npos
-
-      allocate(nsubs_flat_out(n_nsubs))
-      nsubs_flat_out = nsubs_buf(1:n_nsubs)
-      allocate(npos_t_out(n_npos))
-      npos_t_out = npos_buf(1:n_npos)
-
-      read(u, *, iostat=ios) nic
-      if (ios /= 0 .or. nic <= 0) then
-        call cleanup_read_arrays()
-        return
-      end if
-
-      call read_data_rows(u, rows_ok)
-      if (.not. rows_ok) return
-      ok = .true.
-    end subroutine read_v2
+    ! Version 2 ENSEMBLE files are no longer read. Their configuration count is
+    ! a bare integer on a line of its own, indistinguishable from a data row.
+    subroutine report_not_v3(fname)
+      character(len=*), intent(in) :: fname
+      write(error_unit, '(A,A,A)') ' Error: ', trim(fname), ' is not a version 3 ENSEMBLE.'
+      write(error_unit, '(A)')     '        Expected a first line such as'
+      write(error_unit, '(A)')     "        'Enumerated ensemble: 71 configurations; sum_degeneracies = 4096'."
+      write(error_unit, '(A)')     '        Version 2 ENSEMBLE files are no longer supported;'
+      write(error_unit, '(A)')     '        regenerate the level with sod_comb.sh or sod_random.sh.'
+    end subroutine report_not_v3
 
     ! ── Version 3 parser ──────────────────────────────────────────────────────
     subroutine read_v3(u, first_line)
@@ -364,32 +318,6 @@ contains
       end do
       rows_ok = .true.
     end subroutine read_data_rows_from_line
-
-    ! Read nic data rows from unit u (used by v2 path)
-    subroutine read_data_rows(u, rows_ok)
-      integer, intent(in) :: u
-      logical, intent(out) :: rows_ok
-      integer :: row
-
-      rows_ok = .false.
-      nsubs_tot = sum(nsubs_flat_out)
-      allocate(indconf(nic, max(1, nsubs_tot)))
-      allocate(degen(nic))
-      indconf = 0; degen = 0
-
-      do row = 1, nic
-        if (nsubs_tot > 0) then
-          read(u, *, iostat=ios) aux, degen(row), indconf(row, 1:nsubs_tot)
-        else
-          read(u, *, iostat=ios) aux, degen(row)
-        end if
-        if (ios /= 0) then
-          call cleanup_read_arrays()
-          return
-        end if
-      end do
-      rows_ok = .true.
-    end subroutine read_data_rows
 
     subroutine cleanup_read_arrays()
       if (allocated(indconf))        deallocate(indconf)

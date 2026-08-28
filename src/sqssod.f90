@@ -20,91 +20,137 @@
 
 program sqssod
   use iso_fortran_env, only: real64
+  use insod_reader,    only: insod_t, parse_insod => read_insod
+  use ensemble_io,     only: parse_ensemble => read_ensemble
+  use config_sampling, only: load_eqmatrix_all
   implicit none
 
   ! ================================================================
   ! Parameters
   ! ================================================================
-  integer, parameter :: max_k_param = 6       ! max supported cluster order
-  integer, parameter :: natmax = 10000        ! max atoms in supercell
-  integer, parameter :: max_clusters_param = 20000
+  integer, parameter :: max_k_param = 6
+  integer, parameter :: natmax = 10000
+  integer, parameter :: max_pair_orbits_param = 20000
+  integer, parameter :: n_top_default = 10
+  real(real64), parameter :: dist_tol = 1.0e-6_real64
+
+  ! ================================================================
+  ! Data structures
+  ! ================================================================
+  type :: target_t
+    integer :: nsites = 0
+    integer :: nspecies = 0
+    integer, allocatable :: global_sites(:)
+    character(len=10), allocatable :: species(:)
+    integer, allocatable :: counts(:)
+    real(real64), allocatable :: concentration(:)
+  end type target_t
+
+  type :: pair_orbit_t
+    integer :: n_inst = 0
+    integer, allocatable :: site_i(:)
+    integer, allocatable :: site_j(:)
+    integer :: target_i = 0
+    integer :: target_j = 0
+    integer :: family = 0
+    real(real64) :: distance = 0.0_real64
+    real(real64) :: weight = 1.0_real64
+  end type pair_orbit_t
+
+  type :: pair_channel_t
+    integer :: orbit = 0
+    integer :: species_i = 0
+    integer :: species_j = 0
+    real(real64) :: target_corr = 0.0_real64
+    real(real64) :: eps_grid = 0.0_real64
+  end type pair_channel_t
+
+  type :: pair_family_t
+    integer :: target_i = 0
+    integer :: target_j = 0
+  end type pair_family_t
 
   ! ================================================================
   ! INSQS input
   ! ================================================================
   character(len=256) :: ensemble_dir
-  character(len=10)  :: target_species
   integer :: max_order
   real(real64) :: cutoff_r(max_k_param)
   real(real64) :: weight_k(max_k_param)
-  real(real64) :: omega                        ! weight for matched-diameter term
-  real(real64) :: eps_tol                      ! tolerance for "exact match"
+  real(real64) :: omega
+  real(real64) :: eps_tol
+  integer :: n_top_sqs
+
+  ! ================================================================
+  ! Disorder model
+  ! ================================================================
+  type(insod_t) :: insod
+  integer :: ntarget, ndis
+  integer, allocatable :: nk_t(:)
+  integer, allocatable :: npos_t(:), atini_t(:), atfin_t(:), site_offset(:)
+  integer, allocatable :: target_of_site(:), local_site_index(:), global_atom_index(:)
+  type(target_t), allocatable :: targets(:)
 
   ! ================================================================
   ! Symmetry data (from EQMATRIX)
   ! ================================================================
-  integer :: nop, npos
-  integer, allocatable :: eqmt(:,:)           ! (npos, nop)
+  integer :: nop
+  integer, allocatable :: eqmt_blocks(:,:,:)  ! (ntarget, nop, max(npos_t))
+  integer, allocatable :: eqm_all(:,:)        ! (ndis, nop), concatenated sites
 
   ! ================================================================
   ! Supercell geometry (from supercell.cif)
   ! ================================================================
   real(real64) :: sc_a, sc_b, sc_c, sc_alpha, sc_beta, sc_gamma
   real(real64) :: cellvec(3, 3)
-  integer :: nat_total, atini
-  real(real64), allocatable :: tcoords(:,:)   ! (npos, 3) fractional
+  integer :: nat_total
+  real(real64), allocatable :: tcoords(:,:)   ! (ndis, 3) fractional
+  real(real64), allocatable :: distmat(:,:)   ! (ndis, ndis)
 
   ! ================================================================
-  ! Pairwise distance matrix for target sites
+  ! Pair orbits and species-resolved channels
   ! ================================================================
-  real(real64), allocatable :: distmat(:,:)   ! (npos, npos)
-
-  ! ================================================================
-  ! Cluster types
-  ! ================================================================
-  type :: cluster_t
-    integer :: order
-    integer :: n_inst
-    integer, allocatable :: inst(:,:)         ! (order, n_inst)
-    real(real64) :: target_corr
-    real(real64) :: w                         ! weight in score
-    real(real64) :: char_dist                 ! max pairwise distance
-    real(real64) :: eps_min                   ! min achievable |Δρ| in this supercell
-  end type cluster_t
-
-  integer :: n_clusters
-  type(cluster_t), allocatable :: clusters(:)
-  integer, allocatable :: pi_order(:)           ! pi_order(j) = cluster index for Pi_j output
+  integer :: n_pair_orbits, n_channels, n_families
+  type(pair_orbit_t), allocatable :: pair_orbits(:)
+  type(pair_channel_t), allocatable :: channels(:)
+  type(pair_family_t), allocatable :: families(:)
+  integer, allocatable :: family_index(:,:)
+  integer, allocatable :: channel_start(:), channel_end(:)
+  integer, allocatable :: pair_order(:)
 
   ! ================================================================
   ! Configuration data (from ENSEMBLE)
   ! ================================================================
-  integer :: nic, nsubs
-  integer, allocatable :: indconf(:,:)        ! (nic, nsubs) global site indices
-  integer, allocatable :: degen(:)            ! (nic)
-  real(real64) :: x_comp                      ! composition of substituted species
+  integer :: nic, nsubs_tot
+  integer, allocatable :: nsubs_flat(:)
+  integer, allocatable :: indconf(:,:)        ! raw global site indices from ENSEMBLE
+  integer, allocatable :: degen(:)
+  integer, allocatable :: occupation(:,:)     ! (ndis, nic), target-local species code
 
   ! ================================================================
   ! Scores and correlations
   ! ================================================================
-  real(real64), allocatable :: scores(:)        ! (nic) — sort key for ranking
-  real(real64), allocatable :: corr_all(:,:)    ! (nic, n_clusters)
-  real(real64), allocatable :: L_val(:)         ! (nic) matched diameter L, Angstroms
-  real(real64), allocatable :: abs_residual(:)  ! (nic) normalized weighted mean of |Δρ|
-  real(real64), allocatable :: eps_min_cfg(:)   ! (n_clusters) min |Δρ| achieved over all configs
+  real(real64), allocatable :: scores(:)
+  real(real64), allocatable :: corr_all(:,:)       ! (nic, n_channels)
+  real(real64), allocatable :: L_val(:)
+  real(real64), allocatable :: abs_residual(:)
+  real(real64), allocatable :: eps_min_cfg(:)      ! (n_channels)
+  real(real64), allocatable :: orbit_error(:,:)    ! (nic, n_pair_orbits)
+  real(real64), allocatable :: family_error(:,:)   ! (nic, n_families)
 
   ! ================================================================
   ! Main program
   ! ================================================================
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - sqssod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - sqssod"
 
   call read_insqs()
-  call read_eqmatrix()
-  call read_insod()
+  call read_insod_model()
   call read_supercell_cif()
+  call read_eqmatrix()
   call compute_distances()
-  call generate_clusters()
-  call read_ensemble()
+  call generate_pair_orbits()
+  call read_ensemble_data()
+  call generate_pair_channels()
   call score_configurations()
   call report_results()
 
@@ -120,18 +166,16 @@ contains
     implicit none
     integer :: iu, ios, k
     character(len=256) :: insqs_path
+    character(len=256) :: line
     logical :: insqs_exists
     iu = 20
 
-    ! Get ENSEMBLE directory from command-line argument (default ".")
     ensemble_dir = "."
-    target_species = ""
     if (command_argument_count() >= 1) then
       call get_command_argument(1, ensemble_dir)
       ensemble_dir = adjustl(ensemble_dir)
     end if
 
-    ! INSQS: nXX/ takes priority over SODPROJECT/
     insqs_path = trim(ensemble_dir) // "/INSQS"
     inquire (file=trim(insqs_path), exist=insqs_exists)
     if (.not. insqs_exists) insqs_path = "INSQS"
@@ -142,31 +186,46 @@ contains
       stop 1
     end if
 
-    ! Block 1: Maximum cluster order
-    read (iu, *)                                       ! comment
-    read (iu, *) max_order                             ! data
+    read (iu, *)
+    read (iu, *) max_order
     if (max_order < 2 .or. max_order > max_k_param) then
       write (*, '(a,i0,a,i0)') " Error: MaxOrder must be 2..", max_k_param, &
         ", got ", max_order
       stop 1
     end if
 
-    ! Block 2: Cutoff radii for orders 2..MaxOrder (Angstroms)
-    read (iu, *)                                       ! blank
-    read (iu, *)                                       ! comment
-    read (iu, *) (cutoff_r(k), k = 2, max_order)      ! data
+    read (iu, *)
+    read (iu, *)
+    cutoff_r = 0.0_real64
+    read (iu, *) (cutoff_r(k), k = 2, max_order)
 
-    ! Block 3: Weights for orders 2..MaxOrder (order 1 is always composition, fixed)
-    read (iu, *)                                       ! blank
-    read (iu, *)                                       ! comment
-    weight_k(1) = 0.0_real64
-    read (iu, *) (weight_k(k), k = 2, max_order)      ! data
+    read (iu, *)
+    read (iu, *)
+    weight_k = 0.0_real64
+    read (iu, *) (weight_k(k), k = 2, max_order)
 
-    ! Block 4: omega and eps_tol
-    read (iu, *)                                       ! blank
-    read (iu, *)                                       ! comment
-    read (iu, *) omega, eps_tol                        ! data
+    read (iu, *)
+    read (iu, *)
+    read (iu, *) omega, eps_tol
 
+    ! Optional trailing line: n_top_sqs (0 = rank and list all configurations).
+    ! Older INSQS files without this line default to n_top_default. Blank and
+    ! '#' comment lines before the value are skipped.
+    n_top_sqs = n_top_default
+    do
+      read (iu, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      line = adjustl(line)
+      if (len_trim(line) == 0) cycle
+      if (line(1:1) == '#') cycle
+      read (line, *, iostat=ios) k
+      if (ios == 0) n_top_sqs = k
+      exit
+    end do
+    if (n_top_sqs < 0) then
+      write (*, '(a,i0)') " Error: n_top_sqs must be >= 0, got ", n_top_sqs
+      stop 1
+    end if
     close (iu)
 
     write (*, *) " > Input parameters (INSQS):"
@@ -184,97 +243,81 @@ contains
     write (*, *)
     write (*, '(a,es10.3,a,es10.3)') "    Scoring:            van de Walle  omega=", &
       omega, "  eps=", eps_tol
+    if (n_top_sqs == 0) then
+      write (*, '(a)') "    Ranking:            all configurations (n_top_sqs=0)"
+    else
+      write (*, '(a,i0,a)') "    Ranking:            top ", n_top_sqs, " configurations (n_top_sqs)"
+    end if
+    if (max_order > 2) then
+      write (*, '(a)') "    Note: generalized SQS currently uses species-resolved pair correlations only."
+      write (*, '(a)') "          INSQS orders above 2 are read for compatibility and ignored here."
+    end if
     write (*, *)
   end subroutine read_insqs
 
   ! ================================================================
-  ! Read INSOD to extract target species
+  ! Read INSOD with the central parser and initialise target species.
+  ! Counts/concentrations are set later from the ENSEMBLE target line.
   ! ================================================================
-  subroutine read_insod()
+  subroutine read_insod_model()
     implicit none
-    integer :: iu, ios, nsp, sptarget, isp
-    character(len=256) :: line
-    character(len=10) :: symbols(10)
+    integer :: t, j
 
-    iu = 19
-    open (unit=iu, file="INSOD", status='old', IOSTAT=ios)
-    if (ios /= 0) then
-      write (*, *) "Error: INSOD file not found."
+    call parse_insod('INSOD', insod)
+
+    ntarget = insod%ntarget
+    if (ntarget < 1) then
+      write (*, '(a)') " Error: INSOD contains no substitution targets."
       stop 1
     end if
 
-    ! Skip to "nsp: Number of species in the parent structure"
-    do
-      read (iu, '(A)') line
-      if (index(line, '# nsp:') > 0) exit
+    allocate (targets(ntarget), nk_t(ntarget))
+    do t = 1, ntarget
+      if (insod%sptarget(t) < 1 .or. insod%sptarget(t) > insod%nsp) then
+        write (*, '(a,i0,a,i0)') " Error: invalid sptarget for target ", t, &
+          ": ", insod%sptarget(t)
+        stop 1
+      end if
+      nk_t(t) = insod%nk(t)
+      targets(t)%nspecies = nk_t(t) + 1
+      if (targets(t)%nspecies < 2) then
+        write (*, '(a,i0,a)') " Error: target ", t, " has fewer than two species."
+        stop 1
+      end if
+
+      allocate (targets(t)%species(targets(t)%nspecies))
+      allocate (targets(t)%counts(targets(t)%nspecies))
+      allocate (targets(t)%concentration(targets(t)%nspecies))
+      targets(t)%species(1) = adjustl(insod%newsymbol(t, nk_t(t) + 1))
+      do j = 1, nk_t(t)
+        targets(t)%species(j + 1) = adjustl(insod%newsymbol(t, j))
+      end do
+      targets(t)%counts = 0
+      targets(t)%concentration = 0.0_real64
     end do
-    read (iu, *) nsp
 
-    ! Skip to "symbol(1:nsp): Atom symbols"
-    do
-      read (iu, '(A)') line
-      if (index(line, '# symbol(1:nsp):') > 0) exit
+    write (*, '(a,i0)') " > Substitution targets (from INSOD): ", ntarget
+    do t = 1, ntarget
+      write (*, '(a,i0,a,a,a)', advance='no') "    Target ", t, ": parent ", &
+        trim(insod%symbol(insod%sptarget(t))), " ->"
+      do j = 1, targets(t)%nspecies
+        write (*, '(1x,a)', advance='no') trim(targets(t)%species(j))
+      end do
+      write (*, *)
     end do
-    read (iu, *) (symbols(isp), isp = 1, nsp)
-
-    ! Skip to "sptarget: Species to be substituted"
-    do
-      read (iu, '(A)') line
-      if (index(line, '# sptarget:') > 0) exit
-    end do
-    read (iu, *) sptarget
-
-    close (iu)
-
-    if (sptarget < 1 .or. sptarget > nsp) then
-      write (*, '(a,i0,a,i0)') " Error: sptarget=", sptarget, &
-        " out of range [1..", nsp, "]"
-      stop 1
-    end if
-
-    target_species = symbols(sptarget)
-
-    write (*, '(a,a)') " > Target species (from INSOD): ", trim(target_species)
     write (*, *)
-  end subroutine read_insod
+  end subroutine read_insod_model
 
   ! ================================================================
-  ! Read EQMATRIX (symmetry permutation table for target-species sites)
-  ! ================================================================
-  subroutine read_eqmatrix()
-    implicit none
-    integer :: iu, ios, iop, j
-    iu = 21
-    open (unit=iu, file="EQMATRIX", status='old', IOSTAT=ios)
-    if (ios /= 0) then
-      write (*, *) "Error: EQMATRIX not found. Run combsod first."
-      stop 1
-    end if
-
-    ! For single-target binary: one block (nop, npos) then nop lines.
-    ! Multi-target support: would need to read and skip to the correct block.
-    read (iu, *) nop, npos
-
-    allocate (eqmt(npos, nop))
-    do iop = 1, nop
-      read (iu, *) (eqmt(j, iop), j = 1, npos)
-    end do
-    close (iu)
-
-    write (*, '(a,i0,a,i0,a)') " > EQMATRIX: ", nop, " operators, ", npos, " sites"
-    write (*, *)
-  end subroutine read_eqmatrix
-
-  ! ================================================================
-  ! Read supercell.cif — cell parameters and target-species coordinates
+  ! Read supercell.cif and extract coordinates of every target block.
   ! ================================================================
   subroutine read_supercell_cif()
     implicit none
-    integer :: iu, ios, iat, itarg
-    character(len=256) :: line
+    integer :: iu, ios, iat, t, loc, sp, n_this
+    character(len=512) :: line
     character(len=20) :: label, typesym
+    character(len=10) :: target_sym
     real(real64) :: fx, fy, fz
-    integer :: all_nat
     character(len=10) :: all_sym(natmax)
     real(real64) :: all_frac(natmax, 3)
     logical :: in_atoms
@@ -286,9 +329,9 @@ contains
       stop 1
     end if
 
-    sc_a = 0; sc_b = 0; sc_c = 0
-    sc_alpha = 90; sc_beta = 90; sc_gamma = 90
-    all_nat = 0
+    sc_a = 0.0_real64; sc_b = 0.0_real64; sc_c = 0.0_real64
+    sc_alpha = 90.0_real64; sc_beta = 90.0_real64; sc_gamma = 90.0_real64
+    nat_total = 0
     in_atoms = .false.
 
     do
@@ -297,84 +340,175 @@ contains
       line = adjustl(line)
 
       if (.not. in_atoms) then
-        if (line(1:14) == '_cell_length_a') then
+        if (index(line, '_cell_length_a') == 1) then
           read (line(15:), *) sc_a
-        else if (line(1:14) == '_cell_length_b') then
+        else if (index(line, '_cell_length_b') == 1) then
           read (line(15:), *) sc_b
-        else if (line(1:14) == '_cell_length_c') then
+        else if (index(line, '_cell_length_c') == 1) then
           read (line(15:), *) sc_c
-        else if (line(1:17) == '_cell_angle_alpha') then
+        else if (index(line, '_cell_angle_alpha') == 1) then
           read (line(18:), *) sc_alpha
-        else if (line(1:16) == '_cell_angle_beta') then
+        else if (index(line, '_cell_angle_beta') == 1) then
           read (line(17:), *) sc_beta
-        else if (line(1:17) == '_cell_angle_gamma') then
+        else if (index(line, '_cell_angle_gamma') == 1) then
           read (line(18:), *) sc_gamma
-        else if (line(1:18) == '_atom_site_fract_z') then
+        else if (index(line, '_atom_site_fract_z') == 1) then
           in_atoms = .true.
         end if
       else
         if (len_trim(line) == 0) exit
         read (line, *, IOSTAT=ios) label, typesym, fx, fy, fz
         if (ios /= 0) exit
-        all_nat = all_nat + 1
-        all_sym(all_nat) = adjustl(typesym)
-        all_frac(all_nat, 1) = fx
-        all_frac(all_nat, 2) = fy
-        all_frac(all_nat, 3) = fz
+        nat_total = nat_total + 1
+        if (nat_total > natmax) then
+          write (*, '(a,i0)') " Error: too many atoms in supercell.cif; natmax=", natmax
+          stop 1
+        end if
+        all_sym(nat_total) = adjustl(typesym)
+        all_frac(nat_total, 1) = fx
+        all_frac(nat_total, 2) = fy
+        all_frac(nat_total, 3) = fz
       end if
     end do
     close (iu)
 
-    nat_total = all_nat
+    allocate (npos_t(ntarget), atini_t(ntarget), atfin_t(ntarget), site_offset(ntarget))
 
-    ! Identify target-species atoms and determine atini
-    atini = 0
-    itarg = 0
-    do iat = 1, nat_total
-      if (trim(all_sym(iat)) == trim(target_species)) then
-        itarg = itarg + 1
-        if (itarg == 1) atini = iat
+    ndis = 0
+    do t = 1, ntarget
+      target_sym = adjustl(insod%symbol(insod%sptarget(t)))
+      n_this = 0
+      atini_t(t) = 0
+      atfin_t(t) = 0
+      do iat = 1, nat_total
+        if (trim(all_sym(iat)) == trim(target_sym)) then
+          n_this = n_this + 1
+          if (n_this == 1) atini_t(t) = iat
+          atfin_t(t) = iat
+        end if
+      end do
+      if (n_this <= 0) then
+        write (*, '(a,i0,a,a,a)') " Error: found no atoms for target ", t, &
+          " parent species ", trim(target_sym), " in supercell.cif."
+        stop 1
       end if
+      if (atfin_t(t) - atini_t(t) + 1 /= n_this) then
+        write (*, '(a,i0,a)') " Error: target ", t, &
+          " atoms are not contiguous in supercell.cif; ENSEMBLE offsets require contiguous blocks."
+        stop 1
+      end if
+      do sp = t + 1, ntarget
+        if (insod%sptarget(sp) == insod%sptarget(t)) then
+          write (*, '(a)') " Error: duplicate target parent species are not supported by sqssod."
+          stop 1
+        end if
+      end do
+
+      npos_t(t) = n_this
+      targets(t)%nsites = n_this
+      allocate (targets(t)%global_sites(n_this))
+      do loc = 1, n_this
+        targets(t)%global_sites(loc) = atini_t(t) + loc - 1
+      end do
+      site_offset(t) = ndis
+      ndis = ndis + n_this
     end do
 
-    if (itarg /= npos) then
-      write (*, '(a,i0,a,a,a,i0)') " Error: found ", itarg, " atoms of ", &
-        trim(target_species), " but EQMATRIX expects ", npos
-      stop 1
-    end if
-
-    ! Extract fractional coordinates of target-species sites
-    allocate (tcoords(npos, 3))
-    itarg = 0
-    do iat = 1, nat_total
-      if (trim(all_sym(iat)) == trim(target_species)) then
-        itarg = itarg + 1
-        tcoords(itarg, :) = all_frac(iat, :)
-      end if
+    allocate (target_of_site(ndis), local_site_index(ndis), global_atom_index(ndis))
+    allocate (tcoords(ndis, 3))
+    do t = 1, ntarget
+      do loc = 1, npos_t(t)
+        iat = site_offset(t) + loc
+        target_of_site(iat) = t
+        local_site_index(iat) = loc
+        global_atom_index(iat) = atini_t(t) + loc - 1
+        tcoords(iat, :) = all_frac(global_atom_index(iat), :)
+      end do
     end do
 
     call cell(cellvec, sc_a, sc_b, sc_c, sc_alpha, sc_beta, sc_gamma)
 
     write (*, '(a,3f10.4,3f9.2)') " > Cell: ", sc_a, sc_b, sc_c, &
       sc_alpha, sc_beta, sc_gamma
-    write (*, '(a,i0,a,i0,a,a,a,i0)') " > Atoms: ", nat_total, " total, ", &
-      npos, " ", trim(target_species), " starting at index ", atini
+    write (*, '(a,i0,a,i0,a)') " > Atoms: ", nat_total, " total, ", ndis, " disordered sites"
+    do t = 1, ntarget
+      write (*, '(a,i0,a,i0,a,i0,a,i0)') "    Target ", t, ": ", npos_t(t), &
+        " sites, global atom range ", atini_t(t), "-", atfin_t(t)
+    end do
     write (*, *)
   end subroutine read_supercell_cif
 
   ! ================================================================
-  ! Compute minimum-image distance matrix between target-species sites
+  ! Read every target block from EQMATRIX and build concatenated maps.
+  ! ================================================================
+  subroutine read_eqmatrix()
+    implicit none
+    integer :: iop, t, loc, isite, image_site
+
+    call load_eqmatrix_all('EQMATRIX', ntarget, npos_t, eqmt_blocks, nop)
+
+    allocate (eqm_all(ndis, nop))
+    do iop = 1, nop
+      do t = 1, ntarget
+        do loc = 1, npos_t(t)
+          isite = site_offset(t) + loc
+          image_site = site_offset(t) + eqmt_blocks(t, iop, loc)
+          eqm_all(isite, iop) = image_site
+        end do
+      end do
+    end do
+
+    call validate_eqmatrix()
+
+    write (*, '(a,i0,a,i0,a,i0,a)') " > EQMATRIX: ", nop, " operators, ", &
+      ntarget, " target block(s), ", ndis, " concatenated sites"
+    write (*, *)
+  end subroutine read_eqmatrix
+
+  subroutine validate_eqmatrix()
+    implicit none
+    integer :: iop, isite, image_site
+    logical, allocatable :: seen(:)
+
+    allocate (seen(ndis))
+    do iop = 1, nop
+      seen = .false.
+      do isite = 1, ndis
+        image_site = eqm_all(isite, iop)
+        if (image_site < 1 .or. image_site > ndis) then
+          write (*, '(a,i0,a,i0)') " Error: EQMATRIX operator ", iop, &
+            " maps a site out of range: ", image_site
+          stop 1
+        end if
+        if (seen(image_site)) then
+          write (*, '(a,i0,a)') " Error: EQMATRIX operator ", iop, &
+            " is not a permutation."
+          stop 1
+        end if
+        if (target_of_site(image_site) /= target_of_site(isite)) then
+          write (*, '(a,i0,a)') " Error: EQMATRIX operator ", iop, &
+            " maps a site outside its target block."
+          stop 1
+        end if
+        seen(image_site) = .true.
+      end do
+    end do
+    deallocate (seen)
+  end subroutine validate_eqmatrix
+
+  ! ================================================================
+  ! Compute minimum-image distance matrix between disordered sites.
   ! ================================================================
   subroutine compute_distances()
     implicit none
     integer :: ia, ja
     real(real64) :: df(3), dr(3), dd
 
-    allocate (distmat(npos, npos))
+    allocate (distmat(ndis, ndis))
     distmat = 0.0_real64
 
-    do ia = 1, npos
-      do ja = ia + 1, npos
+    do ia = 1, ndis
+      do ja = ia + 1, ndis
         df(:) = tcoords(ia, :) - tcoords(ja, :)
         df(:) = df(:) - nint(df(:))
         dr = matmul(cellvec, df)
@@ -384,589 +518,699 @@ contains
       end do
     end do
 
-    write (*, '(a,f8.4,a)') " > Distances: min = ", &
-      minval(distmat, mask = (distmat > 0.0_real64)), " A"
-    write (*, '(a,f8.4,a)') "              max = ", maxval(distmat), " A"
+    if (ndis > 1) then
+      write (*, '(a,f8.4,a)') " > Distances: min = ", &
+        minval(distmat, mask = (distmat > 0.0_real64)), " A"
+      write (*, '(a,f8.4,a)') "              max = ", maxval(distmat), " A"
+    else
+      write (*, '(a)') " > Distances: only one disordered site"
+    end if
     write (*, *)
   end subroutine compute_distances
 
   ! ================================================================
-  ! Generate cluster types by internal enumeration of k-tuples,
-  ! geometric filtering, and symmetry reduction via EQMATRIX
+  ! Generate symmetry-distinct pair orbits over all disordered targets.
+  ! Same-target orbits store both orientations. Cross-target orbits are
+  ! oriented from the lower target index to the higher target index.
   ! ================================================================
-  subroutine generate_clusters()
+  subroutine generate_pair_orbits()
     implicit none
-    integer :: kk, iop, ia, ja, jc
-    integer :: tuple_k(max_k_param), trans_k(max_k_param)
-    real(real64) :: max_pd
-    logical :: more_sub, is_canonical, is_dup
-    integer, allocatable :: temp_inst(:,:)
-    integer :: n_temp
-    integer :: n_per_order(max_k_param)
+    integer :: ia, ja, iop, a, b, tmp, m, n_temp
+    integer, allocatable :: temp_i(:), temp_j(:)
+    logical :: is_canonical, is_dup
 
-    allocate (clusters(max_clusters_param))
-    allocate (temp_inst(max_k_param, nop))
-    n_clusters = 0
-    n_per_order = 0
+    allocate (pair_orbits(max_pair_orbits_param))
+    allocate (temp_i(nop), temp_j(nop))
+    n_pair_orbits = 0
 
-    ! ----------------------------------------------------------
-    ! Order 1: one type — all single sites form one orbit.
-    ! Singlet correlation equals (1-2x) for every configuration
-    ! at the same composition, so it cannot distinguish configs.
-    ! Included only when the user assigns nonzero weight.
-    ! ----------------------------------------------------------
-    if (weight_k(1) > 0.0_real64) then
-      n_clusters = 1
-      clusters(1)%order = 1
-      clusters(1)%n_inst = npos
-      allocate (clusters(1)%inst(1, npos))
-      do ia = 1, npos
-        clusters(1)%inst(1, ia) = ia
-      end do
-      clusters(1)%char_dist = 0.0_real64
-      clusters(1)%w = weight_k(1)
-      n_per_order(1) = 1
-    end if
+    do ia = 1, ndis - 1
+      do ja = ia + 1, ndis
+        if (distmat(ia, ja) > cutoff_r(2) + dist_tol) cycle
 
-    ! ----------------------------------------------------------
-    ! Orders 2..max_order: enumerate all k-subsets of sites,
-    ! apply distance cutoff, keep only canonical representatives
-    ! (lex-smallest member of each symmetry orbit), then generate
-    ! the full orbit for each retained type.
-    ! ----------------------------------------------------------
-    do kk = 2, max_order
-      more_sub = .false.
-      do
-        call ksubset(npos, kk, tuple_k, more_sub)
-
-        ! Distance filter: max pairwise distance within the tuple
-        max_pd = 0.0_real64
-        do ia = 1, kk - 1
-          do ja = ia + 1, kk
-            if (distmat(tuple_k(ia), tuple_k(ja)) > max_pd) &
-              max_pd = distmat(tuple_k(ia), tuple_k(ja))
-          end do
-        end do
-        if (max_pd > cutoff_r(kk)) then
-          if (.not. more_sub) exit
-          cycle
-        end if
-
-        ! Canonical check: is this the lex-smallest tuple in its orbit?
-        ! Since ksubset generates tuples in lex order, the first tuple
-        ! encountered from each orbit IS the canonical representative.
-        ! Non-canonical tuples have at least one symmetry transform
-        ! that is lex-smaller, so we detect and skip them early.
         is_canonical = .true.
         do iop = 1, nop
-          do ia = 1, kk
-            trans_k(ia) = eqmt(tuple_k(ia), iop)
-          end do
-          call isort(trans_k, kk)
-          if (ilex_lt(trans_k, tuple_k, kk)) then
+          a = eqm_all(ia, iop)
+          b = eqm_all(ja, iop)
+          if (a > b) then
+            tmp = a; a = b; b = tmp
+          end if
+          if (pair_lex_lt(a, b, ia, ja)) then
             is_canonical = .false.
             exit
           end if
         end do
+        if (.not. is_canonical) cycle
 
-        if (is_canonical) then
-          ! Generate the full orbit: all distinct transforms under symmetry.
-          n_temp = 0
-          do iop = 1, nop
-            do ia = 1, kk
-              trans_k(ia) = eqmt(tuple_k(ia), iop)
-            end do
-            call isort(trans_k, kk)
+        n_temp = 0
+        do iop = 1, nop
+          a = eqm_all(ia, iop)
+          b = eqm_all(ja, iop)
+          if (a > b) then
+            tmp = a; a = b; b = tmp
+          end if
 
-            is_dup = .false.
-            do jc = 1, n_temp
-              if (all(temp_inst(1:kk, jc) == trans_k(1:kk))) then
-                is_dup = .true.
-                exit
-              end if
-            end do
-            if (.not. is_dup) then
-              n_temp = n_temp + 1
-              temp_inst(1:kk, n_temp) = trans_k(1:kk)
-            end if
-          end do
-
-          ! Store cluster type
-          n_clusters = n_clusters + 1
-          if (n_clusters > max_clusters_param) then
-            write (*, *) "Error: too many cluster types. Increase max_clusters_param."
+          if (abs(distmat(a, b) - distmat(ia, ja)) > 1.0e-5_real64) then
+            write (*, '(a)') " Error: EQMATRIX does not preserve pair distances."
             stop 1
           end if
-          clusters(n_clusters)%order = kk
-          clusters(n_clusters)%n_inst = n_temp
-          allocate (clusters(n_clusters)%inst(kk, n_temp))
-          clusters(n_clusters)%inst(1:kk, 1:n_temp) = temp_inst(1:kk, 1:n_temp)
-          clusters(n_clusters)%char_dist = max_pd
-          clusters(n_clusters)%w = weight_k(kk)
-          n_per_order(kk) = n_per_order(kk) + 1
+
+          is_dup = .false.
+          do m = 1, n_temp
+            if (temp_i(m) == a .and. temp_j(m) == b) then
+              is_dup = .true.
+              exit
+            end if
+          end do
+          if (.not. is_dup) then
+            n_temp = n_temp + 1
+            temp_i(n_temp) = a
+            temp_j(n_temp) = b
+          end if
+        end do
+
+        n_pair_orbits = n_pair_orbits + 1
+        if (n_pair_orbits > max_pair_orbits_param) then
+          write (*, '(a,i0,a)') " Error: more than ", max_pair_orbits_param, &
+            " pair orbits. Reduce the pair cutoff or increase max_pair_orbits_param."
+          stop 1
         end if
 
-        if (.not. more_sub) exit
+        if (target_of_site(ia) == target_of_site(ja)) then
+          pair_orbits(n_pair_orbits)%n_inst = 2 * n_temp
+          allocate (pair_orbits(n_pair_orbits)%site_i(2 * n_temp))
+          allocate (pair_orbits(n_pair_orbits)%site_j(2 * n_temp))
+          do m = 1, n_temp
+            pair_orbits(n_pair_orbits)%site_i(m) = temp_i(m)
+            pair_orbits(n_pair_orbits)%site_j(m) = temp_j(m)
+            pair_orbits(n_pair_orbits)%site_i(n_temp + m) = temp_j(m)
+            pair_orbits(n_pair_orbits)%site_j(n_temp + m) = temp_i(m)
+          end do
+        else
+          pair_orbits(n_pair_orbits)%n_inst = n_temp
+          allocate (pair_orbits(n_pair_orbits)%site_i(n_temp))
+          allocate (pair_orbits(n_pair_orbits)%site_j(n_temp))
+          pair_orbits(n_pair_orbits)%site_i(1:n_temp) = temp_i(1:n_temp)
+          pair_orbits(n_pair_orbits)%site_j(1:n_temp) = temp_j(1:n_temp)
+        end if
+
+        pair_orbits(n_pair_orbits)%target_i = target_of_site(pair_orbits(n_pair_orbits)%site_i(1))
+        pair_orbits(n_pair_orbits)%target_j = target_of_site(pair_orbits(n_pair_orbits)%site_j(1))
+        pair_orbits(n_pair_orbits)%distance = distmat(ia, ja)
+        pair_orbits(n_pair_orbits)%weight = weight_k(2)
       end do
     end do
 
-    deallocate (temp_inst)
+    deallocate (temp_i, temp_j)
 
-    write (*, *) " > Cluster types generated:"
-    do kk = 1, max_order
-      if (n_per_order(kk) > 0) &
-        write (*, '(a,i0,a,i0,a)') "    Order ", kk, ": ", n_per_order(kk), " types"
-    end do
-    write (*, '(a,i0)') "    Total: ", n_clusters
+    call assign_pair_families()
+    call sort_pair_order()
+
+    write (*, '(a)') " > Pair orbits generated:"
+    if (n_pair_orbits == 0) then
+      write (*, '(a)') "    No pair orbits survived the distance filter."
+    else
+      write (*, '(a)') " Orbit  T_i  T_j  Instances  Dist(A)  Weight"
+      write (*, '(a)') "  ---- ---- ---- ---------- -------- ------"
+      do ia = 1, n_pair_orbits
+        m = pair_order(ia)
+        write (*, '(i6, i5, i5, i10, f9.4, f8.4)') m, pair_orbits(m)%target_i, &
+          pair_orbits(m)%target_j, pair_orbits(m)%n_inst, pair_orbits(m)%distance, &
+          pair_orbits(m)%weight
+      end do
+    end if
+    write (*, '(a,i0)') "    Total pair orbits: ", n_pair_orbits
+    write (*, '(a,i0)') "    Pair families:     ", n_families
     write (*, *)
+  end subroutine generate_pair_orbits
 
-    if (n_clusters == 0) then
-      write (*, *) "Warning: no cluster types survived the distance filter."
-      write (*, *) "         All configurations will have zero score."
+  subroutine assign_pair_families()
+    implicit none
+    integer :: p, t, u, f
+
+    allocate (family_index(ntarget, ntarget))
+    family_index = 0
+    allocate (families(max(1, n_pair_orbits)))
+    n_families = 0
+
+    do p = 1, n_pair_orbits
+      t = pair_orbits(p)%target_i
+      u = pair_orbits(p)%target_j
+      if (t > u) then
+        write (*, '(a)') " Error: internal cross-target pair orientation is inconsistent."
+        stop 1
+      end if
+      if (family_index(t, u) == 0) then
+        n_families = n_families + 1
+        family_index(t, u) = n_families
+        families(n_families)%target_i = t
+        families(n_families)%target_j = u
+      end if
+      f = family_index(t, u)
+      pair_orbits(p)%family = f
+    end do
+  end subroutine assign_pair_families
+
+  subroutine sort_pair_order()
+    implicit none
+    integer :: i, j, imin, tmp
+
+    allocate (pair_order(max(1, n_pair_orbits)))
+    do i = 1, n_pair_orbits
+      pair_order(i) = i
+    end do
+
+    do i = 1, n_pair_orbits - 1
+      imin = i
+      do j = i + 1, n_pair_orbits
+        if (pair_before(pair_order(j), pair_order(imin))) imin = j
+      end do
+      if (imin /= i) then
+        tmp = pair_order(i)
+        pair_order(i) = pair_order(imin)
+        pair_order(imin) = tmp
+      end if
+    end do
+  end subroutine sort_pair_order
+
+  logical function pair_before(pa, pb) result(res)
+    implicit none
+    integer, intent(in) :: pa, pb
+    res = .false.
+    if (pair_orbits(pa)%distance < pair_orbits(pb)%distance - dist_tol) then
+      res = .true.
+    else if (abs(pair_orbits(pa)%distance - pair_orbits(pb)%distance) <= dist_tol) then
+      if (pair_orbits(pa)%target_i < pair_orbits(pb)%target_i) then
+        res = .true.
+      else if (pair_orbits(pa)%target_i == pair_orbits(pb)%target_i) then
+        if (pair_orbits(pa)%target_j < pair_orbits(pb)%target_j) res = .true.
+      end if
+    end if
+  end function pair_before
+
+  ! ================================================================
+  ! Read ENSEMBLE and construct dense target-local occupations.
+  ! ================================================================
+  subroutine read_ensemble_data()
+    implicit none
+    integer :: ntarget_ens, ic, t, j, k, flat_off, conf_off
+    integer :: gsite, local_idx, isite, expected_nsubs
+    integer, allocatable :: npos_t_ens(:), counts_seen(:)
+    real(real64) :: tsampling
+    logical :: ok
+    logical, allocatable :: assigned(:)
+    character(len=256) :: path
+
+    path = trim(ensemble_dir) // "/ENSEMBLE"
+    call parse_ensemble(trim(path), ntarget_ens, nsubs_flat, npos_t_ens, &
+                        nic, indconf, degen, tsampling, ok)
+    if (.not. ok) then
+      write (*, '(a,a)') " Error: cannot read ENSEMBLE: ", trim(path)
+      stop 1
+    end if
+
+    if (ntarget_ens /= ntarget) then
+      write (*, '(a,i0,a,i0)') " Error: ENSEMBLE target count ", ntarget_ens, &
+        " does not match INSOD target count ", ntarget
+      stop 1
+    end if
+    if (size(nsubs_flat) /= sum(nk_t(1:ntarget))) then
+      write (*, '(a,i0,a,i0)') " Error: ENSEMBLE has ", size(nsubs_flat), &
+        " substituent count(s), but INSOD target species require ", sum(nk_t(1:ntarget))
+      stop 1
+    end if
+    do t = 1, ntarget
+      if (npos_t_ens(t) /= npos_t(t)) then
+        write (*, '(a,i0,a,i0,a,i0)') " Error: ENSEMBLE target ", t, &
+          " has ", npos_t_ens(t), " sites but supercell/EQMATRIX has ", npos_t(t)
+        stop 1
+      end if
+    end do
+
+    flat_off = 0
+    do t = 1, ntarget
+      targets(t)%counts(1) = npos_t(t) - sum(nsubs_flat(flat_off + 1:flat_off + nk_t(t)))
+      do j = 1, nk_t(t)
+        targets(t)%counts(j + 1) = nsubs_flat(flat_off + j)
+      end do
+      if (any(targets(t)%counts < 0) .or. sum(targets(t)%counts) /= npos_t(t)) then
+        write (*, '(a,i0,a)') " Error: invalid species counts for target ", t, "."
+        stop 1
+      end if
+      targets(t)%concentration = real(targets(t)%counts, real64) / real(npos_t(t), real64)
+      if (abs(sum(targets(t)%concentration) - 1.0_real64) > 1.0e-10_real64) then
+        write (*, '(a,i0,a)') " Error: concentrations do not sum to one for target ", t, "."
+        stop 1
+      end if
+      flat_off = flat_off + nk_t(t)
+    end do
+
+    nsubs_tot = sum(nsubs_flat)
+    expected_nsubs = sum(nsubs_flat)
+    if (size(indconf, 2) < max(1, expected_nsubs)) then
+      write (*, '(a)') " Error: ENSEMBLE configuration array is shorter than expected."
+      stop 1
+    end if
+
+    allocate (occupation(ndis, nic))
+    allocate (assigned(ndis), counts_seen(maxval(nk_t(1:ntarget)) + 1))
+
+    do ic = 1, nic
+      occupation(:, ic) = 1
+      assigned = .false.
+      conf_off = 0
+      flat_off = 0
+
+      do t = 1, ntarget
+        do j = 1, nk_t(t)
+          do k = 1, targets(t)%counts(j + 1)
+            gsite = indconf(ic, conf_off + k)
+            local_idx = gsite - atini_t(t) + 1
+            if (local_idx < 1 .or. local_idx > npos_t(t)) then
+              write (*, '(a,i0,a,i0,a,i0,a)') " Error: config ", ic, &
+                " contains site ", gsite, " outside target ", t, "."
+              stop 1
+            end if
+            isite = site_offset(t) + local_idx
+            if (assigned(isite)) then
+              write (*, '(a,i0,a,i0,a)') " Error: config ", ic, &
+                " assigns site ", gsite, " more than once."
+              stop 1
+            end if
+            occupation(isite, ic) = j + 1
+            assigned(isite) = .true.
+          end do
+          conf_off = conf_off + targets(t)%counts(j + 1)
+        end do
+        flat_off = flat_off + nk_t(t)
+      end do
+
+      if (conf_off /= expected_nsubs) then
+        write (*, '(a)') " Error: internal ENSEMBLE offset mismatch."
+        stop 1
+      end if
+
+      do t = 1, ntarget
+        counts_seen = 0
+        do k = 1, npos_t(t)
+          isite = site_offset(t) + k
+          if (occupation(isite, ic) < 1 .or. occupation(isite, ic) > targets(t)%nspecies) then
+            write (*, '(a,i0,a)') " Error: invalid occupation code in config ", ic, "."
+            stop 1
+          end if
+          counts_seen(occupation(isite, ic)) = counts_seen(occupation(isite, ic)) + 1
+        end do
+        do j = 1, targets(t)%nspecies
+          if (counts_seen(j) /= targets(t)%counts(j)) then
+            write (*, '(a,i0,a,i0,a)') " Error: species counts do not match for config ", &
+              ic, ", target ", t, "."
+            stop 1
+          end if
+        end do
+      end do
+    end do
+
+    deallocate (assigned, counts_seen, npos_t_ens)
+
+    write (*, '(a,i0,a,i0,a)') " > ENSEMBLE: ", nic, " configurations, ", &
+      nsubs_tot, " substituted sites"
+    write (*, '(a)') "    Target compositions:"
+    do t = 1, ntarget
+      write (*, '(a,i0,a)', advance='no') "      Target ", t, ":"
+      do j = 1, targets(t)%nspecies
+        write (*, '(1x,a,a,i0,a,f8.5,a)', advance='no') trim(targets(t)%species(j)), &
+          "=", targets(t)%counts(j), " (", targets(t)%concentration(j), ")"
+      end do
+      write (*, *)
+    end do
+    write (*, *)
+  end subroutine read_ensemble_data
+
+  ! ================================================================
+  ! Create one chemical channel for every species pair on every pair orbit.
+  ! ================================================================
+  subroutine generate_pair_channels()
+    implicit none
+    integer :: p, ch, a, b, t, u, m, n_near
+    real(real64) :: nearest
+
+    n_channels = 0
+    do p = 1, n_pair_orbits
+      t = pair_orbits(p)%target_i
+      u = pair_orbits(p)%target_j
+      n_channels = n_channels + targets(t)%nspecies * targets(u)%nspecies
+    end do
+
+    allocate (channels(max(1, n_channels)))
+    allocate (channel_start(max(1, n_pair_orbits)), channel_end(max(1, n_pair_orbits)))
+
+    ch = 0
+    do p = 1, n_pair_orbits
+      t = pair_orbits(p)%target_i
+      u = pair_orbits(p)%target_j
+      channel_start(p) = ch + 1
+      do a = 1, targets(t)%nspecies
+        do b = 1, targets(u)%nspecies
+          ch = ch + 1
+          channels(ch)%orbit = p
+          channels(ch)%species_i = a
+          channels(ch)%species_j = b
+          channels(ch)%target_corr = targets(t)%concentration(a) * targets(u)%concentration(b)
+          m = pair_orbits(p)%n_inst
+          n_near = nint(real(m, real64) * channels(ch)%target_corr)
+          n_near = max(0, min(m, n_near))
+          nearest = real(n_near, real64) / real(m, real64)
+          channels(ch)%eps_grid = abs(nearest - channels(ch)%target_corr)
+        end do
+      end do
+      channel_end(p) = ch
+    end do
+
+    write (*, '(a,i0)') " > Chemical pair channels: ", n_channels
+    write (*, *)
+  end subroutine generate_pair_channels
+
+  ! ================================================================
+  ! Score all configurations using species-resolved pair probabilities.
+  ! ================================================================
+  subroutine score_configurations()
+    implicit none
+    integer :: ic, ch, p, m, i, j, a, b, f, t, u
+    integer :: count_ab, n_ch_orbit
+    real(real64) :: sum_prob, fam_norm(max(1, n_pair_orbits))
+
+    allocate (scores(nic), L_val(nic), abs_residual(nic))
+
+    if (n_channels == 0) then
+      scores = 0.0_real64
+      L_val = 0.0_real64
+      abs_residual = 0.0_real64
+      allocate (corr_all(nic, 0), eps_min_cfg(0), orbit_error(nic, 0), family_error(nic, 0))
+      write (*, '(a)') " > Scoring complete: no pair channels were generated."
       write (*, *)
       return
     end if
 
-    ! Build pi_order: sort by (char_dist ascending, order ascending)
-    allocate (pi_order(n_clusters))
-    do jc = 1, n_clusters
-      pi_order(jc) = jc
-    end do
-    call sort_pi_order(pi_order, n_clusters)
-
-    write (*, '(a)') "   Pi   Order  Instances  MaxDist(A)  Weight"
-    write (*, '(a)') "  ----  -----  ---------  ----------  ------"
-    do jc = 1, n_clusters
-      write (*, '(i6, i7, i11, f12.4, f9.4)') jc, clusters(pi_order(jc))%order, &
-        clusters(pi_order(jc))%n_inst, clusters(pi_order(jc))%char_dist, &
-        clusters(pi_order(jc))%w
-    end do
-    write (*, *)
-  end subroutine generate_clusters
-
-  ! ================================================================
-  ! Sort pi_order by (char_dist ascending, order ascending)
-  ! ================================================================
-  subroutine sort_pi_order(idx, nn)
-    implicit none
-    integer, intent(in) :: nn
-    integer, intent(inout) :: idx(nn)
-    integer :: ia, ja, imin, tmp
-    real(real64) :: dmin
-    integer :: omin
-    do ia = 1, nn - 1
-      imin = ia
-      dmin = clusters(idx(ia))%char_dist
-      omin = clusters(idx(ia))%order
-      do ja = ia + 1, nn
-        if (clusters(idx(ja))%char_dist < dmin - 1.0e-8_real64 .or. &
-            (abs(clusters(idx(ja))%char_dist - dmin) < 1.0e-8_real64 .and. &
-             clusters(idx(ja))%order < omin)) then
-          imin = ja
-          dmin = clusters(idx(ja))%char_dist
-          omin = clusters(idx(ja))%order
-        end if
-      end do
-      if (imin /= ia) then
-        tmp = idx(ia); idx(ia) = idx(imin); idx(imin) = tmp
-      end if
-    end do
-  end subroutine sort_pi_order
-
-  ! ================================================================
-  ! Read ENSEMBLE — configurations to score (supports v2 and v3 formats)
-  ! ================================================================
-  subroutine read_ensemble()
-    implicit none
-    integer :: iu, ios, ic, m_idx, npos_check
-    character(len=256) :: line, path
-    character(len=20) :: word1
-
-    path = trim(ensemble_dir) // "/ENSEMBLE"
-    iu = 23
-    open (unit=iu, file=trim(path), status='old', IOSTAT=ios)
-    if (ios /= 0) then
-      write (*, '(a,a)') " Error: cannot open ", trim(path)
-      stop 1
-    end if
-
-    ! Read first non-blank line to detect v2 vs v3
-    do
-      read (iu, '(A)', iostat=ios) line
-      if (ios /= 0) then
-        write (*, *) " Error: cannot read ENSEMBLE."
-        stop 1
-      end if
-      if (len_trim(line) > 0) exit
-    end do
-
-    if (line(1:1) == '#') then
-      ! v2: skip comment lines
-      do while (line(1:1) == '#')
-        read (iu, '(A)', iostat=ios) line
-        if (ios /= 0) then
-          write (*, *) " Error: cannot read ENSEMBLE."
-          stop 1
-        end if
-      end do
-      ! line is now "nsubs substitutions in npos sites"
-      read (line, *) nsubs, word1
-      if (trim(word1) /= 'substitutions') then
-        write (*, *) "Error: only binary single-target ENSEMBLE is currently supported."
-        stop 1
-      end if
-      m_idx = index(line, ' in ')
-      read (line(m_idx + 4:), *) npos_check
-      if (npos_check /= npos) then
-        write (*, '(a,i0,a,i0)') " Error: ENSEMBLE npos=", npos_check, &
-          " does not match EQMATRIX npos=", npos
-        stop 1
-      end if
-      read (iu, *) nic
-    else
-      ! v3: first line is "... ensemble ...: nic configurations"
-      block
-        integer :: cp, kp
-        cp = index(line, ':', back=.true.)
-        kp = index(line, 'configurations')
-        if (cp > 0 .and. kp > cp) then
-          read (line(cp+1:kp-1), *, iostat=ios) nic
-          if (ios /= 0) then
-            write (*, *) " Error: cannot parse ENSEMBLE configuration count."
-            stop 1
-          end if
-        else
-          write (*, *) " Error: cannot parse ENSEMBLE header."
-          stop 1
-        end if
-      end block
-      ! Read target line(s) and column-header comment; verify binary single-target
-      nsubs = -1
-      npos_check = -1
-      do
-        read (iu, '(A)', iostat=ios) line
-        if (ios /= 0) exit
-        if (len_trim(line) == 0) cycle
-        if (line(1:1) == '#') exit   ! column-header comment — file now at first data row
-        if (index(line, 'sites') > 0 .and. index(line, '->') > 0) then
-          if (nsubs >= 0) then
-            write (*, *) "Error: only binary single-target ENSEMBLE is currently supported."
-            stop 1
-          end if
-          read (line, *, iostat=ios) npos_check
-          m_idx = index(line, '->')
-          read (line(m_idx+2:), *, iostat=ios) nsubs
-        end if
-      end do
-      if (nsubs < 0) then
-        write (*, *) " Error: no target line found in ENSEMBLE."
-        stop 1
-      end if
-      if (npos_check /= npos) then
-        write (*, '(a,i0,a,i0)') " Error: ENSEMBLE npos=", npos_check, &
-          " does not match EQMATRIX npos=", npos
-        stop 1
-      end if
-    end if
-
-    allocate (degen(nic), indconf(nic, nsubs))
-    do ic = 1, nic
-      read (iu, *) m_idx, degen(ic), indconf(ic, 1:nsubs)
-    end do
-    close (iu)
-
-    x_comp = real(nsubs, real64) / real(npos, real64)
-
-    ! Set target correlations and minimum achievable errors
-    do ic = 1, n_clusters
-      clusters(ic)%target_corr = (1.0_real64 - 2.0_real64 * x_comp) ** clusters(ic)%order
-      ! eps_min: smallest |Δρ| achievable in this supercell.
-      ! Valid correlations: ρ = (2n₊ - m)/m, n₊ ∈ {0,...,m}, spacing = 2/m.
-      ! Nearest n₊ to target: round(m*(1+target)/2), clamped to [0,m].
-      block
-        integer :: m, n_plus
-        real(real64) :: rho_nearest
-        m = clusters(ic)%n_inst
-        n_plus = nint(real(m, real64) * (1.0_real64 + clusters(ic)%target_corr) / 2.0_real64)
-        n_plus = max(0, min(m, n_plus))
-        rho_nearest = real(2*n_plus - m, real64) / real(m, real64)
-        clusters(ic)%eps_min = abs(rho_nearest - clusters(ic)%target_corr)
-      end block
-    end do
-
-    write (*, '(a,i0,a,i0,a)') " > ENSEMBLE: ", nic, " configurations, ", &
-      nsubs, " substitutions"
-    write (*, '(a,f8.5)') "    Composition x = ", x_comp
-    write (*, *)
-  end subroutine read_ensemble
-
-  ! ================================================================
-  ! Score all configurations
-  ! ================================================================
-  subroutine score_configurations()
-    implicit none
-    integer :: ic, jc, js, ia2, local_idx
-    integer :: sigma(npos)
-    real(real64) :: prod_val, corr_val
-
-    allocate (scores(nic), corr_all(nic, n_clusters))
+    allocate (corr_all(nic, n_channels))
+    allocate (eps_min_cfg(n_channels))
+    allocate (orbit_error(nic, n_pair_orbits))
+    allocate (family_error(nic, n_families))
 
     do ic = 1, nic
-      ! Build sigma: +1 for original species, -1 for substituted
-      sigma = 1
-      do js = 1, nsubs
-        local_idx = indconf(ic, js) - atini + 1
-        if (local_idx < 1 .or. local_idx > npos) then
-          write (*, '(a,i0,a,i0,a,i0)') " Error: config ", ic, ", site ", &
-            indconf(ic, js), " maps to local index ", local_idx
-          stop 1
-        end if
-        sigma(local_idx) = -1
-      end do
-
-      ! Evaluate cluster correlations
-      do jc = 1, n_clusters
-        corr_val = 0.0_real64
-        do js = 1, clusters(jc)%n_inst
-          prod_val = 1.0_real64
-          do ia2 = 1, clusters(jc)%order
-            prod_val = prod_val * sigma(clusters(jc)%inst(ia2, js))
-          end do
-          corr_val = corr_val + prod_val
+      do ch = 1, n_channels
+        p = channels(ch)%orbit
+        a = channels(ch)%species_i
+        b = channels(ch)%species_j
+        count_ab = 0
+        do m = 1, pair_orbits(p)%n_inst
+          i = pair_orbits(p)%site_i(m)
+          j = pair_orbits(p)%site_j(m)
+          if (occupation(i, ic) == a .and. occupation(j, ic) == b) count_ab = count_ab + 1
         end do
-        corr_val = corr_val / real(clusters(jc)%n_inst, real64)
-        corr_all(ic, jc) = corr_val
+        corr_all(ic, ch) = real(count_ab, real64) / real(pair_orbits(p)%n_inst, real64)
+      end do
+
+      do p = 1, n_pair_orbits
+        sum_prob = sum(corr_all(ic, channel_start(p):channel_end(p)))
+        if (abs(sum_prob - 1.0_real64) > 1.0e-10_real64) then
+          write (*, '(a,i0,a,i0,a,es12.4)') " Error: probabilities for config ", ic, &
+            ", pair orbit ", p, " sum to ", sum_prob
+          stop 1
+        end if
       end do
     end do
 
-    ! Compute eps_min_cfg: minimum |Δρ| actually achieved over all configurations.
-    ! Used by van de Walle scoring as the match tolerance (so the best-achieving
-    ! configuration for each cluster always counts as "matched").
-    allocate (eps_min_cfg(n_clusters))
-    do jc = 1, n_clusters
-      eps_min_cfg(jc) = minval(abs(corr_all(:, jc) - clusters(jc)%target_corr))
+    do ch = 1, n_channels
+      eps_min_cfg(ch) = minval(abs(corr_all(:, ch) - channels(ch)%target_corr))
     end do
 
-    ! Print target correlations table (now that both eps values are available)
-    write (*, '(a)') " > Target correlations and achievable errors:"
-    write (*, '(a)') "   Pi   Order  MaxDist(A)      Target    eps_grid     eps_cfg"
-    write (*, '(a)') "  ----  -----  ----------  ----------  ----------  ----------"
-    do jc = 1, n_clusters
-      associate (cl => clusters(pi_order(jc)))
-        write (*, '(i6, i7, f12.4, f12.8, es12.3, es12.3)') jc, cl%order, &
-          cl%char_dist, cl%target_corr, cl%eps_min, eps_min_cfg(pi_order(jc))
-      end associate
+    orbit_error = 0.0_real64
+    family_error = 0.0_real64
+    fam_norm = 0.0_real64
+    do p = 1, n_pair_orbits
+      f = pair_orbits(p)%family
+      fam_norm(f) = fam_norm(f) + pair_orbits(p)%weight
+      n_ch_orbit = channel_end(p) - channel_start(p) + 1
+      do ic = 1, nic
+        orbit_error(ic, p) = sum(abs(corr_all(ic, channel_start(p):channel_end(p)) - &
+          channels(channel_start(p):channel_end(p))%target_corr)) / real(n_ch_orbit, real64)
+        family_error(ic, f) = family_error(ic, f) + pair_orbits(p)%weight * orbit_error(ic, p)
+      end do
     end do
-    write (*, *)
+
+    do f = 1, n_families
+      if (fam_norm(f) > 0.0_real64) then
+        family_error(:, f) = family_error(:, f) / fam_norm(f)
+      else
+        family_error(:, f) = 0.0_real64
+      end if
+    end do
 
     call compute_vdw_scores()
+
+    write (*, '(a)') " > Target pair-channel probabilities and empirical errors:"
+    write (*, '(a)') "   Ch Orbit  T_i  T_j  Sp_i      Sp_j        Target    eps_grid     eps_cfg"
+    write (*, '(a)') "  ---- ---- ---- ---- ---------- ---------- ---------- ---------- ----------"
+    do ch = 1, n_channels
+      p = channels(ch)%orbit
+      t = pair_orbits(p)%target_i
+      u = pair_orbits(p)%target_j
+      write (*, '(i6,i5,i5,i5,1x,a10,1x,a10,f11.6,es11.3,es11.3)') ch, p, t, u, &
+        trim(targets(t)%species(channels(ch)%species_i)), &
+        trim(targets(u)%species(channels(ch)%species_j)), &
+        channels(ch)%target_corr, channels(ch)%eps_grid, eps_min_cfg(ch)
+    end do
+    write (*, *)
 
     write (*, '(a)') " > Scoring complete."
     write (*, *)
   end subroutine score_configurations
 
   ! ================================================================
-  ! Van de Walle 2013 scoring: Q = -omega*L + sum(w_k*|Δρ|)/sum(w_k)
-  ! L = largest diameter (Å) such that ALL clusters with
-  ! char_dist <= L satisfy |Δρ| <= eps_min + eps_tol.
-  ! Overwrites scores() with Q for ranking.
+  ! Van de Walle-style score: Q = -omega*L + normalized pair error.
+  ! L advances by complete distance shells only when every channel in
+  ! that shell is within its empirical minimum plus eps_tol.
   ! ================================================================
   subroutine compute_vdw_scores()
     implicit none
-    integer :: ic, jj, jc
-    integer :: sorted_c(n_clusters)
-    real(real64) :: dev_val, cur_diam, L_this, weight_norm
-
-    allocate (L_val(nic), abs_residual(nic))
-
-    ! Sort cluster indices by char_dist ascending
-    do jc = 1, n_clusters
-      sorted_c(jc) = jc
-    end do
-    call sort_clusters_by_dist(sorted_c, n_clusters)
-
-    weight_norm = 0.0_real64
-    do jc = 1, n_clusters
-      weight_norm = weight_norm + clusters(jc)%w
-    end do
+    integer :: ic, jj, kk, p, ch, f
+    real(real64) :: cur_diam
+    logical :: shell_ok
 
     do ic = 1, nic
-      abs_residual(ic) = 0.0_real64
-
-      ! Determine L: sweep sorted clusters; L advances only while every
-      ! cluster at the current diameter is matched within eps_min + eps_tol.
-      L_this = 0.0_real64
+      L_val(ic) = 0.0_real64
       jj = 1
-      do while (jj <= n_clusters)
-        ! Collect all clusters sharing the same char_dist (same shell)
-        cur_diam = clusters(sorted_c(jj))%char_dist
-        ! Check all clusters in this shell
-        do while (jj <= n_clusters)
-          if (abs(clusters(sorted_c(jj))%char_dist - cur_diam) >= 1.0e-8_real64) exit
-          jc = sorted_c(jj)
-          dev_val = corr_all(ic, jc) - clusters(jc)%target_corr
-          if (abs(dev_val) > eps_min_cfg(jc) + eps_tol) goto 10
-          jj = jj + 1
+      do while (jj <= n_pair_orbits)
+        cur_diam = pair_orbits(pair_order(jj))%distance
+        shell_ok = .true.
+        kk = jj
+        do while (kk <= n_pair_orbits)
+          p = pair_order(kk)
+          if (abs(pair_orbits(p)%distance - cur_diam) > dist_tol) exit
+          do ch = channel_start(p), channel_end(p)
+            if (abs(corr_all(ic, ch) - channels(ch)%target_corr) > eps_min_cfg(ch) + eps_tol) then
+              shell_ok = .false.
+              exit
+            end if
+          end do
+          if (.not. shell_ok) exit
+          kk = kk + 1
         end do
-        L_this = cur_diam   ! whole shell matched
+        if (.not. shell_ok) exit
+        L_val(ic) = cur_diam
+        jj = kk
       end do
-10    continue
 
-      L_val(ic) = L_this
-
-      ! Normalized weighted absolute residual over all clusters
-      do jj = 1, n_clusters
-        jc = sorted_c(jj)
-        abs_residual(ic) = abs_residual(ic) + &
-          clusters(jc)%w * abs(corr_all(ic, jc) - clusters(jc)%target_corr)
+      abs_residual(ic) = 0.0_real64
+      do f = 1, n_families
+        abs_residual(ic) = abs_residual(ic) + family_error(ic, f)
       end do
-      if (weight_norm > 0.0_real64) abs_residual(ic) = abs_residual(ic) / weight_norm
-
+      if (n_families > 0) abs_residual(ic) = abs_residual(ic) / real(n_families, real64)
       scores(ic) = -omega * L_val(ic) + abs_residual(ic)
     end do
   end subroutine compute_vdw_scores
 
   ! ================================================================
-  ! Sort cluster indices by characteristic distance (selection sort;
-  ! n_clusters is small so this is fine)
-  ! ================================================================
-  subroutine sort_clusters_by_dist(idx, nn)
-    implicit none
-    integer, intent(in) :: nn
-    integer, intent(inout) :: idx(nn)
-    integer :: ia, ja, imin, tmp
-    real(real64) :: dmin
-    do ia = 1, nn - 1
-      imin = ia
-      dmin = clusters(idx(ia))%char_dist
-      do ja = ia + 1, nn
-        if (clusters(idx(ja))%char_dist < dmin) then
-          imin = ja
-          dmin = clusters(idx(ja))%char_dist
-        end if
-      end do
-      if (imin /= ia) then
-        tmp = idx(ia); idx(ia) = idx(imin); idx(imin) = tmp
-      end if
-    end do
-  end subroutine sort_clusters_by_dist
-
-  ! ================================================================
-  ! Report results to stdout and write OUTSQS
+  ! Report results to stdout and write OUTSQS/SQS_CORRELATIONS.
+  ! With n_top_sqs > 0 only the best configurations are selected
+  ! (single O(nic*n_top) pass; the full ensemble is never sorted);
+  ! n_top_sqs = 0 sorts and lists the whole ensemble.
   ! ================================================================
   subroutine report_results()
     implicit none
-    integer :: ic, jc, n_show
+    integer :: rank, n_show, n_stdout, f, p, ch, best_cfg
     integer, allocatable :: ridx(:)
-    integer :: iu_out
-    character(len=256) :: path_out
+    integer :: iu_out, iu_corr
+    character(len=256) :: path_out, path_corr
 
-    ! Build ranking (sort by ascending scores)
-    allocate (ridx(nic))
-    do ic = 1, nic
-      ridx(ic) = ic
-    end do
-    call qsort_idx(ridx, 1, nic, scores)
+    call rank_configs(ridx, n_show)
+    best_cfg = ridx(1)
 
-    ! ----------------------------------------------------------
-    ! Top configurations
-    ! ----------------------------------------------------------
-    n_show = min(nic, 20)
-    write (*, '(a,i0,a)') " > Top ", n_show, " configurations:"
+    n_stdout = min(n_show, 20)
+    write (*, '(a,i0,a)') " > Top ", n_stdout, " configurations:"
     write (*, *)
-    write (*, '(a)') "    Rank  Config  Degen      L(A)       AbsErr                Q"
+    write (*, '(a)') "    Rank  Config  Degen      L(A)       Error                Q"
     write (*, '(a)') "    ----  ------  -----  --------  ----------  ---------------"
-    do ic = 1, n_show
-      write (*, '(i7, i8, i7, f10.4, es12.4, es16.6)') ic, ridx(ic), degen(ridx(ic)), &
-        L_val(ridx(ic)), abs_residual(ridx(ic)), scores(ridx(ic))
+    do rank = 1, n_stdout
+      write (*, '(i7, i8, i7, f10.4, es12.4, es16.6)') rank, ridx(rank), degen(ridx(rank)), &
+        L_val(ridx(rank)), abs_residual(ridx(rank)), scores(ridx(rank))
     end do
     write (*, *)
 
-    ! ----------------------------------------------------------
-    ! Best SQS details
-    ! ----------------------------------------------------------
-    write (*, '(a,i0)') " > Best SQS: configuration ", ridx(1)
-    write (*, '(a,i0)') "    Degeneracy:  ", degen(ridx(1))
-    write (*, '(a,f10.4,a)') "    Matched L:   ", L_val(ridx(1)), " Angstroms"
-    write (*, '(a,es14.6)') "    AbsErr:      ", abs_residual(ridx(1))
-    write (*, '(a,es14.6)') "    Q (score):   ", scores(ridx(1))
+    write (*, '(a,i0)') " > Best SQS: configuration ", best_cfg
+    write (*, '(a,i0)') "    Degeneracy:  ", degen(best_cfg)
+    write (*, '(a,f10.4,a)') "    Matched L:   ", L_val(best_cfg), " Angstroms"
+    write (*, '(a,es14.6)') "    Error:       ", abs_residual(best_cfg)
+    write (*, '(a,es14.6)') "    Q (score):   ", scores(best_cfg)
+    if (n_families > 0) then
+      write (*, '(a)') "    Family errors:"
+      do f = 1, n_families
+        write (*, '(a,i0,i0,a,es14.6)') "      E", families(f)%target_i, families(f)%target_j, &
+          ": ", family_error(best_cfg, f)
+      end do
+    end if
     write (*, *)
 
-    write (*, '(a)') "    Cluster correlations for best SQS:"
-    write (*, '(a)') "   Pi   Order  Dist(A)       Target       Actual    Deviation"
-    write (*, '(a)') "  ----  -----  --------  ----------  ----------  -----------"
-    do jc = 1, n_clusters
-      associate (cl => clusters(pi_order(jc)))
-        write (*, '(i6, i7, f10.4, f12.6, f12.6, es13.4)') jc, &
-          cl%order, cl%char_dist, cl%target_corr, &
-          corr_all(ridx(1), pi_order(jc)), corr_all(ridx(1), pi_order(jc)) - cl%target_corr
-      end associate
-    end do
-    write (*, *)
-
-    write (*, '(a)', advance='no') "    Substituted sites: "
-    do ic = 1, nsubs
-      write (*, '(i0,1x)', advance='no') indconf(ridx(1), ic)
-    end do
-    write (*, *)
-    write (*, *)
-
-    ! ----------------------------------------------------------
-    ! Write OUTSQS file
-    ! ----------------------------------------------------------
     path_out = trim(ensemble_dir) // "/OUTSQS"
     iu_out = 30
     open (unit=iu_out, file=trim(path_out))
     write (iu_out, '(a)') "# SQS scoring results from sqssod"
-    write (iu_out, '(a,i0,a,i0,a,f10.6,a,i0)') "# nsubs=", nsubs, &
-      " npos=", npos, " x=", x_comp, " n_clusters=", n_clusters
-    write (iu_out, '(a,es10.3,a,es10.3)') "# Mode: van_de_Walle  omega=", &
+    write (iu_out, '(a,i0,a,i0,a,i0,a,i0)') "# ntarget=", ntarget, &
+      " ndis=", ndis, " n_pair_orbits=", n_pair_orbits, " n_channels=", n_channels
+    write (iu_out, '(a,es10.3,a,es10.3)') "# Mode: species_resolved_pairs  omega=", &
       omega, "  eps=", eps_tol
-    ! Header: fixed columns + one 10-char label per Pi (sorted by dist, order)
-    write (iu_out, '(a)', advance='no') "# Rank  Config   Degen      L(A)        AbsErr             Q"
-    do jc = 1, n_clusters
-      write (iu_out, '("    Pi_",i3)', advance='no') jc
+    tblock: block
+      integer :: t, j
+      do t = 1, ntarget
+        write (iu_out, '(a,i0,a,i0,a)', advance='no') "# Target ", t, ": sites=", targets(t)%nsites, " species="
+        do j = 1, targets(t)%nspecies
+          write (iu_out, '(1x,a,a,i0,a,f8.5,a)', advance='no') trim(targets(t)%species(j)), &
+            "=", targets(t)%counts(j), "(", targets(t)%concentration(j), ")"
+        end do
+        write (iu_out, *)
+      end do
+    end block tblock
+    if (n_show == nic) then
+      write (iu_out, '(a,i0,a)') "# All ", nic, &
+        " configurations (ascending Q; ties rank by configuration index)"
+    else
+      write (iu_out, '(a,i0,a,i0,a)') "# Top ", n_show, " of ", nic, &
+        " configurations (ascending Q; ties rank by configuration index)"
+    end if
+    write (iu_out, '(a)', advance='no') "# Rank  Config   Degen      L(A)          Error              Q"
+    do f = 1, n_families
+      write (iu_out, '(1x,a,i0,i0)', advance='no') "E", families(f)%target_i, families(f)%target_j
     end do
     write (iu_out, *)
-    ! Ideal disorder row (target correlations)
-    write (iu_out, '("# Ideal disorder:",45x,*(f10.5))') &
-      (clusters(pi_order(jc))%target_corr, jc=1, n_clusters)
-    ! Ranked configuration rows
-    do ic = 1, nic
-      write (iu_out, '(i6, i8, i7, f12.4, es15.7, es15.7, *(f10.5))') ic, ridx(ic), degen(ridx(ic)), &
-        L_val(ridx(ic)), abs_residual(ridx(ic)), scores(ridx(ic)), &
-        (corr_all(ridx(ic), pi_order(jc)), jc=1, n_clusters)
+    do rank = 1, n_show
+      write (iu_out, '(i6,1x,i8,1x,i7,1x,f12.4,1x,es15.7,1x,es15.7)', advance='no') &
+        rank, ridx(rank), degen(ridx(rank)), L_val(ridx(rank)), abs_residual(ridx(rank)), scores(ridx(rank))
+      do f = 1, n_families
+        write (iu_out, '(1x,es15.7)', advance='no') family_error(ridx(rank), f)
+      end do
+      write (iu_out, *)
     end do
     close (iu_out)
     write (*, '(a,a)') " > Results written to ", trim(path_out)
 
-    deallocate (ridx)
+    path_corr = trim(ensemble_dir) // "/SQS_CORRELATIONS"
+    iu_corr = 31
+    open (unit=iu_corr, file=trim(path_corr))
+    write (iu_corr, '(a)') "# Detailed species-resolved pair correlations for best SQS"
+    write (iu_corr, '(a,i0)') "# Config ", best_cfg
+    write (iu_corr, '(a)') "# Config Orbit Distance(A) Target_i Target_j Species_i Species_j P_cell P_random Delta"
+    do p = 1, n_pair_orbits
+      do ch = channel_start(p), channel_end(p)
+        write (iu_corr, '(i8,1x,i6,1x,f12.5,1x,i8,1x,i8,1x,a10,1x,a10,1x,f12.8,1x,f12.8,1x,es13.5)') &
+          best_cfg, p, pair_orbits(p)%distance, pair_orbits(p)%target_i, pair_orbits(p)%target_j, &
+          trim(targets(pair_orbits(p)%target_i)%species(channels(ch)%species_i)), &
+          trim(targets(pair_orbits(p)%target_j)%species(channels(ch)%species_j)), &
+          corr_all(best_cfg, ch), channels(ch)%target_corr, corr_all(best_cfg, ch) - channels(ch)%target_corr
+      end do
+    end do
+    close (iu_corr)
+    write (*, '(a,a)') " > Correlations written to ", trim(path_corr)
   end subroutine report_results
 
   ! ================================================================
-  ! Quicksort index array by key (ascending) — standard Hoare partition
+  ! Rank configurations by ascending score, breaking ties by
+  ! configuration index. n_top_sqs = 0 sorts the whole ensemble;
+  ! otherwise only the n_top_sqs best are selected in one pass.
+  ! ridx(1:nsel) holds the result in rank order.
+  ! ================================================================
+  subroutine rank_configs(ridx, nsel)
+    implicit none
+    integer, allocatable, intent(out) :: ridx(:)
+    integer, intent(out) :: nsel
+    integer :: ic
+
+    if (n_top_sqs == 0) then
+      nsel = nic
+      allocate (ridx(nic))
+      do ic = 1, nic
+        ridx(ic) = ic
+      end do
+      call qsort_idx(ridx, 1, nic, scores)
+    else
+      nsel = min(nic, n_top_sqs)
+      allocate (ridx(nsel))
+      call select_top_configs(ridx, nsel)
+    end if
+  end subroutine rank_configs
+
+  ! ================================================================
+  ! Select the ncap best configurations by ascending score without
+  ! sorting the full ensemble (insertion into a small sorted list).
+  ! ================================================================
+  subroutine select_top_configs(ridx, ncap)
+    implicit none
+    integer, intent(in) :: ncap
+    integer, intent(out) :: ridx(ncap)
+    integer :: ic, pos, m, nsel
+
+    ridx = 0
+    nsel = 0
+    do ic = 1, nic
+      if (nsel == ncap) then
+        if (.not. idx_before(ic, ridx(nsel), scores)) cycle
+        nsel = nsel - 1
+      end if
+      pos = nsel
+      do while (pos >= 1)
+        if (.not. idx_before(ic, ridx(pos), scores)) exit
+        pos = pos - 1
+      end do
+      do m = nsel, pos + 1, -1
+        ridx(m + 1) = ridx(m)
+      end do
+      ridx(pos + 1) = ic
+      nsel = nsel + 1
+    end do
+  end subroutine select_top_configs
+
+  ! ================================================================
+  ! Quicksort index array by (score, index) ascending; used only for
+  ! the n_top_sqs = 0 full-ranking mode.
   ! ================================================================
   recursive subroutine qsort_idx(idx, lo, hi, key)
     implicit none
     integer, intent(inout) :: idx(:)
     integer, intent(in) :: lo, hi
     real(real64), intent(in) :: key(:)
-    integer :: i, j, tmp
-    real(real64) :: pivot
+    integer :: i, j, tmp, pidx
 
     if (lo >= hi) return
 
-    pivot = key(idx(lo))
+    pidx = idx(lo + (hi - lo) / 2)
     i = lo - 1
     j = hi + 1
     do
       do
         i = i + 1
-        if (key(idx(i)) >= pivot) exit
+        if (.not. idx_before(idx(i), pidx, key)) exit
       end do
       do
         j = j - 1
-        if (key(idx(j)) <= pivot) exit
+        if (.not. idx_before(pidx, idx(j), key)) exit
       end do
       if (i >= j) exit
       tmp = idx(i); idx(i) = idx(j); idx(j) = tmp
@@ -975,40 +1219,22 @@ contains
     call qsort_idx(idx, j + 1, hi, key)
   end subroutine qsort_idx
 
-  ! ================================================================
-  ! Sort small integer array in place (bubble sort — used for
-  ! k-tuples with at most max_k_param ~ 6 elements)
-  ! ================================================================
-  subroutine isort(arr, nn)
+  logical function idx_before(ia, ib, key) result(res)
     implicit none
-    integer, intent(inout) :: arr(*)
-    integer, intent(in) :: nn
-    integer :: ia, ja, tmp
-    do ia = 1, nn - 1
-      do ja = ia + 1, nn
-        if (arr(ja) < arr(ia)) then
-          tmp = arr(ia); arr(ia) = arr(ja); arr(ja) = tmp
-        end if
-      end do
-    end do
-  end subroutine isort
+    integer, intent(in) :: ia, ib
+    real(real64), intent(in) :: key(:)
+    res = key(ia) < key(ib) .or. (key(ia) == key(ib) .and. ia < ib)
+  end function idx_before
 
-  ! ================================================================
-  ! Lexicographic less-than for integer arrays of length nn
-  ! ================================================================
-  function ilex_lt(a, b, nn) result(res)
+  logical function pair_lex_lt(a1, a2, b1, b2) result(res)
     implicit none
-    integer, intent(in) :: a(*), b(*), nn
-    logical :: res
-    integer :: ia
+    integer, intent(in) :: a1, a2, b1, b2
     res = .false.
-    do ia = 1, nn
-      if (a(ia) < b(ia)) then
-        res = .true.; return
-      else if (a(ia) > b(ia)) then
-        return
-      end if
-    end do
-  end function ilex_lt
+    if (a1 < b1) then
+      res = .true.
+    else if (a1 == b1 .and. a2 < b2) then
+      res = .true.
+    end if
+  end function pair_lex_lt
 
 end program sqssod

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run from SODPROJECT/ to process all nXX/ folders, or from any folder that
-# contains ENSEMBLE and ENERGIES (e.g. nXX/ or nXX/PMEx/).
+# contains ENSEMBLE and ENERGIES (e.g. nXX/ or nXX/CPMEx/).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="${SCRIPT_DIR}:${PATH}"
@@ -13,7 +13,7 @@ if [ -n "$SODPROJECT" ]; then
 fi
 
 if [ -f ENSEMBLE ]; then
-  # Called from a directory with ENSEMBLE (nXX/, nXX/PMEx/, etc.)
+  # Called from a directory with ENSEMBLE (nXX/, nXX/CPMEx/, etc.)
   statsod || { echo "Error: statsod failed"; exit 1; }
 elif [ -n "$SODPROJECT" ] && [ -n "$LEVEL_NAME" ] && [ -f "$SODPROJECT/$LEVEL_NAME/ENSEMBLE" ]; then
   # Called from below an nXX/ level, but not from the ENSEMBLE-bearing directory.
@@ -33,7 +33,7 @@ elif [ -n "$SODPROJECT" ] && [ -z "$LEVEL_NAME" ] && ls -d "$SODPROJECT"/n[0-9]*
   done
 else
   echo "Error: run sod_stat.sh from SODPROJECT/ (to process all nXX/) or from any"
-  echo "       directory containing ENSEMBLE and ENERGIES (e.g. nXX/ or nXX/PMEx/),"
+  echo "       directory containing ENSEMBLE and ENERGIES (e.g. nXX/ or nXX/CPMEx/),"
   echo "       or from any subfolder below an nXX/ directory."
   exit 1
 fi

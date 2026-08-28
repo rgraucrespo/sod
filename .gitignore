@@ -8,11 +8,11 @@ bin/invertENSEMBLE
 bin/mcstatsod
 bin/mcsod
 bin/peaks2spec
-bin/pmesod
+bin/cpmesod
 bin/randomsod
 bin/sqssod
 bin/statsod
-bin/test_pme_delta
+bin/test_cpme_delta
 
 # Fortran object and module files
 src/*.o
@@ -27,15 +27,15 @@ bin/*.mod
 # cSGO is a pure combsod byproduct, never consumed as input - ignore everywhere
 cSGO
 
-# Auto-generated PME suggestion file - ignore everywhere
+# Auto-generated CPME suggestion file - ignore everywhere
 # (deliberately committed copies in examples are already tracked and unaffected)
-INPME.tmp
+INCPME.tmp
 
-# PME/MC generated output directories - always generated on demand;
-# test references live in pme_test_ref/ instead
-PME0/
-PME1/
-PMEh/
+# CPME/MC generated output directories - always generated on demand;
+# test references live in cpme_test_ref/ instead
+CPME0/
+CPME1/
+CPMEh/
 MCT_*/
 random/
 
@@ -56,6 +56,10 @@ CONTCAR
 /IBZKPT
 /EIGENVAL
 /ase_files/
+
+# Python bytecode (pysod/)
+__pycache__/
+*.pyc
 
 # Sphinx build output
 docs/_build/
@@ -79,12 +83,18 @@ docs/_build/
 # (*.swp, .DS_Store) is intentionally NOT re-included.
 # ---------------------------------------------------------------------------
 !examples/**/cSGO
-!examples/**/INPME.tmp
-!examples/**/PME0/
-!examples/**/PME1/
-!examples/**/PMEh/
+!examples/**/INCPME.tmp
+!examples/**/CPME0/
+!examples/**/CPME1/
+!examples/**/CPMEh/
 !examples/**/MCT_*/
 !examples/**/random/
 !examples/**/output.gout
 !examples/**/OUTCAR
 !examples/**/CONTCAR
+
+# ---------------------------------------------------------------------------
+# Developer handoff notes. These are working documents for the maintainer and
+# are never published with the package.
+# ---------------------------------------------------------------------------
+*HANDOFF*.md

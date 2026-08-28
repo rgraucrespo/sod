@@ -1,0 +1,32 @@
+# Title
+FCC CoCrFeNi alloy, random-sampling SQS example
+
+# a, b, c, alpha, beta, gamma
+3.5400  3.5400  3.5400  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+1
+
+# symbol(1:nsp): Atom symbols
+Ni
+
+# natsp0(1:nsp): Number of atoms per species (asymmetric unit is sufficient)
+1
+
+# coords0: Fractional coordinates
+0.0  0.0  0.0
+
+# na, nb, nc: Supercell multipliers along a, b, c
+2 2 2
+
+# sptarget: Index of species to substitute
+1
+
+# nsubs: Substitution counts for Co, Cr, and Fe; remaining sites are Ni.
+8 8 8
+
+# newsymbol: new species followed by remaining species
+Co Cr Fe Ni
+
+# FILER: -1 none | 0 CIF | 1 GULP | 2 LAMMPS | 11 VASP | 12 CASTEP | 13 QE
+0

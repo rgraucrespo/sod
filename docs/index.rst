@@ -13,9 +13,10 @@ Key Features
 - **Multi-nary and multi-target** substitutions on multiple sites
 - **Flexible input generation** for GULP, LAMMPS, VASP, CASTEP, and Quantum ESPRESSO
 - **Statistical analysis** in canonical and grand-canonical ensembles
-- **Periodic Motif Expansion (PME)** effective Hamiltonian fitted from ab initio training data
-- **Monte Carlo sampling** of configuration space at finite temperature using the PME Hamiltonian
+- **Constrained Periodic Motif Expansion (CPME)** effective Hamiltonian fitted from ab initio training data
+- **Monte Carlo sampling** of configuration space at finite temperature using the CPME Hamiltonian
 - **Special Quasirandom Structures (SQS)** and generalized GQS methods
+- **Machine-learning potentials** via MACE, with GPU-batched energies and relaxation
 - **Comprehensive examples** covering diverse disorder models
 
 Quick Start
@@ -36,5 +37,6 @@ New users should:
    examples
    sqs_gqs
    random
-   pme_mc
+   cpme_mc
+   mace
    glossary

@@ -1,19 +1,19 @@
 !*******************************************************************************
-!    mcsod — Monte Carlo sampling with SOD effective Hamiltonian (PME).
+!    mcsod — Monte Carlo sampling with SOD effective Hamiltonian (CPME).
 !
 !    Runs one Metropolis MC chain at the temperature supplied as a positional
-!    argument and writes output to nXX/MCT_TTTK/PMEx/.
+!    argument and writes output to nXX/MCT_TTTK/CPMEx/.
 !    For uniform random sampling (energy-free, all moves accepted) use randomsod.
 !
-!    Required input files: INMC, INSOD, EQMATRIX, SGO, the PME training data
+!    Required input files: INMC, INSOD, EQMATRIX, SGO, the CPME training data
 !    (n00/ENERGIES, …) and a temperature: mcsod <temperature/K>.
 !
-!    Part of the SOD package (v0.84) — GNU GPL v3+.
+!    Part of the SOD package (v0.90) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcsod
   use iso_fortran_env, only: real64, int64, error_unit
-  use pmemod
+  use cpmemod
   use ensemble_io,     only: write_ensemble
   use config_sampling, only: mc_random_subset, seed_rng_clock, seed_rng_fixed, &
                              read_next_data_line, to_lower
@@ -25,12 +25,12 @@ program mcsod
   real(real64) :: requested_temperature
   integer :: n_equil, n_prod
   logical :: use_symmetry_reduction, recal_ok
-  character(len=32) :: seed_label, arg_text, level_dir, pme_variant, temp_dir
+  character(len=32) :: seed_label, arg_text, level_dir, cpme_variant, temp_dir
   integer :: unit_in
   character(len=256) :: line, start_config_line, model_filename_arg
   character(len=256) :: output_dir, energies_dir
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.84 - mcsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - mcsod"
 
   ! --- Read INMC ---
   open(newunit=unit_in, file='INMC', status='old', action='read', iostat=ios)
@@ -125,7 +125,7 @@ program mcsod
       end if
       iarg = iarg + 1
       call get_command_argument(iarg, model_filename_arg)
-      call pme_set_model_filename(trim(model_filename_arg))
+      call cpme_set_model_filename(trim(model_filename_arg))
       write(*,'(A,A)') ' > Using model file: ', trim(model_filename_arg)
     else
       ! Treat as positional; only one positional arg expected (temperature)
@@ -183,19 +183,19 @@ program mcsod
     call seed_rng_clock()
   end if
 
-  ! --- Initialize PME model ---
-  call pme_get_target_level_from_insod(target_level)
-  call pme_initialize_model(target_level)
+  ! --- Initialize CPME model ---
+  call cpme_get_target_level_from_insod(target_level)
+  call cpme_initialize_model(target_level)
   recal_ok = .true.
-  if (pme_energies_available()) call pme_preload_recalibration(target_level, recal_ok)
-  call pme_print_model_summary()
+  if (cpme_energies_available()) call cpme_preload_recalibration(target_level, recal_ok)
+  call cpme_print_model_summary()
 
   call format_level_directory(target_level, level_dir)
-  call format_pme_variant_directory(pme_get_choice(), pme_variant)
+  call format_cpme_variant_directory(cpme_get_choice(), cpme_variant)
 
-  ! Output layout: nXX/MCT_TK/PMEx/{ENSEMBLE,ENERGIES} (the walk is Hamiltonian-driven).
+  ! Output layout: nXX/MCT_TK/CPMEx/{ENSEMBLE,ENERGIES} (the walk is Hamiltonian-driven).
   call format_metropolis_directory(requested_temperature, temp_dir)
-  output_dir   = trim(level_dir)//'/'//trim(temp_dir)//'/'//trim(pme_variant)
+  output_dir   = trim(level_dir)//'/'//trim(temp_dir)//'/'//trim(cpme_variant)
   energies_dir = output_dir
 
   call execute_command_line('mkdir -p '//trim(output_dir), exitstat=mkdir_status)
@@ -216,7 +216,7 @@ program mcsod
               start_config_line, output_dir, energies_dir)
 
   ! --- Cleanup ---
-  call pme_finalize_model()
+  call cpme_finalize_model()
 
   write(*, '(A)') ' ============================================================================'
   write(*, '(A)') '  mcsod completed.'
@@ -225,19 +225,19 @@ program mcsod
 
 contains
 
-  subroutine format_pme_variant_directory(choice, dirname)
+  subroutine format_cpme_variant_directory(choice, dirname)
     integer, intent(in) :: choice
     character(len=*), intent(out) :: dirname
 
     select case (choice)
     case (0)
-      dirname = 'PME0'
+      dirname = 'CPME0'
     case (1)
-      dirname = 'PME1'
+      dirname = 'CPME1'
     case default
-      dirname = 'PMEh'
+      dirname = 'CPMEh'
     end select
-  end subroutine format_pme_variant_directory
+  end subroutine format_cpme_variant_directory
 
   subroutine format_metropolis_directory(temperature, dirname)
     real(real64), intent(in) :: temperature
@@ -317,18 +317,18 @@ contains
     integer(int64) :: total_omega
 
     lev       = target_level
-    npos_val  = pme_get_npos()
-    atini_val = pme_get_target_atini()
-    max_lo    = pme_get_max_low_order()
-    max_hi    = pme_get_max_high_order()
-    has_high  = pme_has_high_side()
-    call pme_get_v0(v0_lo, v0_hi)
+    npos_val  = cpme_get_npos()
+    atini_val = cpme_get_target_atini()
+    max_lo    = cpme_get_max_low_order()
+    max_hi    = cpme_get_max_high_order()
+    has_high  = cpme_has_high_side()
+    call cpme_get_v0(v0_lo, v0_hi)
 
     outmc_path = trim(output_dir)//'/OUTMC'
 
     if (lev == 0) then
       write(*, '(A)') ' > Level 0: single configuration — delegating to regular outputs.'
-      call pme_write_level_outputs(target_level)
+      call cpme_write_level_outputs(target_level)
       return
     end if
 
@@ -406,7 +406,7 @@ contains
     ! Hole list for the starting configuration (maintained incrementally below).
     call rebuild_hole_set(subset, lev, npos_val, cur_holes)
 
-    call pme_evaluate_configuration(subset(1:lev), lev, &
+    call cpme_evaluate_configuration(subset(1:lev), lev, &
       energy, energy_low, energy_high, low_terms, high_terms)
     call apply_epsilon_energy(lev, low_terms, high_terms, energy)
 
@@ -436,7 +436,7 @@ contains
         end do
         is_restart = .true.
         ! Restart replaces many sites at once — recompute the trial in full.
-        call pme_evaluate_configuration(trial_subset(1:lev), lev, &
+        call cpme_evaluate_configuration(trial_subset(1:lev), lev, &
           trial_energy, trial_low, trial_high, trial_low_terms, trial_high_terms)
       else
         is_restart = .false.
@@ -444,7 +444,7 @@ contains
           removed_site, added_site, hole_pick)
         ! Single swap — update the term vectors incrementally from the current
         ! config, reusing the maintained hole list (no O(npos) rebuild).
-        call pme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
+        call cpme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
           dlow_terms, dhigh_terms, cur_holes, hole_count)
         trial_low_terms  = low_terms  + dlow_terms
         trial_high_terms = high_terms + dhigh_terms
@@ -476,7 +476,7 @@ contains
       ! Periodic full recompute to bound floating-point drift.
       steps_since_resync = steps_since_resync + 1
       if (steps_since_resync >= n_resync) then
-        call pme_evaluate_configuration(subset(1:lev), lev, &
+        call cpme_evaluate_configuration(subset(1:lev), lev, &
           energy, energy_low, energy_high, low_terms, high_terms)
         call apply_epsilon_energy(lev, low_terms, high_terms, energy)
         steps_since_resync = 0
@@ -492,7 +492,7 @@ contains
     ! term vectors before production storage begins.
     ! =================================================================
     if (n_equil > 0) then
-      call pme_evaluate_configuration(subset(1:lev), lev, &
+      call cpme_evaluate_configuration(subset(1:lev), lev, &
         energy, energy_low, energy_high, low_terms, high_terms)
       call apply_epsilon_energy(lev, low_terms, high_terms, energy)
       steps_since_resync = 0
@@ -531,7 +531,7 @@ contains
         end do
         is_restart = .true.
         ! Restart replaces many sites at once — recompute the trial in full.
-        call pme_evaluate_configuration(trial_subset(1:lev), lev, &
+        call cpme_evaluate_configuration(trial_subset(1:lev), lev, &
           trial_energy, trial_low, trial_high, trial_low_terms, trial_high_terms)
       else
         is_restart = .false.
@@ -539,7 +539,7 @@ contains
           removed_site, added_site, hole_pick)
         ! Single swap — incremental update from the current config, reusing the
         ! maintained hole list (no O(npos) rebuild).
-        call pme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
+        call cpme_evaluate_swap_delta(subset(1:lev), lev, removed_site, added_site, &
           dlow_terms, dhigh_terms, cur_holes, hole_count)
         trial_low_terms  = low_terms  + dlow_terms
         trial_high_terms = high_terms + dhigh_terms
@@ -623,7 +623,7 @@ contains
       ! Periodic full recompute to bound floating-point drift in the running term vectors.
       steps_since_resync = steps_since_resync + 1
       if (steps_since_resync >= n_resync) then
-        call pme_evaluate_configuration(subset(1:lev), lev, &
+        call cpme_evaluate_configuration(subset(1:lev), lev, &
           energy, energy_low, energy_high, low_terms, high_terms)
         call apply_epsilon_energy(lev, low_terms, high_terms, energy)
         steps_since_resync = 0
@@ -737,7 +737,7 @@ contains
         character(len=10) :: syms_mc(1,2)
         character(len=10) :: orig_arr(1)
         allocate(mc_ic(n_unique, max(1, lev)), mc_dg(n_unique))
-        call pme_get_newsymbol(orig_sym_mc, sym_new_mc, sym_rem_mc)
+        call cpme_get_newsymbol(orig_sym_mc, sym_new_mc, sym_rem_mc)
         syms_mc(1,1) = sym_new_mc; syms_mc(1,2) = sym_rem_mc
         orig_arr(1)  = orig_sym_mc
         mc_dg = degeneracy(1:n_unique)
@@ -761,12 +761,12 @@ contains
     end block
 
     ! === Write OUTMC (summary only; config table is in ENSEMBLE + ENERGIES) ===
-    call pme_get_epsilon(mu_lo, mu_hi)
-    call pme_get_alpha_eta(alpha_hybrid_val, eta_hybrid_val)
+    call cpme_get_epsilon(mu_lo, mu_hi)
+    call cpme_get_alpha_eta(alpha_hybrid_val, eta_hybrid_val)
 
     open(newunit=unit_out, file=trim(outmc_path), status='replace', action='write')
     write(unit_out,'(A)') ' ================================================================='
-    write(unit_out,'(A)') '  SOD PME — Monte Carlo sampling summary'
+    write(unit_out,'(A)') '  SOD CPME — Monte Carlo sampling summary'
     write(unit_out,'(A)') ' ================================================================='
     write(unit_out,'(A,A)')       '  Sampler           : ', trim(sampler_label)
     write(unit_out,'(A,A)')       '  Symmetry mode     : ', trim(symmetry_label)

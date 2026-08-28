@@ -1,10 +1,51 @@
 #!/bin/bash
 
+# Collects GULP vibrational free energies ("Final free energy") into nXX/ENERGIES,
+# in the same two-column "m  E" format as the other sod_*_ener.sh collectors, so
+# sod_stat.sh consumes it unchanged.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/sod_common.sh"
 
 SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
 LEVEL_NAME="$(sod_find_enclosing_level_name "$SODPROJECT" "$PWD" || true)"
+
+extract_free_energy() {
+  local cdir="$1"
+  awk '
+    $1 == "Final" && $2 == "free" && $3 == "energy" { value = $5 }
+    END {
+      if (value != "") printf "%.10f\n", value
+    }
+  ' "${cdir}output.gout"
+}
+
+process_level() {
+  local energies_file="$1"
+  shift
+  local cdirs=("$@")
+  local n_missing=0
+  rm -f "$energies_file"
+  for cdir in "${cdirs[@]}"; do
+    local m_raw
+    m_raw=$(basename "${cdir%/}")
+    local m=$((10#${m_raw#c}))
+    if [ -f "${cdir}output.gout" ]; then
+      local energy
+      energy=$(extract_free_energy "$cdir")
+      if [ -n "$energy" ]; then
+        printf "%d  %s\n" "$m" "$energy" >> "$energies_file"
+      else
+        n_missing=$((n_missing + 1))
+      fi
+    else
+      n_missing=$((n_missing + 1))
+    fi
+  done
+  if [ "$n_missing" -gt 0 ]; then
+    echo "Warning: missing free energies for $n_missing configuration(s)."
+  fi
+}
 
 if [ -z "$LEVEL_NAME" ]; then
   # Called from SODPROJECT/: extract free energies for all nXX/ levels
@@ -13,13 +54,12 @@ if [ -z "$LEVEL_NAME" ]; then
     echo "Error: no nXX/ folders found in SODPROJECT/."
     exit 1
   fi
-  for ndir in $(ls -d n*/ 2>/dev/null | sort); do
-    rm -f "${ndir}ENERGIES"
-    for cdir in $(ls -d "${ndir}"c*/ 2>/dev/null | sort); do
-      if [ -f "${cdir}output.gout" ]; then
-        awk '($1=="Final") && ($2=="free") && ($3=="energy") {print $5}' "${cdir}output.gout" >> ENERGIES
-      fi
-    done
+  for ndir in $(ls -d n[0-9]*/ 2>/dev/null | sort); do
+    cdirs=()
+    while IFS= read -r name; do
+      cdirs+=("${ndir}${name}/")
+    done < <(sod_config_dirs_in_order "$ndir")
+    process_level "${ndir}ENERGIES" "${cdirs[@]}"
   done
 else
   # Called from nXX/: extract free energies for this level only
@@ -28,10 +68,9 @@ else
     echo "Error: no cYY/ folders found in ${LEVEL_NAME}/."
     exit 1
   fi
-  rm -f ENERGIES
-  for cdir in $(ls -d c*/ 2>/dev/null | sort); do
-    if [ -f "${cdir}output.gout" ]; then
-      awk '($1=="Final") && ($2=="free") && ($3=="energy") {print $5}' "${cdir}output.gout" >> ENERGIES
-    fi
-  done
+  cdirs=()
+  while IFS= read -r name; do
+    cdirs+=("${name}/")
+  done < <(sod_config_dirs_in_order)
+  process_level "ENERGIES" "${cdirs[@]}"
 fi

@@ -1,0 +1,23 @@
+# mace_settings.yaml — options for sod_mace.sh
+#
+# Every key is optional and mirrors a command-line option; anything given on
+# the command line overrides this file. A copy in nXX/ takes priority over one
+# here in SODPROJECT.
+
+model: medium-0b2        # MACE foundation model name
+device: cuda             # cuda | cpu
+batch: 16                # maximum structures per GPU batch
+
+relax: true              # FIRE2 relaxation of positions (false = single point)
+batchmode: refill        # fixed | refill  (batch scheduling, relax only)
+fmax: 0.05               # force convergence, eV/A
+maxsteps: 200            # maximum relaxation steps
+
+# relaxcell: true                    # also relax the cell (needs relax)
+# pressure: 0.0                      # target pressure in GPa (needs relaxcell)
+# lattice: cub                       # also write nXX/CELL (needs relaxcell)
+# checkpoint: /path/to/local.model   # local model instead of the foundation one
+# structure: configuration.cif       # default: from the INSOD FILER value
+# cueq: auto                         # on | off | auto
+# force: false                       # overwrite an existing ENERGIES
+# q: false                           # suppress progress output

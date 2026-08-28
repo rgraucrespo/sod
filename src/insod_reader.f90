@@ -219,6 +219,7 @@ contains
         stop 1
       end if
     else if (d%ntarget == 1) then
+      call check_nsubs_token_count(line, insod_nkmax)
       d%nk(1) = 0
       do j = 1, insod_nkmax
         read(line, *, iostat=ios) d%nsubs_t(1, 1:j)
@@ -229,10 +230,6 @@ contains
         write(*, *) 'Error: could not parse nsubs from INSOD: ', trim(line)
         stop 1
       end if
-      if (d%nk(1) > 3) then
-        write(*, *) 'Error: more than 3 species per site (k=', d%nk(1), ') not yet supported.'
-        stop 1
-      end if
       if (d%nk(1) == 1 .and. d%nsubs_t(1,1) < 0) then
         write(*, *) 'Error: number of substitutions must be >= 0: ', trim(line)
         stop 1
@@ -241,6 +238,7 @@ contains
       d%nsubs_max = d%nsubs_t(1,1)
     else
       ! ntarget >= 2
+      call check_nsubs_token_count(line, insod_nkmax)
       d%nk(1) = 0
       do j = 1, insod_nkmax
         read(line, *, iostat=ios) d%nsubs_t(1, 1:j)
@@ -249,10 +247,6 @@ contains
       end do
       if (d%nk(1) == 0) then
         write(*, *) 'Error: could not parse nsubs for target 1 from INSOD: ', trim(line)
-        stop 1
-      end if
-      if (d%nk(1) > 3) then
-        write(*, *) 'Error: more than 3 species per site (k=', d%nk(1), ') not yet supported.'
         stop 1
       end if
       do k = 1, d%nk(1)
@@ -267,6 +261,7 @@ contains
           write(*, '(a,i0,a)') 'Error: malformed INSOD (missing nsubs line for target ', t, ').'
           stop 1
         end if
+        call check_nsubs_token_count(line, insod_nkmax)
         d%nk(t) = 0
         do j = 1, insod_nkmax
           read(line, *, iostat=ios) d%nsubs_t(t, 1:j)
@@ -276,10 +271,6 @@ contains
         if (d%nk(t) == 0) then
           write(*, '(a,i0,a,a)') 'Error: could not parse nsubs for target ', t, &
             ' from INSOD: ', trim(line)
-          stop 1
-        end if
-        if (d%nk(t) > 3) then
-          write(*, *) 'Error: more than 3 species per site (k=', d%nk(t), ') not yet supported.'
           stop 1
         end if
         do k = 1, d%nk(t)
@@ -361,5 +352,23 @@ contains
       end if
     end do
   end function count_tokens
+
+  ! Reject an nsubs line with more tokens than insod_nkmax before the
+  ! caller's read-loop determines the exact species count: that loop only
+  ! tries up to insod_nkmax values, so a line with more would otherwise be
+  ! silently truncated (and remaining newsymbol tokens misread) instead of
+  ! reported as an error.
+  subroutine check_nsubs_token_count(line, nkmax)
+    character(len=*), intent(in) :: line
+    integer,          intent(in) :: nkmax
+    integer :: ntok
+    ntok = count_tokens(line)
+    if (ntok > nkmax) then
+      write(*, '(a,i0,a,i0,a)') 'Error: nsubs line has ', ntok, &
+        ' values; at most ', nkmax, ' substituent species per target are supported.'
+      write(*, '(a,a)') '  Line: ', trim(line)
+      stop 1
+    end if
+  end subroutine check_nsubs_token_count
 
 end module insod_reader

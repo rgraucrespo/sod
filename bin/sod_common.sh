@@ -133,3 +133,100 @@ sod_level_dir_by_number() {
   done
   return 1
 }
+
+# Read the configuration count from the first line of a version 3 ENSEMBLE.
+#
+# Exit status: 0 with the count on stdout; 2 if the file is missing or is not
+# a version 3 ENSEMBLE. Version 2 files are no longer supported; regenerate
+# them with sod_comb.sh or sod_random.sh.
+sod_ensemble_config_count() {
+  local ensemble_path count
+  ensemble_path="$1"
+
+  if [ ! -f "$ensemble_path" ]; then
+    echo "Error: ENSEMBLE file not found: $ensemble_path" >&2
+    return 2
+  fi
+
+  # Line 1 of a v3 ENSEMBLE is "<type> ensemble[ (T K)]: N configurations; ...",
+  # so the count is the integer token immediately before "configurations".
+  count="$(
+    awk '
+      /^[[:space:]]*$/ { next }
+      {
+        if ($1 !~ /^#/) {
+          for (i = 2; i <= NF; i++) {
+            if ($i ~ /^configurations[;:]?$/ && $(i-1) ~ /^[0-9]+$/) {
+              print $(i-1)
+              break
+            }
+          }
+        }
+        exit
+      }
+    ' "$ensemble_path"
+  )"
+  if [[ ! "$count" =~ ^[0-9]+$ ]] || [ "$count" -lt 1 ]; then
+    echo "Error: $ensemble_path is not a version 3 ENSEMBLE." >&2
+    echo "       Expected a first line such as" >&2
+    echo "       'Enumerated ensemble: 71 configurations; sum_degeneracies = 4096'." >&2
+    echo "       Version 2 ENSEMBLE files are no longer supported; regenerate the" >&2
+    echo "       level with sod_comb.sh or sod_random.sh." >&2
+    return 2
+  fi
+  printf '%s\n' "$count"
+}
+
+# Does level_dir hold output_name for every configuration 1..N of its ENSEMBLE?
+#
+# Exit status: 0 complete; 1 incomplete (missing, duplicated or out-of-range
+# cYY indices); 2 the ENSEMBLE could not be read. Sets
+# SOD_ENSEMBLE_CONFIG_COUNT and SOD_COMPLETE_OUTPUT_COUNT for statuses 0 and 1.
+sod_level_outputs_complete() {
+  local level_dir output_name expected dir name digits index available invalid
+  local -A present=()
+  level_dir="$1"
+  output_name="$2"
+
+  expected="$(sod_ensemble_config_count "$level_dir/ENSEMBLE")" || return 2
+  available=0
+  invalid=0
+  for dir in "$level_dir"/c[0-9]*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "${dir%/}")"
+    digits="${name#c}"
+    # Only all-digit cYY names are configuration directories, matching
+    # sodpaths.config_dirs(); c001_backup and the like are not.
+    [[ "$digits" =~ ^[0-9]+$ ]] || continue
+    [ -f "$dir/$output_name" ] || continue
+    index="$((10#$digits))"
+    if [ "$index" -lt 1 ] || [ "$index" -gt "$expected" ] || [ -n "${present[$index]+x}" ]; then
+      invalid=1
+    else
+      present[$index]=1
+      available=$((available+1))
+    fi
+  done
+
+  SOD_ENSEMBLE_CONFIG_COUNT="$expected"
+  SOD_COMPLETE_OUTPUT_COUNT="$available"
+  [ "$available" -eq "$expected" ] && [ "$invalid" -eq 0 ]
+}
+
+# Print the cYY configuration directory names of a level directory (default: the
+# current directory), one per line, in numeric index order. Only all-digit cYY
+# names qualify, matching sodpaths.config_dirs(); c001_backup, cSGO and the like
+# are skipped. Names are printed bare, without the leading directory, so callers
+# compose the path they need.
+sod_config_dirs_in_order() {
+  local base dir name digits
+  base="${1:-.}"
+  for dir in "${base%/}"/c[0-9]*/; do
+    [ -d "$dir" ] || continue
+    name="${dir%/}"
+    name="${name##*/}"
+    digits="${name#c}"
+    [[ "$digits" =~ ^[0-9]+$ ]] || continue
+    printf '%d\t%s\n' "$((10#$digits))" "$name"
+  done | sort -n -k1,1 | cut -f2
+}

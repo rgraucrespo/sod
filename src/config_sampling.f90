@@ -7,12 +7,12 @@
 !          unit through the SGO space-group operators to the conventional cell,
 !          multiplies by the supercell, and returns the number of target sites
 !          (npos) and the global atom offset of the target species (atini/atfin).
-!          This is the single source of truth shared with pmemod; combsod still
+!          This is the single source of truth shared with cpmemod; combsod still
 !          carries an independent copy pending a later dedup.
 !      (2) Sampling helpers: uniform random subsets, symmetry canonicalization,
 !          EQMATRIX loading, RNG seeding and small input/string helpers.
 !
-!    Part of the SOD package (v0.84) — GNU GPL v3+.
+!    Part of the SOD package (v0.90) — GNU GPL v3+.
 !*******************************************************************************
 
 module config_sampling
@@ -41,7 +41,7 @@ contains
     !    npos_out      = number of target-species sites in the supercell
     !    atini_out     = global index of the first target-species atom
     !    atfin_out     = global index of the last target-species atom
-    !  Kept for pmemod and single-target callers; derive_target_geometry_all
+    !  Kept for cpmemod and single-target callers; derive_target_geometry_all
     !  is the multisite generalization.
     type(insod_t),    intent(in)  :: d
     character(len=*), intent(in)  :: sgo_filename

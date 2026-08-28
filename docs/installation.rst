@@ -19,7 +19,7 @@ features used in SOD.
 Obtaining the source
 --------------------
 
-Download the SOD release archive, for example ``sod0.84.tar.gz``, and copy it
+Download the SOD release archive, for example ``sod0.90.tar.gz``, and copy it
 to a directory that will contain the installation. Let this parent directory be
 called ``ROOTSOD``.
 
@@ -30,7 +30,7 @@ Unpack the archive with:
    tar xzvf sod(version).tar.gz
 
 This creates a versioned SOD directory inside ``ROOTSOD``, for example
-``ROOTSOD/sod0.84/``.
+``ROOTSOD/sod0.90/``.
 
 Building SOD
 ------------
@@ -94,6 +94,61 @@ The variable is inherited by ``job_sender`` from your interactive shell; no
 sourcing or alias tricks are needed.  The default bare command is used when the
 variable is unset.
 
+Optional: machine-learning potentials (pysod)
+---------------------------------------------
+
+The Python tools in ``pysod/`` (see :doc:`mace`) are **optional**.  They are not
+built by ``make``, nothing else in SOD depends on them, and the regression suite
+skips their test when they are absent.  Install them only if you want MACE
+machine-learning-potential energies or relaxation.
+
+They need PyTorch, ASE, MACE and the NVIDIA ALCHEMI toolkit.  A dedicated conda
+environment keeps that stack isolated from the system Python:
+
+.. code-block:: bash
+
+   conda create -n nvalchemi python=3.12
+   conda activate nvalchemi
+
+   # 1. PyTorch matching your CUDA runtime. cu130 shown; pick the build for your
+   #    driver from https://pytorch.org, or omit --index-url for a CPU-only build.
+   pip install torch --index-url https://download.pytorch.org/whl/cu130
+
+   # 2. NVIDIA ALCHEMI toolkit (pulls in nvalchemi-toolkit-ops), ASE and MACE
+   pip install nvalchemi-toolkit ase mace-torch
+
+   # 3. Optional cuEquivariance acceleration. Match the ops wheel to your CUDA
+   #    major version: cu13 for CUDA 13, cu12 for CUDA 12.
+   pip install cuequivariance-torch cuequivariance-ops-torch-cu13
+
+All of these are on PyPI.  ALCHEMI requires Python 3.11-3.13.  A GPU is
+optional — ``sod_mace.py -device cpu`` works without CUDA, just slowly.
+
+Verify the environment with:
+
+.. code-block:: bash
+
+   python -c "import torch, ase, mace, nvalchemi; print(torch.cuda.is_available())"
+
+The tools are driven through ``bin/sod_mace.sh`` like every other SOD program.
+The environment does **not** need activating; instead tell the wrapper which
+interpreter to use, once, in your ``~/.bashrc``:
+
+.. code-block:: bash
+
+   export SOD_PYTHON=~/miniconda3/envs/nvalchemi/bin/python
+
+To include the ``sod_mace`` case when running the regression suite, point
+``SOD_PYTHON`` at that interpreter:
+
+.. code-block:: bash
+
+   SOD_PYTHON=~/miniconda3/envs/nvalchemi/bin/python ./bin/sod_run_tests.sh
+
+The versions this stack was developed and validated against are listed in
+``pysod/README.md``; note that ``mace_backend.py`` uses a few private APIs of
+``nvalchemi-toolkit`` 0.2.0, so check those call sites before upgrading.
+
 Main programs and scripts
 -------------------------
 
@@ -104,11 +159,12 @@ bare executables directly):
 - ``sod_comb.sh`` — configuration enumeration and input-file generation
 - ``sod_stat.sh`` — canonical statistical analysis
 - ``sod_gcstat.sh`` — grand-canonical statistical analysis
-- ``sod_pme.sh`` — PME Hamiltonian fitting and evaluation
-- ``sod_mc.sh`` — Monte Carlo sampling using the PME Hamiltonian
+- ``sod_cpme.sh`` — CPME Hamiltonian fitting and evaluation
+- ``sod_mc.sh`` — Monte Carlo sampling using the CPME Hamiltonian
 - ``sod_mcstat.sh`` — thermodynamic integration over MC temperatures (run from ``nXX/``)
 - ``sod_sqs.sh`` / ``sod_gqs.sh`` — SQS/GQS quasirandom structure identification
 - ``sod_gener.sh`` — regenerate calculator input files after changing ``FILER`` or a template
+- ``sod_mace.sh`` — MACE machine-learning-potential energies and relaxation (optional; see :doc:`mace`)
 
 Verifying the installation
 --------------------------
@@ -134,9 +190,10 @@ top-level SOD directory:
    # or equivalently:
    ./bin/sod_run_tests.sh
 
-This runs 28 tests (combsod, genersod, statsod, pmesod, mcsod, mcstatsod,
-gcstatsod, sqssod, and gqssod workflows) against committed reference outputs.
-All tests should pass.
+This runs the combsod, genersod, statsod, cpmesod, randomsod, mcsod, mcstatsod,
+gcstatsod, sqssod, gqssod and sod_mace workflows against committed reference
+outputs.  All tests should pass; tests whose optional inputs or dependencies are
+missing report ``SKIP`` and do not fail the suite.
 
 Troubleshooting
 ---------------

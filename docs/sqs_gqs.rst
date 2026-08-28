@@ -2,17 +2,19 @@ Special Quasirandom Structures (SQS and GQS)
 ============================================
 
 SQS and GQS are methods for identifying configurations that best represent
-random disorder in a solid solution, by comparing pair correlations (Warren
-parameters) to ideal random-mixing values.
+random disorder in a solid solution, by comparing short-range ordering
+statistics to ideal random-mixing values.
 
 Concept
 -------
 
-For a disordered solid solution at composition *x*, ideal random mixing
-produces a characteristic set of pair correlation values π for each cluster
-distance. The ``sqssod`` program scores and ranks all enumerated configurations
-by their deviation from these ideal values — the configuration with the
-smallest deviation is the Special Quasirandom Structure (SQS).
+For a disordered solid solution, ideal random mixing produces characteristic
+pair probabilities. The ``sqssod`` program scores and ranks all configurations
+by comparing species-resolved pair probabilities against independent-random
+targets. For a pair orbit connecting targets ``t`` and ``u``, the target for
+species channel ``alpha,beta`` is ``x(t,alpha) * x(u,beta)``. This target-aware
+form covers binary, multinary, multi-target, and multinary multi-target
+substitution without allowing species to move onto forbidden sublattices.
 
 - **SQS** (``sqssod``): identifies the best-matching configuration at a fixed
   composition (0 K weighting).
@@ -83,7 +85,7 @@ Prerequisites: ``sod_comb.sh`` must have been run (for ``EQMATRIX`` and
       cd nXX/random/
       sod_sqs.sh        # reads ENSEMBLE and INSQS here; writes OUTSQS here
 
-3. Inspect ``OUTSQS`` and pick the best configuration (rank 0 is nearest to
+3. Inspect ``OUTSQS`` and pick the best configuration (rank 1 is nearest to
    ideal randomness).  Generate calculator input files for the chosen index::
 
       sod_gener.sh -choose <index>   # still from nXX/random/
@@ -92,8 +94,7 @@ Prerequisites: ``sod_comb.sh`` must have been run (for ``EQMATRIX`` and
 Input file: INSQS
 -----------------
 
-``INSQS`` controls which clusters are included and how configurations are
-scored. Example::
+``INSQS`` controls the pair cutoff and scoring parameters. Example::
 
    # Maximum cluster order (2-6)
    4
@@ -107,33 +108,50 @@ scored. Example::
    # omega eps_tol
    10  1.0E-8
 
+   # n_top_sqs: number of top configurations listed in OUTSQS (0 = rank and list all)
+   10
+
 Key parameters:
 
-- **MaxOrder**: maximum cluster order (2–6).
-- **Cutoff radii**: one per order from 2 to MaxOrder, in Å.
-- **Weights**: relative importance of each order from 2 to MaxOrder in the
-  normalized weighted ``AbsErr``; set to 0.0 to remove that order from
-  ``AbsErr``.
+- **MaxOrder**: accepted for backward compatibility. The generalized
+  ``sqssod`` scorer currently uses pair correlations only, so order 2 controls
+  the SQS score and entries for orders 3+ are ignored by ``sqssod``.
+- **Cutoff radii**: one per order from 2 to MaxOrder, in Å. ``sqssod`` uses the
+  order-2 value as the pair cutoff.
+- **Weights**: one per order from 2 to MaxOrder. ``sqssod`` uses the order-2
+  weight in the pair-family error normalization.
 - **Scoring**: van de Walle matched-diameter scoring, ``Q = -omega * L +
-  AbsErr``, where ``AbsErr`` is the normalized weighted mean of \|Δπ\|.
+  Error``, where ``Error`` is the normalized mean absolute deviation of
+  species-resolved pair probabilities from their target random probabilities.
+- **n_top_sqs**: number of best-ranked configurations listed in ``OUTSQS``;
+  ``0`` sorts and lists the whole ensemble. Optional line; defaults to 10 if
+  absent.
 
 Output files
 ------------
 
-``sqssod`` writes ``OUTSQS`` in each composition folder — a ranked list of
-configurations with their pair correlations and scores. Rank 0 is the best
-SQS.
+``sqssod`` writes two files in each composition or sample folder:
+
+- ``OUTSQS``: compact ranked list of the ``n_top_sqs`` best configurations
+  (default 10; ``0`` = all) with matched distance, total error, score, and
+  target-pair family errors such as ``E11`` and ``E12``. Equal-score
+  configurations rank by configuration index.
+- ``SQS_CORRELATIONS``: detailed species-resolved pair-channel probabilities
+  for the best-ranked configuration, including ``P_cell``, ``P_random``, and
+  ``Delta`` for each pair orbit/channel.
+
+Rank 1 is the best SQS.
 
 ``gqssod`` writes ``OUTGQS`` — thermal averages of pair correlations at each
 temperature in ``TEMPERATURES``.
 
-See the ``README.md`` for full format descriptions of ``OUTSQS`` and
-``OUTGQS``.
+See the ``README.md`` for full format descriptions of ``OUTSQS``,
+``SQS_CORRELATIONS``, and ``OUTGQS``.
 
 Selecting a SQS
 ---------------
 
-- **Rank 0** is closest to ideal randomness. Prefer the configuration with
+- **Rank 1** is closest to ideal randomness. Prefer the configuration with
   the lowest weighted van de Walle score, ``Q``.
 - **Degeneracy**: higher-degeneracy configurations may be thermodynamically
   preferred; use judgement when multiple configurations score similarly.
