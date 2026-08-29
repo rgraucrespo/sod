@@ -40,7 +40,6 @@ You can find below the essential info needed to use SOD. Please note that SOD au
   - [Output file: wc_parameters.dat](#output-file-wc_parametersdat)
   - [Example: example16](#example-example16)
   - [Selecting a SQS](#selecting-a-sqs)
-  - [Citing SQS/GQS](#citing-sqsgqs)
 - [Constrained Periodic Motif Expansion (CPME) and Monte Carlo (MC)](#constrained-periodic-motif-expansion-cpme-and-monte-carlo-mc)
   - [CPME Workflow](#cpme-workflow)
   - [cpme.model Format](#cpmemodel-format)
@@ -692,14 +691,6 @@ The `n08/wc_parameters.dat` above shows the ground-state (T=0 K) ordering: neare
 1. **Lowest Q**: Configurations ranked near 0 are closest to the target correlations under the weighted van de Walle score.
 2. **Consider degeneracy**: High-degeneracy configurations may be preferred (more likely to occur naturally under equilibration).
 3. **Supercell size**: Larger supercells allow better SQS; for small cells, no configuration may achieve π = target exactly.
-
-### Citing SQS/GQS
-
-If you use SQS or GQS in your research, please cite:
-
-*Hamad, S., Catlow, C. R. A., Spanó, E., Deutschmann, O., & Grau-Crespo, R. (2022). Special Quasirandom Structures for the calculation of properties of solid solutions at arbitrary temperatures: the case of complex borocarbides. *Chemistry of Materials*, 34(9), 3988–3995.*
-
-Also cite the original SOD paper for the computational framework.
 
 ## Constrained Periodic Motif Expansion (CPME) and Monte Carlo (MC)
 
