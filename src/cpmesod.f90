@@ -26,7 +26,7 @@ program cpmesod
   integer :: target_level, i, nargs
   character(len=256) :: arg, model_filename
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - cpmesod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - cpmesod"
   write (*, *) " > Constrained Periodic Motif Expansion from low/high effective Hamiltonians..."
   write (*, *) ""
 

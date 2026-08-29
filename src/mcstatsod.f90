@@ -16,7 +16,7 @@
 !    Run from nXX/ (where the MCT_*K/ directories and cpme.model reside).
 !    Output: thermodynamics.dat  (same format as statsod)
 !
-!    Part of the SOD package (v0.90) — GNU GPL v3+.
+!    Part of the SOD package (v0.91) — GNU GPL v3+.
 !*******************************************************************************
 
 program mcstatsod
@@ -68,7 +68,7 @@ program mcstatsod
   character(len=256) :: ensemble_line
   integer :: k, m, j, kpos_mc, kpos2_mc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - mcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - mcstatsod"
 
   ! -----------------------------------------------------------------------
   ! 0. Resolve the CPME variant subdirectory (sampling method first, Hamiltonian

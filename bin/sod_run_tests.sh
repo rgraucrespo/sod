@@ -232,6 +232,140 @@ test_genersod() {
     rm -rf "$tmp"
 }
 
+# ── test_genersod_multitarget ─────────────────────────────────────────────────
+# Structure generation with three or more target sites.
+#
+# Until 0.90 every writer resolved a target-site atom as "sptarget(1), else it
+# must be sptarget(2)", so with three targets the third one's atoms were written
+# with the second target's symbols — silently, and with no committed example to
+# expose it, since example13 and example14 both use FILER = -1.  This test drives
+# example13 (Sr on La, Mn on Fe, vacancy on O) at FILER = 0 and diffs the first
+# configuration against a committed reference.
+#
+# $1 = display label   $2 = example directory (3-target INSOD, FILER may be -1)
+# $3 = generated structure path relative to the temp project
+# $4 = committed reference file
+test_genersod_multitarget() {
+    local label="$1" dir="$2" struct_rel="$3" ref="$4"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/SGO" ]; then
+        skip_line "$label" "(missing INSOD or SGO)"
+        skip=$((skip+1)); return
+    fi
+    if [ ! -f "$ref" ]; then
+        skip_line "$label" "(no committed reference)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$tmp/"
+    # Ask for CIF output; the example itself ships FILER = -1 (enumeration only).
+    sed -i.bak 's/^-1$/0/' "$tmp/INSOD" && rm -f "$tmp/INSOD.bak"
+
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[combsod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" genersod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[genersod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    if [ ! -f "$tmp/$struct_rel" ]; then
+        fail_line "$label" "[$struct_rel not generated]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! diff -q "$ref" "$tmp/$struct_rel" >/dev/null 2>&1; then
+        fail_line "$label" "[$struct_rel differs from reference]"
+        diff "$ref" "$tmp/$struct_rel" | head -8 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_genersod_molecule_second_target ──────────────────────────────────────
+# A molecule (@NAME) substituted on the *second* target site, written by LAMMPS.
+#
+# The LAMMPS writer used to test only the first target's molecule flags, so a
+# molecule on a second target was emitted as its raw symbol truncated to three
+# characters instead of being expanded into atoms.  Derived from example08 by
+# adding a second target (I on Pb) ahead of the existing @MA on Cs, so no new
+# type mapping is needed.  Molecule orientations are random, so the check is on
+# composition, which is orientation-independent:
+#
+#   64 Cs - 2 replaced by MA        = 62 Cs   (type 1)
+#   64 Pb - 1 replaced by I         = 63 Pb   (type 2)
+#   192 I + 1 on the Pb site        = 193 I   (type 3)
+#   2 MA = CH3NH3                   = 2 C, 2 N, 12 H  (types 4, 5, 6)
+#                                    334 atoms in total
+#
+# $1 = display label   $2 = example08 directory
+test_genersod_molecule_second_target() {
+    local label="$1" dir="$2"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/MA.xyz" ] || [ ! -f "$dir/template_in.lammps" ]; then
+        skip_line "$label" "(missing example08 inputs)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/MA.xyz" "$dir/template_in.lammps" "$tmp/"
+
+    # sptarget 1 -> "2 1" (Pb then Cs); nsubs 2 -> "1" then "2";
+    # newsymbol "@MA Cs" -> "I Pb" then "@MA Cs".
+    python3 - "$tmp/INSOD" <<'EOF'
+import io, re, sys
+p = sys.argv[1]
+s = io.open(p).read()
+s = re.sub(r"(# sptarget[^\n]*\n)1\n",              r"\g<1>2 1\n",        s)
+s = re.sub(r"(# nsubs[^\n]*\n(?:#[^\n]*\n)*)2\n", r"\g<1>1\n2\n",     s)
+s = re.sub(r"(# newsymbol[^\n]*\n(?:#[^\n]*\n)*)@MA Cs\n",
+           r"\g<1>I Pb\n@MA Cs\n", s)
+io.open(p, "w").write(s)
+EOF
+
+    local out; out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[combsod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" genersod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[genersod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local conf; conf=$(ls "$tmp"/n*/c*/conf.data 2>/dev/null | head -1)
+    if [ -z "$conf" ]; then
+        fail_line "$label" "[no conf.data generated]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local natoms; natoms=$(awk '/atoms$/ {print $1; exit}' "$conf")
+    if [ "$natoms" != "334" ]; then
+        fail_line "$label" "[expected 334 atoms, got ${natoms:-none}]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local counts; counts=$(awk '/^Atoms/{f=1;next} f&&NF>=6{print $3}' "$conf" \
+                           | sort -n | uniq -c | awk '{printf "%s:%s ", $2, $1}')
+    if [ "$counts" != "1:62 2:63 3:193 4:2 5:2 6:12 " ]; then
+        fail_line "$label" "[type counts wrong: $counts]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
 # ── test_wrapper_filer_tail ───────────────────────────────────────────────────
 # Ensure the shell wrappers read FILER from the last INSOD data line rather than
 # literally the last file line, so trailing comments/blanks do not break them.
@@ -335,6 +469,17 @@ test_wrapper_model_flag_error() {
 test_cell_completeness() {
     local label="$1"
     local tmp source_file config_name out mismatch=0
+
+    # Both halves replay committed calculator output (VASP CONTCAR, GULP
+    # output.gout) from example01.  release.sh scrubs those from the public
+    # package, so in a released tree there is nothing to replay: skip rather
+    # than fail, as for any other missing optional input.
+    if ! ls "$EX/example01/FILER11_vasp/n04"/c*/CONTCAR >/dev/null 2>&1 || \
+       ! ls "$EX/example01/FILER1_gulp/n04"/c*/output.gout >/dev/null 2>&1; then
+        skip_line "$label" "(no committed calculator output — excluded from releases)"
+        skip=$((skip+1)); return
+    fi
+
     tmp=$(mktemp -d)
 
     # Complete VASP results invoked from SODPROJECT/ must write nXX/CELL (not a
@@ -411,6 +556,55 @@ test_cell_completeness() {
 
 # ── MACE result-file protection (preflight only, no MLIP stack needed) ─────
 
+# ── test_mace_private_api ─────────────────────────────────────────────────────
+# sod_mace calls a few private nvalchemi-toolkit APIs.  mace_backend.PRIVATE_APIS
+# is the authoritative list of them and check_private_api() enforces it before a
+# run starts, so a toolkit upgrade that renames or drops one is caught here by
+# `make test` rather than by a user, minutes into a relaxation.  The test also
+# plants a bogus entry, so a check that silently passed everything would fail.
+test_mace_private_api() {
+    local label="$1"
+    local py="${SOD_PYTHON:-python3}"
+
+    if ! command -v "$py" >/dev/null 2>&1; then
+        skip_line "$label" "(no python interpreter — set SOD_PYTHON)"
+        skip=$((skip+1)); return
+    fi
+    if ! "$py" -c 'import torch, ase, mace, nvalchemi' >/dev/null 2>&1; then
+        skip_line "$label" "(python MACE stack not installed)"
+        skip=$((skip+1)); return
+    fi
+
+    local out
+    out=$("$py" - "$ROOT/pysod" <<'PYEOF' 2>&1
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import mace_backend as mb
+
+mb.check_private_api()
+
+# A check that accepted anything would be worse than none: make sure it fails.
+mb.PRIVATE_APIS = mb.PRIVATE_APIS + (("FIRE2", mb.FIRE2, "_sod_absent_api"),)
+try:
+    mb.check_private_api()
+except RuntimeError:
+    pass
+else:
+    raise SystemExit("check_private_api accepted a missing attribute")
+
+print("ok")
+PYEOF
+)
+    if [ $? -ne 0 ] || ! printf '%s' "$out" | grep -q "^ok$"; then
+        fail_line "$label" "[private API check failed]"
+        printf '%s\n' "$out" | head -5 | indent
+        fail=$((fail+1)); return
+    fi
+
+    pass_line "$label"; pass=$((pass+1))
+}
+
 test_mace_result_protection() {
     local label="$1"
     local tmp py out i mismatch=0
@@ -486,6 +680,14 @@ test_mace_result_protection() {
 test_ensemble_v3_only() {
     local label="$1"
     local tmp source_file config_name out rc mismatch=0
+
+    # Replays committed VASP CONTCARs from example01, which release.sh scrubs
+    # from the public package; skip in a released tree rather than fail.
+    if ! ls "$EX/example01/FILER11_vasp/n04"/c*/CONTCAR >/dev/null 2>&1; then
+        skip_line "$label" "(no committed calculator output — excluded from releases)"
+        skip=$((skip+1)); return
+    fi
+
     tmp=$(mktemp -d)
 
     # A complete VASP level, plus a directory whose name starts with c<digit>
@@ -870,6 +1072,58 @@ test_sod_mace_relax() {
     fi
     if [ "$before" != "$after" ]; then
         fail_line "$label" "[MACE_RELAXATION.dat changed by a refused rerun]"
+        mismatch=1
+    fi
+
+    # -writerelaxed no: same energies and step counts, no per-configuration
+    # structure written. For runs with too many configurations to keep one file
+    # each, so the level summaries must still be complete.
+    rm -f "$tmp/$nxx/ENERGIES" "$tmp/$nxx/MACE_RELAXATION.dat"
+    for i in $(seq 1 "$n"); do
+        rm -f "$(printf "%s/%s/c%02d" "$tmp" "$nxx" "$i")/relaxed.cif"
+    done
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -batch 2 -relax -maxsteps 20 -writerelaxed no -q 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[-writerelaxed no error]"
+        echo "$out" | tail -3 | indent
+        mismatch=1
+    else
+        local wrote=0
+        for i in $(seq 1 "$n"); do
+            [ -f "$(printf "%s/%s/c%02d" "$tmp" "$nxx" "$i")/relaxed.cif" ] && wrote=$((wrote+1))
+        done
+        if [ $wrote -ne 0 ]; then
+            fail_line "$label" "[-writerelaxed no wrote $wrote relaxed structure(s)]"
+            mismatch=1
+        fi
+        if [ ! -f "$tmp/$nxx/ENERGIES" ] || [ ! -f "$tmp/$nxx/MACE_RELAXATION.dat" ]; then
+            fail_line "$label" "[-writerelaxed no skipped a level summary file]"
+            mismatch=1
+        else
+            check=$(awk '
+                FNR==NR { if (!/^#/) { e[$1]=$3; s[$1]=$5; n++ } ; next }
+                !/^#/ {
+                    d = e[$1] - $3; if (d < 0) d = -d
+                    if (d > 1.0e-3) { printf "config %s energy differs by %.3e eV\n", $1, d; exit }
+                    if (s[$1] != $5) { printf "config %s steps %s vs %s\n", $1, s[$1], $5; exit }
+                    m++
+                }
+                END { if (m != n) printf "fixed has %d rows, writerelaxed-no %d\n", n, m }
+            ' "$tmp/table_fixed.dat" "$tmp/$nxx/MACE_RELAXATION.dat")
+            if [ -n "$check" ]; then
+                fail_line "$label" "[-writerelaxed no: $check]"
+                mismatch=1
+            fi
+        fi
+    fi
+
+    # Without -relax there is no relaxed structure to suppress.
+    out=$(cd "$tmp/$nxx" && PATH="$BIN:$PATH" sod_mace.sh -device cpu -cueq off \
+          -writerelaxed no -force -q 2>&1)
+    if [ $? -eq 0 ] || ! printf '%s' "$out" | grep -q "writerelaxed only applies with relax"; then
+        fail_line "$label" "[-writerelaxed no accepted without -relax]"
         mismatch=1
     fi
 
@@ -1690,12 +1944,13 @@ test_mcstat_vs_enum() {
     fi
 
     # Exact path: statsod over the full enumeration with the CPMEh energies.
-    # cpmesod writes single-column energies in configuration order; statsod wants
-    # the two-column "m E" form, so prepend the 1-based index.
+    # cpmesod writes the indexed two-column "m  E" form statsod reads, so the
+    # file goes straight across (before 0.91 it was a bare energy column and
+    # this test had to prepend the index itself).
     mkdir -p "$tmp/enum"
     cp "$nxxdir/ENSEMBLE" "$tmp/enum/ENSEMBLE"
     cp "$tmp/TEMPERATURES"      "$tmp/enum/TEMPERATURES"
-    awk '{printf "%d  %s\n", NR, $1}' "$cpmedir/ENERGIES" > "$tmp/enum/ENERGIES"
+    cp "$cpmedir/ENERGIES"      "$tmp/enum/ENERGIES"
     out=$(cd "$tmp/enum" && PATH="$BIN:$PATH" statsod 2>&1); rc=$?
     if [ $rc -ne 0 ]; then
         fail_line "$label" "[statsod error]"; echo "$out" | head -3 | indent
@@ -2274,6 +2529,9 @@ test_genersod "example01/FILER2_lammps"  "$EX/example01/FILER2_lammps"  "n04/c01
 test_genersod "example01/FILER11_vasp"   "$EX/example01/FILER11_vasp"   "n04/c01/POSCAR"
 test_genersod "example01/FILER12_castep" "$EX/example01/FILER12_castep" "n04/c01/castep.cell"
 test_genersod "example01/FILER13_QE"     "$EX/example01/FILER13_QE"     "n04/c01/pw.in"
+test_genersod_multitarget "example13 (3 targets, vacancy on target 3)" "$EX/example13" \
+    "n01_01_01/c1/configuration.cif" "$EX/example13/genersod_ref/configuration.cif"
+test_genersod_molecule_second_target "example08 (@MA on the second target, LAMMPS)" "$EX/example08"
 test_wrapper_filer_tail "sod_comb.sh ignores trailing INSOD comment" "comb" "$EX/example01/FILER1_gulp" "n04/c01/input.gin"
 test_wrapper_filer_tail "sod_gener.sh ignores trailing INSOD comment" "gener" "$EX/example01/FILER1_gulp" "job_sender"
 test_wrapper_model_flag_error "sod_cpme.sh rejects missing -model filename" "$BIN/sod_cpme.sh" "$EX/example15"
@@ -2370,6 +2628,7 @@ echo ""
 printf "sod_mace  (MACE machine-learning potential)\n"
 printf "%s\n" "-------------------------------------------"
 
+test_mace_private_api "nvalchemi private APIs still present"
 test_sod_mace "example01/FILER0_mace (n04, CIF input, 4 configs)" "$EX/example01/FILER0_mace" "n04"
 test_sod_mace_relax "example01/FILER0_mace relax fixed vs refill parity" "$EX/example01/FILER0_mace" "n04"
 test_sod_mace_relaxcell "example01/FILER0_mace variable cell + CELL + pressure sign" "$EX/example01/FILER0_mace" "n04"

@@ -70,6 +70,7 @@ DEFAULTS: dict[str, object] = {
     "batch": 16,
     "relax": False,
     "relaxcell": False,
+    "writerelaxed": True,
     "pressure": 0.0,
     "lattice": None,
     "batchmode": "fixed",
@@ -95,6 +96,7 @@ TYPES: dict[str, type] = {
     "batch": int,
     "relax": bool,
     "relaxcell": bool,
+    "writerelaxed": bool,
     "pressure": float,
     "lattice": str,
     "batchmode": str,
@@ -105,6 +107,28 @@ TYPES: dict[str, type] = {
     "force": bool,
     "q": bool,
 }
+
+
+BOOLEAN_WORDS = {
+    "yes": True, "no": False,
+    "true": True, "false": False,
+    "on": True, "off": False,
+}
+
+
+def boolean_word(text: str) -> bool:
+    """Parse a yes/no option value.
+
+    Booleans elsewhere are ``store_true`` flags, but an option that defaults to
+    true needs a value to switch it off, so it takes the same words YAML 1.1
+    accepts for a boolean.
+    """
+    try:
+        return BOOLEAN_WORDS[text.strip().lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(
+            f"expected one of {', '.join(BOOLEAN_WORDS)}, got {text!r}"
+        ) from None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,6 +154,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="FIRE2 relaxation of atomic positions (default: single point).")
     add("-relaxcell", action="store_true", default=argparse.SUPPRESS,
         help="Also relax the cell, driven by the MACE stress (needs -relax).")
+    add("-writerelaxed", type=boolean_word, metavar="yes|no", default=argparse.SUPPRESS,
+        help="Write the relaxed geometry into each cYY/ (default: yes). "
+        "'no' keeps ENERGIES and MACE_RELAXATION.dat but writes no per-configuration "
+        "structure, for runs with too many configurations to keep one file each.")
     add("-pressure", type=float, default=argparse.SUPPRESS,
         help="Target external pressure in GPa for -relaxcell (default: 0).")
     add("-lattice", choices=list(CHOICES["lattice"]), default=argparse.SUPPRESS,
@@ -229,6 +257,8 @@ def validate(settings: dict[str, object], parser: argparse.ArgumentParser) -> No
         parser.error("batchmode refill only applies with relax")
     if settings["relaxcell"] and not settings["relax"]:
         parser.error("relaxcell only applies with relax")
+    if not settings["writerelaxed"] and not settings["relax"]:
+        parser.error("writerelaxed only applies with relax")
     if settings["pressure"] and not settings["relaxcell"]:
         parser.error("pressure only applies with relaxcell")
     if settings["lattice"] and not settings["relaxcell"]:
@@ -348,8 +378,9 @@ def planned_result_paths(level: Path, structure_name: str, args: argparse.Namesp
     paths = [level / ENERGIES_FILE]
     if args.relax:
         paths.append(level / RELAXATION_TABLE)
-        relaxed_name = relaxed_filename(structure_name)
-        paths.extend(directory / relaxed_name for _, directory in sodpaths.config_dirs(level))
+        if args.writerelaxed:
+            relaxed_name = relaxed_filename(structure_name)
+            paths.extend(directory / relaxed_name for _, directory in sodpaths.config_dirs(level))
         if args.lattice:
             paths.append(level / CELL_FILE)
     if args.relaxcell and args.pressure != 0.0:
@@ -443,15 +474,19 @@ def process_level(
                 + pressure_ev_a3 * cellparams.cell_parameters(result.cell)[-1]
                 for index, result in results.items()
             }
-        relaxed_name = relaxed_filename(structure_name)
-        for configuration in configurations:
-            backend.write_relaxed(
-                configuration, results[configuration.index], relaxed_name, ase_format
-            )
+        if args.writerelaxed:
+            relaxed_name = relaxed_filename(structure_name)
+            for configuration in configurations:
+                backend.write_relaxed(
+                    configuration, results[configuration.index], relaxed_name, ase_format
+                )
         write_relaxation_table(level / RELAXATION_TABLE, results, args.relaxcell)
         converged = sum(result.converged for result in results.values())
         say(f"  {converged}/{len(results)} converged (fmax {args.fmax} eV/A)")
-        say(f"  wrote {level.name}/c*/{relaxed_name} and {level.name}/{RELAXATION_TABLE}")
+        if args.writerelaxed:
+            say(f"  wrote {level.name}/c*/{relaxed_name} and {level.name}/{RELAXATION_TABLE}")
+        else:
+            say(f"  wrote {level.name}/{RELAXATION_TABLE} (no relaxed structures: -writerelaxed no)")
         if args.relaxcell:
             residual = max(abs(result.final_pressure) for result in results.values())
             say(f"  residual pressure at most {residual:.4f} GPa")

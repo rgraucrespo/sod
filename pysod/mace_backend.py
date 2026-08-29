@@ -16,9 +16,10 @@ Two implementation choices are load-bearing and should not be "tidied":
 * Force evaluation must NOT run under ``torch.inference_mode()``: MACE obtains
   conservative forces through autograd, even in eval mode.
 
-``_rebuild``, ``_init_ref_positions``, ``_ensure_state_initialized`` and
-``_sync_state_to_batch`` are private APIs of nvalchemi-toolkit 0.2.0; see
-pysod/README.md for the pinned versions.
+This module calls a few private nvalchemi-toolkit APIs, listed in
+``PRIVATE_APIS`` below, which is the authoritative record of them:
+``check_private_api`` verifies they are all still present before a run starts,
+and the documentation points here rather than repeating the names.
 """
 
 from __future__ import annotations
@@ -48,6 +49,53 @@ DEFAULT_NEIGHBOR_SKIN = 0.3
 
 # 1 eV/A^3 in GPa.
 GPA_PER_EV_A3 = 160.21766208
+
+# Private nvalchemi-toolkit APIs this backend depends on.  The toolkit exposes no
+# public equivalent for either job -- edges are written straight into Batch
+# storage, and the FIRE2 state has to be seeded and synced around a refill -- so
+# an upgrade that renames or drops one of these breaks sod_mace.  Checking them
+# once at startup turns that into an error naming the missing attribute, instead
+# of an AttributeError raised deep inside a relaxation that has already been
+# running for minutes.
+VALIDATED_NVALCHEMI = "0.2.0"
+
+PRIVATE_APIS: tuple[tuple[str, Any, str], ...] = (
+    ("NeighborListHook", NeighborListHook, "_rebuild"),
+    ("NeighborListHook", NeighborListHook, "_init_ref_positions"),
+    ("FIRE2", FIRE2, "_ensure_state_initialized"),
+    ("FIRE2", FIRE2, "_sync_state_to_batch"),
+)
+
+
+def installed_nvalchemi_version() -> str:
+    """Installed nvalchemi-toolkit version, or ``"unknown"`` if it cannot be read."""
+    try:
+        from importlib.metadata import version
+
+        return version("nvalchemi-toolkit")
+    except Exception:
+        return "unknown"
+
+
+def check_private_api() -> None:
+    """Fail early if a private toolkit API this backend relies on has gone.
+
+    Called by :func:`load_model`, so every run pays a few microseconds for it and
+    no run gets a surprise partway through.
+    """
+    missing = [
+        f"{owner}.{attr}" for owner, obj, attr in PRIVATE_APIS if not hasattr(obj, attr)
+    ]
+    if not missing:
+        return
+    raise RuntimeError(
+        "installed nvalchemi-toolkit is not compatible with sod_mace.\n"
+        f"       Missing private API: {', '.join(missing)}\n"
+        f"       Installed nvalchemi-toolkit {installed_nvalchemi_version()}, "
+        f"validated against {VALIDATED_NVALCHEMI}.\n"
+        "       Pin the validated version, or port pysod/mace_backend.py to the "
+        "new API."
+    )
 
 
 def _neighbor_hook(
@@ -151,6 +199,7 @@ def load_model(
     directly.  ``weights_only=True`` is deliberately not forced -- those files
     are whole pickled models.
     """
+    check_private_api()
     if checkpoint is not None:
         path = Path(checkpoint).expanduser()
         if not path.is_file():

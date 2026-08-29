@@ -61,9 +61,13 @@ The stack these tools were developed and validated against:
 | cuequivariance, cuequivariance-torch | 0.11.1 |
 
 `nvalchemi-toolkit` **0.2.0 specifically**: `mace_backend.py` calls a few private
-APIs of that release (`NeighborListHook._rebuild`, `FIRE2._ensure_state_initialized`,
-`FIRE2._sync_state_to_batch`), which is deliberate — the public hook dispatch does
-not fit the explicit evaluation loop. Check those call sites before upgrading.
+APIs of that release, which is deliberate — the public hook dispatch does not fit
+the explicit evaluation loop. The authoritative list is `PRIVATE_APIS` in
+`mace_backend.py`; it is not repeated here, because a copied list is the thing
+that goes stale. `check_private_api()` verifies every entry before a run starts,
+so an incompatible toolkit gives an error naming the missing attribute instead of
+an `AttributeError` minutes into a relaxation, and `bin/sod_run_tests.sh` runs the
+same check (it skips when the stack is absent).
 
 cuEquivariance is optional and detected at runtime; without it the plain e3nn
 backend is used. CUDA is optional too (`-device cpu`).
@@ -251,6 +255,22 @@ With `-relax`, each configuration also gets `cYY/relaxed.cif` (or
 `nXX/MACE_RELAXATION.dat`; `ENERGIES` then carries the relaxed energies. The
 input structure files are never modified, so a rerun cannot silently relax an
 already-relaxed geometry.
+
+`-writerelaxed no` suppresses the per-configuration structures while keeping
+every level summary. It is for levels too large to hold one file per
+configuration: a 64-atom `relaxed.cif` is ~6.3 kB but occupies 8 kiB on a
+4 kiB-block filesystem, so 10^6 configurations cost ~16 GiB and 3M inodes once
+the `cYY/` directories and input structures are counted. The relaxation is
+identical either way — same trajectories, step counts and energies — and the
+time saved is small: ~4 min per 10^6 structures written, against ~7 h of
+fixed-cell (or ~50 h of variable-cell) relaxation for the same count on an
+RTX 5060 Ti. The saving is disk, inodes, and every later traversal, archive or
+transfer of the tree. To keep a few relaxed geometries out of a very large run,
+use `-writerelaxed no`, choose configurations from `ENERGIES`, and re-relax
+those in a smaller level. Note that `-writerelaxed no` neither removes nor
+checks for `relaxed.cif` files from an earlier run — nothing is written, so
+there is nothing to protect — and a leftover one will sit beside an `ENERGIES`
+it no longer matches.
 
 Structure files are located from the INSOD `FILER` value: `0` reads
 `configuration.cif`, `11` reads `POSCAR`. Other calculators write formats ASE

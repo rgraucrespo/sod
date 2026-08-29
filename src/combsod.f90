@@ -150,7 +150,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."

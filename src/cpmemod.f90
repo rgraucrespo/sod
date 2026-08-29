@@ -692,7 +692,10 @@ contains
     do m = 1, mm
       call compute_cpme_variant_energy(choice, target_level, all_low_terms(:, m), all_high_terms(:, m), &
         energy, e_low_cal, e_high_cal)
-      write(unit_energy,'(F20.10)') energy
+      ! Indexed two-column "m  E", the format every ENERGIES consumer requires
+      ! (statsod, gcstatsod, mcstatsod) and the one mcsod already writes.  A
+      ! bare energy column could not be read back by any of them.
+      write(unit_energy,'(I0,2X,F22.10)') m, energy
     end do
     close(unit_energy)
 

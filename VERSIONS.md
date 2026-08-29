@@ -1,5 +1,28 @@
 ## Unreleased
 
+## Version 0.91 (29 August 2026)
+
+Correctness and documentation release. One silent structure-generation bug, a
+restructured manual, and the input files for the spectra workflow put back.
+
+- **`genersod`: structure files were wrong for three or more target sites** (breaking bug fix): with `sptarget` naming three or more sublattices and one new species on each, the atoms of the third and later targets were written with the *second* target's symbols. Driving example13 (Sr on La, Mn on Fe, a vacancy on O) at `FILER = 0` produced a CIF containing 30 Fe, 7 La, 2 Mn and 1 Sr — every oxygen relabelled, no oxygen left — with no warning of any kind. Enumeration, degeneracies and `ENSEMBLE` were never affected: this was purely the writers, so only runs that generated calculator input for three or more targets are involved. Anyone who has run such a case should regenerate the input files with `sod_gener.sh` and check the composition of a configuration before trusting earlier results. Two related gaps are fixed with it: the LAMMPS writer did not expand a molecule (`@NAME`) placed on a second target, writing its symbol truncated to three characters, and molecules and vacancies were written literally (`%O` as an "atom") in multi-target multi-nary substitutions. All six writers now resolve target sites through one shared routine that handles any number of targets and species, so molecules and vacancies also work with multi-nary substitution for the first time.
+
+- **`cpmesod` wrote an `ENERGIES` file that nothing could read**: the CPME predictions in `nXX/CPME0/`, `nXX/CPME1/` and `nXX/CPMEh/` came out as a bare column of energies, while `statsod`, `gcstatsod` and `mcstatsod` all require the indexed two-column `m  E` format documented for `ENERGIES` (and already written by `mcsod`). Running `sod_stat.sh` on a CPME level failed with `Error: could not open or read ENERGIES` — the very step the CPME workflow exists to feed. The file is now written in the standard format; the predicted energies themselves are unchanged.
+
+- **`sod_mace.sh -writerelaxed no`**: relax without keeping a structure file per configuration. `-relax` always wrote `cYY/relaxed.cif` (or `relaxed_POSCAR`), which is right for thousands of configurations and wrong for millions — at 10⁶ configurations that is 16.4 GiB and 3M inodes for 9.7 GB of data. The option keeps `ENERGIES`, `MACE_RELAXATION.dat` and `ENTHALPIES`/`CELL` and writes no per-configuration structure. It is a storage measure, not a speed one: writing the structures is about 1 % of a fixed-cell relaxation.
+
+- **Documentation reorganised, and ten incorrect claims corrected**: the readthedocs manual is now grouped into Getting started / Running SOD / Methods / Reference, with new pages for enumeration (the `INSOD` file field by field), calculator input generation, and configurational averages and thermodynamics — material that previously existed only in `README.md`. The README follows the same order and has a table of contents. Several documented recipes did not work as written: the minimal `INGC` shown for grand-canonical analysis omitted the stress-corrections flag, which `gcstatsod` always reads, so following it produced a Fortran runtime error; the `INMC` listing showed an "MC sampler" first field that `mcsod` does not read, which shifted every later value by one line; `ENERGIES` was described as accepting a subset of configurations, but `statsod`, `gcstatsod` and `mcstatsod` all require every configuration and abort otherwise (the indexed format exists for CPME calibration); `@configuration_structure@` was said to be mandatory for every calculator, though LAMMPS neither needs nor uses it; and `sod_mcstat.sh` is run from `nXX/`, not `nXX/CPMEx/`. Two example descriptions had stale numbers (example02 has 97 inequivalent configurations at n04, not 99; example06 is a 3×3×3 supercell with 24 inequivalent configurations, not 2×2×2 with 9).
+
+- **example05: `PEAKS` and `INP2S` restored**: the spectra-averaging workflow (`sod_p2s.sh`) had no input files anywhere in the package — only the `SPECTRA`/`XSPEC` they produce — so the one worked example of that step could not be run. Both files are back for levels n00, n01, n02, n04, n13, n14 and n15, verified by regenerating each level's committed spectra from them byte for byte.
+
+- **The test suite no longer reports failures in the released package**: `make test` ran two checks that replay committed VASP and GULP output from `example01`, which the release deliberately leaves out to keep the package small. With nothing to replay they failed rather than skipping, so six tests failed for anyone verifying a fresh install of 0.90. They now skip, with the reason given.
+
+- **`bin/sod_check_docs.sh`**: new consistency check over the documentation — the version string across `README.md`, `docs/conf.py`, `VERSIONS.md` and the program banners, that every example is described, that every wrapper script is documented, that the README's internal links resolve, and that the docs build without warnings.
+
+- **`sod_mace` fails early on an incompatible ALCHEMI toolkit**: the backend uses a few private `nvalchemi-toolkit` 0.2.0 APIs, and now verifies them before a run starts, naming the missing attribute and the validated version, instead of raising an `AttributeError` minutes into a relaxation.
+
+- **`genersod` prints its version banner** like the other eleven executables.
+
 ## Version 0.90 (28 August 2026)
 
 Feature release. Machine-learning interatomic potentials, species-resolved SQS,

@@ -101,9 +101,10 @@ Glossary
    GQS
    Generalized Quasirandom Structures
       An extension of :term:`SQS` to finite temperatures. Rather than
-      selecting the single configuration whose :term:`Warren parameters`
-      are closest to ideal random values at 0 K, GQS computes the
-      thermally weighted average of pair correlations from the full
+      selecting the single configuration whose :term:`correlation
+      functions` are closest to ideal random values at 0 K, GQS computes
+      the thermally weighted average of the multi-site cluster
+      correlation functions (orders 1 to ``MaxOrder``) from the full
       Boltzmann ensemble at each temperature. The result reflects how
       short-range order evolves with temperature. Implemented in
       ``gqssod`` and invoked via ``sod_gqs.sh``.
@@ -303,9 +304,12 @@ Glossary
 
    OUTGQS
       Output file written by ``gqssod`` (via ``sod_gqs.sh``). Contains the
-      thermally averaged :term:`Warren parameters` at each temperature
-      requested in the ``TEMPERATURES`` file, computed by Boltzmann
-      weighting over the configurational ensemble. See :term:`GQS`.
+      thermally averaged multi-site cluster :term:`correlation functions`
+      at each temperature requested in the ``TEMPERATURES`` file, computed
+      by Boltzmann weighting over the configurational ensemble. ``gqssod``
+      also writes ``wc_parameters.dat``, which converts the pair
+      correlations into :term:`Warren-Cowley parameters` for each pair
+      shell. See :term:`GQS`.
 
    ENSEMBLE
       The main configuration-list file. For enumeration by :term:`combsod`,
@@ -325,8 +329,20 @@ Glossary
       probabilities for the best configuration are written to
       ``SQS_CORRELATIONS``. See :term:`SQS`.
 
+   correlation functions
+   cluster correlation functions
    pair correlations
-      See :term:`Warren parameters`.
+      The multi-site quantities that characterise the chemical ordering of
+      a :term:`configuration`: for each symmetry-distinct cluster (pair,
+      triplet, ...), the average of the site-occupation product over all
+      instances of that cluster in the supercell. They are the criterion by
+      which :term:`SQS` and :term:`GQS` configurations are selected —
+      ``sqssod`` scores configurations from species-resolved pair
+      probabilities (the order-2 correlations, target- and species-aware),
+      and ``gqssod`` Boltzmann-averages cluster correlations up to
+      ``MaxOrder``. :term:`Warren-Cowley parameters` are a normalised
+      rewriting of the pair correlations, reported as a diagnostic rather
+      than used for ranking.
 
    CPME
    Constrained Periodic Motif Expansion
@@ -412,11 +428,12 @@ Glossary
 
    SQS
    Special Quasirandom Structures
-      The :term:`inequivalent configuration`\s whose :term:`Warren
-      parameters` most closely match the ideal random-mixing values at the
+      The :term:`inequivalent configuration`\s whose :term:`correlation
+      functions` most closely match the ideal random-mixing values at the
       same composition. Identified by ``sqssod`` (via ``sod_sqs.sh``), which
-      ranks all configurations by their deviation from ideal pair
-      correlations. The rank-0 configuration is the best SQS for use in
+      ranks all configurations by the deviation of their species-resolved
+      pair probabilities from the independent-random targets. The rank-1
+      configuration is the best SQS for use in
       single-configuration calculations that aim to represent the disordered
       solid. See also :term:`GQS`.
 
@@ -461,10 +478,14 @@ Glossary
       types can coexist with ordinary and :term:`molecule substitution`
       modes in the same calculation.
 
+   Warren-Cowley parameters
    Warren parameters
-      Normalized pair correlation functions that measure the degree of
-      chemical short-range order at each neighbour distance. For a binary
-      alloy at composition *x*, the Warren parameter for a given pair
-      distance equals *x* under ideal random mixing. SOD's :term:`SQS`
-      and :term:`GQS` tools rank configurations by how closely their
-      Warren parameters match these ideal random values.
+      Normalised pair :term:`correlation functions` that measure the degree
+      of chemical short-range order at each neighbour distance,
+      :math:`\alpha_n = (\Pi_n - (1-2x)^2) / (4x(1-x))` for a binary
+      alloy at composition *x*, so that :math:`\alpha_n = 0` under ideal
+      random mixing. ``gqssod`` writes the thermally averaged
+      :math:`\alpha_n` of every symmetrically distinct pair shell to
+      ``wc_parameters.dat``. They are a post-hoc SRO diagnostic: neither
+      :term:`SQS` nor :term:`GQS` selection is performed on them — the
+      ranking uses the correlation functions directly.

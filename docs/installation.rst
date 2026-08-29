@@ -19,7 +19,7 @@ features used in SOD.
 Obtaining the source
 --------------------
 
-Download the SOD release archive, for example ``sod0.90.tar.gz``, and copy it
+Download the SOD release archive, for example ``sod0.91.tar.gz``, and copy it
 to a directory that will contain the installation. Let this parent directory be
 called ``ROOTSOD``.
 
@@ -30,7 +30,19 @@ Unpack the archive with:
    tar xzvf sod(version).tar.gz
 
 This creates a versioned SOD directory inside ``ROOTSOD``, for example
-``ROOTSOD/sod0.90/``.
+``ROOTSOD/sod0.91/``.
+
+Source tree
+-----------
+
+In the released package:
+
+- ``sod/src/`` contains the Fortran source code
+- ``sod/bin/`` contains the compiled binaries and the shell wrappers
+- ``sod/sgo/`` contains the space-group operator library
+- ``sod/pysod/`` contains the optional Python tools (see :doc:`mace`)
+- ``sod/examples/`` contains the worked examples
+- ``sod/docs/`` contains the sources of this documentation
 
 Building SOD
 ------------
@@ -146,8 +158,12 @@ To include the ``sod_mace`` case when running the regression suite, point
    SOD_PYTHON=~/miniconda3/envs/nvalchemi/bin/python ./bin/sod_run_tests.sh
 
 The versions this stack was developed and validated against are listed in
-``pysod/README.md``; note that ``mace_backend.py`` uses a few private APIs of
-``nvalchemi-toolkit`` 0.2.0, so check those call sites before upgrading.
+``pysod/README.md``, which is the only place they are recorded.  ``sod_mace``
+also depends on a few private APIs of ``nvalchemi-toolkit`` 0.2.0; they are
+listed in ``PRIVATE_APIS`` in ``pysod/mace_backend.py`` and checked before every
+run, so an incompatible toolkit fails at startup naming the missing attribute
+rather than part-way through a relaxation.  ``bin/sod_run_tests.sh`` runs the
+same check, so an upgrade that breaks it shows up in ``make test``.
 
 Main programs and scripts
 -------------------------
@@ -165,6 +181,11 @@ bare executables directly):
 - ``sod_sqs.sh`` / ``sod_gqs.sh`` — SQS/GQS quasirandom structure identification
 - ``sod_gener.sh`` — regenerate calculator input files after changing ``FILER`` or a template
 - ``sod_mace.sh`` — MACE machine-learning-potential energies and relaxation (optional; see :doc:`mace`)
+- ``sod_random.sh`` — uniform random sampling of configuration space (see :doc:`random`)
+
+A local copy of this documentation can be built with ``make docs`` (which runs
+``make -C docs html`` and needs the packages in ``docs/requirements.txt``); the
+result lands in ``docs/_build/html``.
 
 Verifying the installation
 --------------------------

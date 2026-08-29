@@ -19,8 +19,8 @@ substitution without allowing species to move onto forbidden sublattices.
 - **SQS** (``sqssod``): identifies the best-matching configuration at a fixed
   composition (0 K weighting).
 - **GQS** (``gqssod``): extends SQS to finite temperature by computing
-  Boltzmann-weighted thermal averages of pair correlations from calculated
-  energies.
+  Boltzmann-weighted thermal averages of the multi-site cluster correlation
+  functions (orders 1 to ``MaxOrder``) from calculated energies.
 
 Ensemble source: enumeration or random sampling
 ------------------------------------------------
@@ -142,11 +142,17 @@ Output files
 
 Rank 1 is the best SQS.
 
-``gqssod`` writes ``OUTGQS`` — thermal averages of pair correlations at each
-temperature in ``TEMPERATURES``.
+``gqssod`` writes two files:
 
-See the ``README.md`` for full format descriptions of ``OUTSQS``,
-``SQS_CORRELATIONS``, and ``OUTGQS``.
+- ``OUTGQS``: thermal averages of the cluster correlation functions at each
+  temperature in ``TEMPERATURES``, plus the T → ∞ (equiprobable) limit.
+- ``wc_parameters.dat``: the corresponding Warren-Cowley short-range order
+  parameters α\ :sub:`n` for each symmetrically distinct pair shell. These are
+  reported as an SRO diagnostic; the SQS/GQS ranking itself is done on the
+  correlation functions, not on α\ :sub:`n`.
+
+See the repository `README.md <https://github.com/rgraucrespo/sod/blob/master/README.md>`_ for full format descriptions of
+``OUTSQS``, ``SQS_CORRELATIONS`` and ``OUTGQS``.
 
 Selecting a SQS
 ---------------
@@ -161,6 +167,6 @@ Selecting a SQS
 Further information
 -------------------
 
-The ``README.md`` contains complete documentation including the full
+The repository `README.md <https://github.com/rgraucrespo/sod/blob/master/README.md>`_ contains the full
 ``INSQS``/``OUTSQS``/``OUTGQS`` format specifications and a worked example
 using ``example01/FILER1_gulp``.

@@ -201,5 +201,6 @@ See :doc:`installation` for how to run the full test suite.
 Further information
 -------------------
 
-For more detailed scientific context and example-specific notes, see the main
-``README.md`` file and the files included within each example directory.
+For more detailed scientific context and example-specific notes, see the
+repository `README.md <https://github.com/rgraucrespo/sod/blob/master/README.md>`_ and the files included within each
+example directory.

@@ -14,6 +14,7 @@ fmax: 0.05               # force convergence, eV/A
 maxsteps: 200            # maximum relaxation steps
 
 # relaxcell: true                    # also relax the cell (needs relax)
+# writerelaxed: false                # skip cYY/relaxed.* (needs relax)
 # pressure: 0.0                      # target pressure in GPa (needs relaxcell)
 # lattice: cub                       # also write nXX/CELL (needs relaxcell)
 # checkpoint: /path/to/local.model   # local model instead of the foundation one

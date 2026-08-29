@@ -119,6 +119,10 @@ Options
   Relax the cell as well as the positions, driven by the MACE stress.  Requires
   ``-relax``; see `Variable-cell relaxation`_ below.
 
+``-writerelaxed yes|no``  (default ``yes``)
+  Whether to write the relaxed geometry into each ``cYY/``.  Requires
+  ``-relax``; see `Very large levels`_ below.
+
 ``-pressure <P>``  (default ``0``)
   Target external pressure in GPa for ``-relaxcell``.
 
@@ -316,6 +320,48 @@ a summary table:
 
 ``ENERGIES`` then holds the relaxed energies.  Input structure files are never
 modified, so a second run cannot silently relax an already-relaxed geometry.
+
+Very large levels
+-----------------
+
+One ``relaxed.cif`` per configuration is the right default when a level holds
+thousands of configurations, and the wrong one when it holds millions.  Each
+64-atom structure is about 6.3 kB, but on a 4 kiB-block filesystem it occupies
+8 kiB, and the ``cYY/`` directory and input structure cost another 8 kiB, so a
+level of 10\ :sup:`6` configurations takes roughly **16 GiB** and 3 million
+inodes for 9.7 GB of data.  Traversing, archiving or transferring that tree
+afterwards costs minutes each time, and an inode quota -- common on shared HPC
+filesystems -- can refuse the run outright.
+
+``-writerelaxed no`` keeps ``ENERGIES``, ``MACE_RELAXATION.dat``, and
+``ENTHALPIES``/``CELL`` when requested, but writes no per-configuration
+structure:
+
+.. code-block:: bash
+
+   sod_mace.sh -relax -writerelaxed no
+
+The relaxation itself is unchanged -- same trajectories, same step counts, same
+energies -- so this is a storage decision, not a physics one.  It is **not**
+much of a speed decision either: writing the structures costs about 4 minutes
+per 10\ :sup:`6` configurations, against roughly 7 hours of fixed-cell
+relaxation or 50 hours of variable-cell relaxation for the same count on an
+RTX 5060 Ti, i.e. about 1 % and 0.1 % of the run.  What it saves is disk,
+inodes, and every later operation over the tree.
+
+When only a few relaxed geometries are actually wanted -- to look at local
+distortions around a substitution, say -- the usual pattern is to run the large
+level with ``-writerelaxed no``, pick the configurations of interest from
+``ENERGIES``, and re-relax just those in a smaller level with the default
+``-writerelaxed yes``.
+
+.. note::
+
+   ``-writerelaxed no`` does not remove ``relaxed.cif`` files an earlier run
+   left behind, and does not check for them -- the run writes no structure, so
+   there is nothing to protect from being overwritten.  Clear them yourself
+   before rerunning a level that was previously relaxed with structures
+   written, or they will sit beside an ``ENERGIES`` they no longer match.
 
 Example
 -------

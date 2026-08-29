@@ -73,10 +73,15 @@ program genersod
   integer :: mol_natoms(nmoltypes)
   character(len=3) :: mol_sym_arr(nmoltypes, nmolmax_atoms)
   real(real64) :: mol_xyz_arr(nmoltypes, nmolmax_atoms, 3)
-  logical :: is_mol1, is_mol2, is_vac1, is_vac2
-  integer :: mol_idx1, mol_idx2
-  logical :: is_mol1_t2, is_mol2_t2, is_vac1_t2, is_vac2_t2
-  integer :: mol_idx1_t2, mol_idx2_t2
+  ! Molecule (@NAME) / vacancy (%NAME) status of every newsymbol slot, indexed
+  ! by (target, species slot).  Slot nk(t)+1 is the symbol kept for the sites of
+  ! target t that are not substituted.
+  logical :: is_mol_t(ntargetmax, nkmax+1), is_vac_t(ntargetmax, nkmax+1)
+  integer :: mol_idx_t(ntargetmax, nkmax+1)
+  ! Resolution of one target-site atom; see resolve_target_atom.
+  integer, parameter :: site_plain = 0, site_molecule = 1, site_vacancy = 2
+  integer :: site_action, site_mol
+  character(len=5) :: site_sym
   logical :: has_molecules, has_vacancies
 ! Parent-structure molecules: placeholder species expanded to a rigid molecule
   logical :: sp_is_mol(nspmax)
@@ -203,6 +208,7 @@ program genersod
 !
 !
 
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - genersod"
   write (*, *) "Reading INSOD, supercell.cif, and ENSEMBLE to generate calculation input files"
   write (*, *) " "
 
@@ -229,58 +235,27 @@ program genersod
   newsymbol      = insod%newsymbol
   filer          = insod%filer
 
-  ! Parse @ and % prefixes from newsymbol
-  is_mol1 = .false.; is_mol2 = .false.
-  is_vac1 = .false.; is_vac2 = .false.
-  mol_idx1 = 0; mol_idx2 = 0
-  if (newsymbol(1,1)(1:1) == '@') then
-    is_mol1 = .true.
-  else if (newsymbol(1,1)(1:1) == '%') then
-    is_vac1 = .true.
-  end if
-  if (newsymbol(1,2)(1:1) == '@') then
-    is_mol2 = .true.
-  else if (newsymbol(1,2)(1:1) == '%') then
-    is_vac2 = .true.
-  end if
-! Parse @ and % prefixes for second target species (if present)
-  is_mol1_t2 = .false.; is_mol2_t2 = .false.
-  is_vac1_t2 = .false.; is_vac2_t2 = .false.
-  mol_idx1_t2 = 0; mol_idx2_t2 = 0
-  if (ntarget == 2) then
-    if (newsymbol(2,1)(1:1) == '@') then
-      is_mol1_t2 = .true.
-    else if (newsymbol(2,1)(1:1) == '%') then
-      is_vac1_t2 = .true.
-    end if
-    if (newsymbol(2,2)(1:1) == '@') then
-      is_mol2_t2 = .true.
-    else if (newsymbol(2,2)(1:1) == '%') then
-      is_vac2_t2 = .true.
-    end if
-  end if
-  has_molecules = is_mol1 .or. is_mol2 .or. is_mol1_t2 .or. is_mol2_t2
-  has_vacancies = is_vac1 .or. is_vac2 .or. is_vac1_t2 .or. is_vac2_t2
+  ! Parse @ and % prefixes from newsymbol for every target and every species
+  ! slot.  Doing it generically is what lets the writers below handle 1, 2 or 5
+  ! targets, binary or multi-nary, through a single code path.
+  is_mol_t = .false.
+  is_vac_t = .false.
+  mol_idx_t = 0
+  do t = 1, ntarget
+    do j = 1, nk(t) + 1
+      if (newsymbol(t,j)(1:1) == '@') then
+        is_mol_t(t,j) = .true.
+      else if (newsymbol(t,j)(1:1) == '%') then
+        is_vac_t(t,j) = .true.
+      end if
+    end do
+  end do
+  has_molecules = any(is_mol_t(1:ntarget, :))
+  has_vacancies = any(is_vac_t(1:ntarget, :))
 ! Parent-structure molecules (see mapping block at end of INSOD)
   sp_is_mol(:) = .false.
   sp_mol_idx(:) = 0
   has_molecules = has_molecules .or. (insod%n_parentmol > 0)
-! Multi-nary: mol/vac support not yet implemented for nk>=2; issue error if detected
-  if (ntarget == 1 .and. nk(1) >= 2) then
-    if (has_molecules .or. has_vacancies) then
-      write (*, *) "Error: molecule (@) and vacancy (%) symbols are not yet supported"
-      write (*, *) "  for multi-nary substitution (nk>=2)."
-      stop 1
-    end if
-    do j = 3, nk(1)+1
-      if (newsymbol(1,j)(1:1) == '@' .or. newsymbol(1,j)(1:1) == '%') then
-        write (*, *) "Error: molecule (@) and vacancy (%) symbols are not yet supported"
-        write (*, *) "  for multi-nary substitution (nk>=2)."
-        stop 1
-      end if
-    end do
-  end if
-
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !      [ENSEMBLE is now read per level inside the main loop below]
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -354,21 +329,13 @@ program genersod
 
   if (has_molecules) call random_seed()
 
-  do i = 1, 2
-    if (newsymbol(1,i)(1:1) /= '@') cycle
-    call get_molecule(newsymbol(1,i)(2:), imt)
-    if (i == 1) mol_idx1 = imt
-    if (i == 2) mol_idx2 = imt
-  end do
-
-  if (ntarget == 2) then
-    do i = 1, 2
-      if (newsymbol(2,i)(1:1) /= '@') cycle
-      call get_molecule(newsymbol(2,i)(2:), imt)
-      if (i == 1) mol_idx1_t2 = imt
-      if (i == 2) mol_idx2_t2 = imt
+  do t = 1, ntarget
+    do j = 1, nk(t) + 1
+      if (.not. is_mol_t(t,j)) cycle
+      call get_molecule(newsymbol(t,j)(2:), imt)
+      mol_idx_t(t,j) = imt
     end do
-  end if
+  end do
 
 ! Load molecules for parent-structure placeholder species (@NAME parent mapping)
   do ip = 1, insod%n_parentmol
@@ -637,132 +604,23 @@ program genersod
                 trim(symbol(sp)), nat_exp, trim(symbol(sp)), &
                 coords(at, 1), coords(at, 2), coords(at, 3)
         else
-          if (ntarget == 1 .and. nk(1) >= 2) then
-!           Single-target multi-nary: find which species slot this atom belongs to
-            sp_slot = nk(1) + 1
-            col_off = 0
-            do j = 1, nk(1)
-              do i = 1, nsubs_t(1,j)
-                if (newconf(col_off + i) == at) then
-                  sp_slot = j
-                  exit
-                end if
-              end do
-              if (sp_slot <= nk(1)) exit
-              col_off = col_off + nsubs_t(1,j)
+          call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+          if (site_action == site_molecule) then
+            call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                 cellvector, mol_frac_buf, mol_natoms(site_mol))
+            do im = 1, mol_natoms(site_mol)
+              nat_exp = nat_exp + 1
+              write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
+                    trim(mol_sym_arr(site_mol, im)), nat_exp, &
+                    trim(mol_sym_arr(site_mol, im)), &
+                    mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
             end do
+          else if (site_action == site_plain) then
             nat_exp = nat_exp + 1
             write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                  trim(newsymbol(1,sp_slot)), nat_exp, trim(newsymbol(1,sp_slot)), &
+                  trim(site_sym), nat_exp, trim(site_sym), &
                   coords(at, 1), coords(at, 2), coords(at, 3)
-          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!           Phase 4: find target and slot for this atom
-            col_off = 0
-            do t = 1, ntarget
-              if (sp == sptarget(t)) then
-                sp_slot = nk(t) + 1
-                col_off_t = col_off
-                do j = 1, nk(t)
-                  do i = 1, nsubs_t(t, j)
-                    if (newconf(col_off_t + i) == at) then
-                      sp_slot = j; exit
-                    end if
-                  end do
-                  if (sp_slot <= nk(t)) exit
-                  col_off_t = col_off_t + nsubs_t(t, j)
-                end do
-                nat_exp = nat_exp + 1
-                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                      trim(newsymbol(t,sp_slot)), nat_exp, trim(newsymbol(t,sp_slot)), &
-                      coords(at, 1), coords(at, 2), coords(at, 3)
-                exit
-              end if
-              col_off = col_off + nsubs_tot_t(t)
-            end do
-          else
-          call member(nsubs_tot, newconf, at, ifound)
-          if (sp == sptarget(1)) then
-            if (ifound == 1) then
-              if (is_mol1) then
-                call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                do im = 1, mol_natoms(mol_idx1)
-                  nat_exp = nat_exp + 1
-                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                        trim(mol_sym_arr(mol_idx1, im)), nat_exp, &
-                        trim(mol_sym_arr(mol_idx1, im)), &
-                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
-                end do
-              else if (is_vac1) then
-                ! skip
-              else
-                nat_exp = nat_exp + 1
-                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                      trim(newsymbol(1,1)), nat_exp, trim(newsymbol(1,1)), &
-                      coords(at, 1), coords(at, 2), coords(at, 3)
-              end if
-            else
-              if (is_mol2) then
-                call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                do im = 1, mol_natoms(mol_idx2)
-                  nat_exp = nat_exp + 1
-                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                        trim(mol_sym_arr(mol_idx2, im)), nat_exp, &
-                        trim(mol_sym_arr(mol_idx2, im)), &
-                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
-                end do
-              else if (is_vac2) then
-                ! skip
-              else
-                nat_exp = nat_exp + 1
-                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                      trim(newsymbol(1,2)), nat_exp, trim(newsymbol(1,2)), &
-                      coords(at, 1), coords(at, 2), coords(at, 3)
-              end if
-            end if
-          else  ! sp == sptarget(2)
-            if (ifound == 1) then
-              if (is_mol1_t2) then
-                call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
-                do im = 1, mol_natoms(mol_idx1_t2)
-                  nat_exp = nat_exp + 1
-                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                        trim(mol_sym_arr(mol_idx1_t2, im)), nat_exp, &
-                        trim(mol_sym_arr(mol_idx1_t2, im)), &
-                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
-                end do
-              else if (is_vac1_t2) then
-                ! skip
-              else
-                nat_exp = nat_exp + 1
-                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                      trim(newsymbol(2,1)), nat_exp, trim(newsymbol(2,1)), &
-                      coords(at, 1), coords(at, 2), coords(at, 3)
-              end if
-            else
-              if (is_mol2_t2) then
-                call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
-                do im = 1, mol_natoms(mol_idx2_t2)
-                  nat_exp = nat_exp + 1
-                  write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                        trim(mol_sym_arr(mol_idx2_t2, im)), nat_exp, &
-                        trim(mol_sym_arr(mol_idx2_t2, im)), &
-                        mol_frac_buf(im, 1), mol_frac_buf(im, 2), mol_frac_buf(im, 3)
-                end do
-              else if (is_vac2_t2) then
-                ! skip
-              else
-                nat_exp = nat_exp + 1
-                write (72, '(a, i0, 2x, a, 3(2x, f11.7))') &
-                      trim(newsymbol(2,2)), nat_exp, trim(newsymbol(2,2)), &
-                      coords(at, 1), coords(at, 2), coords(at, 3)
-              end if
-            end if
           end if
-          end if  ! multi-nary / else
         end if
       end do
 
@@ -823,109 +681,31 @@ program genersod
     ! --- Build all_sym array ---
     all_nsp_gulp = 0
     do ssp = 1, nsp
-      if (ssp < sptarget(1)) then
+      t = 0
+      do i = 1, ntarget
+        if (ssp == sptarget(i)) then
+          t = i
+          exit
+        end if
+      end do
+      if (t == 0) then
+        ! Not a substitution target: the parent species (or its molecule)
         if (sp_is_mol(ssp)) then
           call add_mol_types(sp_mol_idx(ssp))
         else
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = symbol(ssp)
-        end if
-      else if (ssp == sptarget(1)) then
-        ! newsymbol(1,1)
-        if (is_mol1) then
-          do im = 1, mol_natoms(mol_idx1)
-            ! Add unique atom types from molecule 1
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1, im)
-            end if
-          end do
-        else if (.not. is_vac1) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(1,1)(1:3)
-        end if
-        ! newsymbol(1,2)
-        if (is_mol2) then
-          do im = 1, mol_natoms(mol_idx2)
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2, im)
-            end if
-          end do
-        else if (.not. is_vac2) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(1,2)(1:3)
-        end if
-      else if (ntarget == 2 .and. ssp == sptarget(2)) then
-        if (is_mol1_t2) then
-          do im = 1, mol_natoms(mol_idx1_t2)
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1_t2, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1_t2, im)
-            end if
-          end do
-        else if (.not. is_vac1_t2) then
-          found = .false.
-          do m = 1, all_nsp_gulp
-            if (trim(all_sym(m)) == trim(newsymbol(2,1)(1:3))) then
-              found = .true.; exit
-            end if
-          end do
-          if (.not. found) then
-            all_nsp_gulp = all_nsp_gulp + 1
-            all_sym(all_nsp_gulp) = newsymbol(2,1)(1:3)
-          end if
-        end if
-        if (is_mol2_t2) then
-          do im = 1, mol_natoms(mol_idx2_t2)
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2_t2, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2_t2, im)
-            end if
-          end do
-        else if (.not. is_vac2_t2) then
-          found = .false.
-          do m = 1, all_nsp_gulp
-            if (trim(all_sym(m)) == trim(newsymbol(2,2)(1:3))) then
-              found = .true.; exit
-            end if
-          end do
-          if (.not. found) then
-            all_nsp_gulp = all_nsp_gulp + 1
-            all_sym(all_nsp_gulp) = newsymbol(2,2)(1:3)
-          end if
+          call add_unique_sym(symbol(ssp))
         end if
       else
-        if (sp_is_mol(ssp)) then
-          call add_mol_types(sp_mol_idx(ssp))
-        else
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = symbol(ssp)
-        end if
+        ! Target species: every slot this site can carry, including the
+        ! remaining-species slot nk(t)+1.  Vacancies contribute no type.
+        do j = 1, nk(t) + 1
+          if (is_vac_t(t,j)) cycle
+          if (is_mol_t(t,j)) then
+            call add_mol_types(mol_idx_t(t,j))
+          else
+            call add_unique_sym(newsymbol(t,j)(1:3))
+          end if
+        end do
       end if
     end do
 
@@ -1107,25 +887,33 @@ program genersod
                 end if
               end do
             else
-              if (ntarget == 1 .and. nk(1) >= 2) then
-!               Single-target multi-nary: find species slot and write GULP line
-                sp_slot = nk(1) + 1
-                col_off = 0
-                do j = 1, nk(1)
-                  do i = 1, nsubs_t(1,j)
-                    if (newconf(col_off + i) == at) then
-                      sp_slot = j
+              call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+              if (site_action == site_molecule) then
+                call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(site_mol))
+                do im = 1, mol_natoms(site_mol)
+                  gtype_buf = mol_sym_arr(site_mol, im)
+                  do m = 1, all_nsp_gulp
+                    if (trim(all_sym(m)) == trim(mol_sym_arr(site_mol, im))) then
+                      gtype_buf = all_gulptype_arr(m)
                       exit
                     end if
                   end do
-                  if (sp_slot <= nk(1)) exit
-                  col_off = col_off + nsubs_t(1,j)
+                  write (72, 331) trim(gtype_buf), "core", &
+                                  mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                  do m = 1, all_nsp_gulp
+                    if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
+                      write (72, 331) trim(gtype_buf), "shel", &
+                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
+                      exit
+                    end if
+                  end do
                 end do
-                gtype_buf = newsymbol(1,sp_slot)(1:3)
+              else if (site_action == site_plain) then
+                gtype_buf = site_sym(1:3)
                 do m = 1, all_nsp_gulp
-                  if (trim(all_sym(m)) == trim(newsymbol(1,sp_slot)(1:3))) then
-                    gtype_buf = all_gulptype_arr(m)
-                    exit
+                  if (trim(all_sym(m)) == trim(site_sym(1:3))) then
+                    gtype_buf = all_gulptype_arr(m); exit
                   end if
                 end do
                 write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
@@ -1135,203 +923,7 @@ program genersod
                     exit
                   end if
                 end do
-              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!               Phase 4: find target and slot for this atom
-                col_off = 0
-                do t = 1, ntarget
-                  if (sp == sptarget(t)) then
-                    sp_slot = nk(t) + 1
-                    col_off_t = col_off
-                    do j = 1, nk(t)
-                      do i = 1, nsubs_t(t, j)
-                        if (newconf(col_off_t + i) == at) then
-                          sp_slot = j; exit
-                        end if
-                      end do
-                      if (sp_slot <= nk(t)) exit
-                      col_off_t = col_off_t + nsubs_t(t, j)
-                    end do
-                    gtype_buf = newsymbol(t,sp_slot)(1:3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_sym(m)) == trim(newsymbol(t,sp_slot)(1:3))) then
-                        gtype_buf = all_gulptype_arr(m); exit
-                      end if
-                    end do
-                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                        exit
-                      end if
-                    end do
-                    exit
-                  end if
-                  col_off = col_off + nsubs_tot_t(t)
-                end do
-              else
-              call member(nsubs_tot, newconf, at, ifound)
-              if (sp == sptarget(1)) then
-                if (ifound == 1) then
-                  if (is_mol1) then
-                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                    do im = 1, mol_natoms(mol_idx1)
-                      gtype_buf = mol_sym_arr(mol_idx1, im)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
-                          gtype_buf = all_gulptype_arr(m)
-                          exit
-                        end if
-                      end do
-                      write (72, 331) trim(gtype_buf), "core", &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                          write (72, 331) trim(gtype_buf), "shel", &
-                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                          exit
-                        end if
-                      end do
-                    end do
-                  else if (is_vac1) then
-                    ! vacancy: skip
-                  else
-                    gtype_buf = newsymbol(1,1)(1:3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_sym(m)) == trim(newsymbol(1,1)(1:3))) then
-                        gtype_buf = all_gulptype_arr(m)
-                        exit
-                      end if
-                    end do
-                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                        exit
-                      end if
-                    end do
-                  end if
-                else
-                  if (is_mol2) then
-                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                    do im = 1, mol_natoms(mol_idx2)
-                      gtype_buf = mol_sym_arr(mol_idx2, im)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
-                          gtype_buf = all_gulptype_arr(m)
-                          exit
-                        end if
-                      end do
-                      write (72, 331) trim(gtype_buf), "core", &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                          write (72, 331) trim(gtype_buf), "shel", &
-                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                          exit
-                        end if
-                      end do
-                    end do
-                  else if (is_vac2) then
-                    ! vacancy: skip
-                  else
-                    gtype_buf = newsymbol(1,2)(1:3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_sym(m)) == trim(newsymbol(1,2)(1:3))) then
-                        gtype_buf = all_gulptype_arr(m)
-                        exit
-                      end if
-                    end do
-                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                        exit
-                      end if
-                    end do
-                  end if
-                end if
-              else  ! sp == sptarget(2)
-                if (ifound == 1) then
-                  if (is_mol1_t2) then
-                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
-                    do im = 1, mol_natoms(mol_idx1_t2)
-                      gtype_buf = mol_sym_arr(mol_idx1_t2, im)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1_t2, im))) then
-                          gtype_buf = all_gulptype_arr(m); exit
-                        end if
-                      end do
-                      write (72, 331) trim(gtype_buf), "core", &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                          write (72, 331) trim(gtype_buf), "shel", &
-                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                          exit
-                        end if
-                      end do
-                    end do
-                  else if (is_vac1_t2) then
-                    ! vacancy: skip
-                  else
-                    gtype_buf = newsymbol(2,1)(1:3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_sym(m)) == trim(newsymbol(2,1)(1:3))) then
-                        gtype_buf = all_gulptype_arr(m); exit
-                      end if
-                    end do
-                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                        exit
-                      end if
-                    end do
-                  end if
-                else
-                  if (is_mol2_t2) then
-                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
-                    do im = 1, mol_natoms(mol_idx2_t2)
-                      gtype_buf = mol_sym_arr(mol_idx2_t2, im)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2_t2, im))) then
-                          gtype_buf = all_gulptype_arr(m); exit
-                        end if
-                      end do
-                      write (72, 331) trim(gtype_buf), "core", &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                      do m = 1, all_nsp_gulp
-                        if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                          write (72, 331) trim(gtype_buf), "shel", &
-                                          mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                          exit
-                        end if
-                      end do
-                    end do
-                  else if (is_vac2_t2) then
-                    ! vacancy: skip
-                  else
-                    gtype_buf = newsymbol(2,2)(1:3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_sym(m)) == trim(newsymbol(2,2)(1:3))) then
-                        gtype_buf = all_gulptype_arr(m); exit
-                      end if
-                    end do
-                    write (72, 331) trim(gtype_buf), "core", coords(at, 1), coords(at, 2), coords(at, 3)
-                    do m = 1, all_nsp_gulp
-                      if (trim(all_gulptype_arr(m)) == trim(gtype_buf) .and. all_ishell_arr(m) == 1) then
-                        write (72, 331) trim(gtype_buf), "shel", coords(at, 1), coords(at, 2), coords(at, 3)
-                        exit
-                      end if
-                    end do
-                  end if
-                end if
               end if
-              end if  ! multi-nary / else
             end if
           end do
 
@@ -1422,57 +1014,31 @@ program genersod
     ! --- Build all_sym array (molecule-aware) ---
     all_nsp_gulp = 0
     do ssp = 1, nsp
-      if (ssp /= sptarget(1) .and. (ntarget == 1 .or. ssp /= sptarget(2))) then
+      t = 0
+      do i = 1, ntarget
+        if (ssp == sptarget(i)) then
+          t = i
+          exit
+        end if
+      end do
+      if (t == 0) then
+        ! Not a substitution target: the parent species (or its molecule)
         if (sp_is_mol(ssp)) then
           call add_mol_types(sp_mol_idx(ssp))
         else
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = symbol(ssp)
+          call add_unique_sym(symbol(ssp))
         end if
-      else if (ssp == sptarget(1)) then
-        if (is_mol1) then
-          do im = 1, mol_natoms(mol_idx1)
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx1, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx1, im)
-            end if
-          end do
-        else if (.not. is_vac1) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(1,1)(1:3)
-        end if
-        if (is_mol2) then
-          do im = 1, mol_natoms(mol_idx2)
-            found = .false.
-            do m = 1, all_nsp_gulp
-              if (trim(all_sym(m)) == trim(mol_sym_arr(mol_idx2, im))) then
-                found = .true.; exit
-              end if
-            end do
-            if (.not. found) then
-              all_nsp_gulp = all_nsp_gulp + 1
-              all_sym(all_nsp_gulp) = mol_sym_arr(mol_idx2, im)
-            end if
-          end do
-        else if (.not. is_vac2) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(1,2)(1:3)
-        end if
-      else  ! ntarget==2, ssp==sptarget(2)
-        if (.not. is_vac1_t2) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(2,1)(1:3)
-        end if
-        if (.not. is_vac2_t2) then
-          all_nsp_gulp = all_nsp_gulp + 1
-          all_sym(all_nsp_gulp) = newsymbol(2,2)(1:3)
-        end if
+      else
+        ! Target species: every slot this site can carry, including the
+        ! remaining-species slot nk(t)+1.  Vacancies contribute no type.
+        do j = 1, nk(t) + 1
+          if (is_vac_t(t,j)) cycle
+          if (is_mol_t(t,j)) then
+            call add_mol_types(mol_idx_t(t,j))
+          else
+            call add_unique_sym(newsymbol(t,j)(1:3))
+          end if
+        end do
       end if
     end do
 
@@ -1654,107 +1220,32 @@ program genersod
           ! Framework atom
           lammps_sym_cur = symbol(sp)
         else
-          if (ntarget == 1 .and. nk(1) >= 2) then
-            ! Single-target multi-nary: find species slot
-            sp_slot = nk(1) + 1
-            col_off = 0
-            do j = 1, nk(1)
-              do i = 1, nsubs_t(1,j)
-                if (newconf(col_off + i) == at) then
-                  sp_slot = j; exit
+          call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+          if (site_action == site_vacancy) cycle
+          if (site_action == site_molecule) then
+            call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                 cellvector, mol_frac_buf, mol_natoms(site_mol))
+            mol_id_lammps = mol_id_lammps + 1
+            do im = 1, mol_natoms(site_mol)
+              nat_exp = nat_exp + 1
+              sym_exp(nat_exp) = mol_sym_arr(site_mol, im)
+              coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
+              lammps_sym_idx = 0
+              do lmp_i = 1, all_nsp_gulp
+                if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(site_mol, im))) then
+                  lammps_sym_idx = lmp_i; exit
                 end if
               end do
-              if (sp_slot <= nk(1)) exit
-              col_off = col_off + nsubs_t(1,j)
+              exp_sym_idx(nat_exp) = lammps_sym_idx
+              exp_mol_id(nat_exp) = mol_id_lammps
+              exp_has_shell(nat_exp) = .false.
+              exp_shell_id(nat_exp) = 0
+              atom_id_lammps = atom_id_lammps + 1
+              exp_core_id(nat_exp) = atom_id_lammps
             end do
-            lammps_sym_cur = newsymbol(1,sp_slot)(1:3)
-          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!           Phase 4: find target and slot for this atom
-            col_off = 0
-            do t = 1, ntarget
-              if (sp == sptarget(t)) then
-                sp_slot = nk(t) + 1
-                col_off_t = col_off
-                do j = 1, nk(t)
-                  do i = 1, nsubs_t(t, j)
-                    if (newconf(col_off_t + i) == at) then
-                      sp_slot = j; exit
-                    end if
-                  end do
-                  if (sp_slot <= nk(t)) exit
-                  col_off_t = col_off_t + nsubs_t(t, j)
-                end do
-                lammps_sym_cur = newsymbol(t,sp_slot)(1:3)
-                exit
-              end if
-              col_off = col_off + nsubs_tot_t(t)
-            end do
-          else
-            call member(nsubs_tot, newconf, at, ifound)
-            if (sp == sptarget(1)) then
-              if (ifound == 1) then
-                if (is_vac1) cycle
-                if (is_mol1) then
-                  call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                       cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                  mol_id_lammps = mol_id_lammps + 1
-                  do im = 1, mol_natoms(mol_idx1)
-                    nat_exp = nat_exp + 1
-                    sym_exp(nat_exp) = mol_sym_arr(mol_idx1, im)
-                    coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                    lammps_sym_idx = 0
-                    do lmp_i = 1, all_nsp_gulp
-                      if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(mol_idx1, im))) then
-                        lammps_sym_idx = lmp_i; exit
-                      end if
-                    end do
-                    exp_sym_idx(nat_exp) = lammps_sym_idx
-                    exp_mol_id(nat_exp) = mol_id_lammps
-                    exp_has_shell(nat_exp) = .false.
-                    exp_shell_id(nat_exp) = 0
-                    atom_id_lammps = atom_id_lammps + 1
-                    exp_core_id(nat_exp) = atom_id_lammps
-                  end do
-                  cycle
-                end if
-                lammps_sym_cur = newsymbol(1,1)(1:3)
-              else
-                if (is_vac2) cycle
-                if (is_mol2) then
-                  call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                       cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                  mol_id_lammps = mol_id_lammps + 1
-                  do im = 1, mol_natoms(mol_idx2)
-                    nat_exp = nat_exp + 1
-                    sym_exp(nat_exp) = mol_sym_arr(mol_idx2, im)
-                    coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                    lammps_sym_idx = 0
-                    do lmp_i = 1, all_nsp_gulp
-                      if (trim(all_sym(lmp_i)) == trim(mol_sym_arr(mol_idx2, im))) then
-                        lammps_sym_idx = lmp_i; exit
-                      end if
-                    end do
-                    exp_sym_idx(nat_exp) = lammps_sym_idx
-                    exp_mol_id(nat_exp) = mol_id_lammps
-                    exp_has_shell(nat_exp) = .false.
-                    exp_shell_id(nat_exp) = 0
-                    atom_id_lammps = atom_id_lammps + 1
-                    exp_core_id(nat_exp) = atom_id_lammps
-                  end do
-                  cycle
-                end if
-                lammps_sym_cur = newsymbol(1,2)(1:3)
-              end if
-            else  ! sptarget(2), ntarget==2
-              if (ifound == 1) then
-                if (is_vac1_t2) cycle
-                lammps_sym_cur = newsymbol(2,1)(1:3)
-              else
-                if (is_vac2_t2) cycle
-                lammps_sym_cur = newsymbol(2,2)(1:3)
-              end if
-            end if
+            cycle
           end if
+          lammps_sym_cur = site_sym(1:3)
         end if
         ! Regular (non-molecule) atom: append to expanded list
         nat_exp = nat_exp + 1
@@ -1946,120 +1437,20 @@ program genersod
           sym_exp(nat_exp) = symbol(sp)
           coords_exp(nat_exp, 1:3) = coords(at, 1:3)
         else
-          if (ntarget == 1 .and. nk(1) >= 2) then
-!           Single-target multi-nary: find species slot
-            sp_slot = nk(1) + 1
-            col_off = 0
-            do j = 1, nk(1)
-              do i = 1, nsubs_t(1,j)
-                if (newconf(col_off + i) == at) then
-                  sp_slot = j
-                  exit
-                end if
-              end do
-              if (sp_slot <= nk(1)) exit
-              col_off = col_off + nsubs_t(1,j)
+          call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+          if (site_action == site_molecule) then
+            call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                 cellvector, mol_frac_buf, mol_natoms(site_mol))
+            do im = 1, mol_natoms(site_mol)
+              nat_exp = nat_exp + 1
+              sym_exp(nat_exp) = mol_sym_arr(site_mol, im)
+              coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
             end do
+          else if (site_action == site_plain) then
             nat_exp = nat_exp + 1
-            sym_exp(nat_exp) = newsymbol(1,sp_slot)(1:3)
+            sym_exp(nat_exp) = site_sym(1:3)
             coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-          else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!           Phase 4: find target and slot for this atom
-            col_off = 0
-            do t = 1, ntarget
-              if (sp == sptarget(t)) then
-                sp_slot = nk(t) + 1
-                col_off_t = col_off
-                do j = 1, nk(t)
-                  do i = 1, nsubs_t(t, j)
-                    if (newconf(col_off_t + i) == at) then
-                      sp_slot = j; exit
-                    end if
-                  end do
-                  if (sp_slot <= nk(t)) exit
-                  col_off_t = col_off_t + nsubs_t(t, j)
-                end do
-                nat_exp = nat_exp + 1
-                sym_exp(nat_exp) = newsymbol(t,sp_slot)(1:3)
-                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-                exit
-              end if
-              col_off = col_off + nsubs_tot_t(t)
-            end do
-          else
-          call member(nsubs_tot, newconf, at, ifound)
-          if (sp == sptarget(1)) then
-            if (ifound == 1) then
-              ! newsymbol(1,1) site
-              if (is_mol1) then
-                call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                do im = 1, mol_natoms(mol_idx1)
-                  nat_exp = nat_exp + 1
-                  sym_exp(nat_exp) = mol_sym_arr(mol_idx1, im)
-                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                end do
-              else if (is_vac1) then
-                ! vacancy: skip
-              else
-                nat_exp = nat_exp + 1
-                sym_exp(nat_exp) = newsymbol(1,1)(1:3)
-                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-              end if
-            else
-              ! newsymbol(1,2) site
-              if (is_mol2) then
-                call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                do im = 1, mol_natoms(mol_idx2)
-                  nat_exp = nat_exp + 1
-                  sym_exp(nat_exp) = mol_sym_arr(mol_idx2, im)
-                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                end do
-              else if (is_vac2) then
-                ! vacancy: skip
-              else
-                nat_exp = nat_exp + 1
-                sym_exp(nat_exp) = newsymbol(1,2)(1:3)
-                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-              end if
-            end if
-          else  ! sp == sptarget(2)
-            if (ifound == 1) then
-              if (is_mol1_t2) then
-                call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
-                do im = 1, mol_natoms(mol_idx1_t2)
-                  nat_exp = nat_exp + 1
-                  sym_exp(nat_exp) = mol_sym_arr(mol_idx1_t2, im)
-                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                end do
-              else if (is_vac1_t2) then
-                ! vacancy: skip
-              else
-                nat_exp = nat_exp + 1
-                sym_exp(nat_exp) = newsymbol(2,1)(1:3)
-                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-              end if
-            else
-              if (is_mol2_t2) then
-                call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                     cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
-                do im = 1, mol_natoms(mol_idx2_t2)
-                  nat_exp = nat_exp + 1
-                  sym_exp(nat_exp) = mol_sym_arr(mol_idx2_t2, im)
-                  coords_exp(nat_exp, 1:3) = mol_frac_buf(im, 1:3)
-                end do
-              else if (is_vac2_t2) then
-                ! vacancy: skip
-              else
-                nat_exp = nat_exp + 1
-                sym_exp(nat_exp) = newsymbol(2,2)(1:3)
-                coords_exp(nat_exp, 1:3) = coords(at, 1:3)
-              end if
-            end if
           end if
-          end if  ! multi-nary / else
         end if
       end do
 
@@ -2202,98 +1593,17 @@ program genersod
             if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
-              if (ntarget == 1 .and. nk(1) >= 2) then
-!               Single-target multi-nary: find species slot and write CASTEP line
-                sp_slot = nk(1) + 1
-                col_off = 0
-                do j = 1, nk(1)
-                  do i = 1, nsubs_t(1,j)
-                    if (newconf(col_off + i) == at) then
-                      sp_slot = j
-                      exit
-                    end if
-                  end do
-                  if (sp_slot <= nk(1)) exit
-                  col_off = col_off + nsubs_t(1,j)
+              call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+              if (site_action == site_molecule) then
+                call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(site_mol))
+                do im = 1, mol_natoms(site_mol)
+                  write (72, 337) mol_sym_arr(site_mol, im), &
+                                  mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
                 end do
-                write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!               Phase 4: find target and slot for this atom
-                col_off = 0
-                do t = 1, ntarget
-                  if (sp == sptarget(t)) then
-                    sp_slot = nk(t) + 1
-                    col_off_t = col_off
-                    do j = 1, nk(t)
-                      do i = 1, nsubs_t(t, j)
-                        if (newconf(col_off_t + i) == at) then
-                          sp_slot = j; exit
-                        end if
-                      end do
-                      if (sp_slot <= nk(t)) exit
-                      col_off_t = col_off_t + nsubs_t(t, j)
-                    end do
-                    write (72, 337) newsymbol(t,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                    exit
-                  end if
-                  col_off = col_off + nsubs_tot_t(t)
-                end do
-              else
-              call member(nsubs_tot, newconf, at, ifound)
-              if (sp == sptarget(1)) then
-                if (ifound == 1) then
-                  if (is_mol1) then
-                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                    do im = 1, mol_natoms(mol_idx1)
-                      write (72, 337) mol_sym_arr(mol_idx1, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (is_vac1) then
-                    ! skip
-                  else
-                    write (72, 337) newsymbol(1,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                else
-                  if (is_mol2) then
-                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                    do im = 1, mol_natoms(mol_idx2)
-                      write (72, 337) mol_sym_arr(mol_idx2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (is_vac2) then
-                    ! skip
-                  else
-                    write (72, 337) newsymbol(1,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                end if
-              else  ! sp == sptarget(2)
-                if (ifound == 1) then
-                  if (is_mol1_t2) then
-                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
-                    do im = 1, mol_natoms(mol_idx1_t2)
-                      write (72, 337) mol_sym_arr(mol_idx1_t2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (.not. is_vac1_t2) then
-                    write (72, 337) newsymbol(2,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                else
-                  if (is_mol2_t2) then
-                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
-                    do im = 1, mol_natoms(mol_idx2_t2)
-                      write (72, 337) mol_sym_arr(mol_idx2_t2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (.not. is_vac2_t2) then
-                    write (72, 337) newsymbol(2,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                end if
+              else if (site_action == site_plain) then
+                write (72, 337) site_sym(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
               end if
-              end if  ! multi-nary / else
             end if
           end do
 
@@ -2412,98 +1722,17 @@ program genersod
             if (.not. any(sp == sptarget(1:ntarget))) then
               write (72, 337) symbol(sp), coords(at, 1), coords(at, 2), coords(at, 3)
             else
-              if (ntarget == 1 .and. nk(1) >= 2) then
-!               Single-target multi-nary: find species slot and write QE line
-                sp_slot = nk(1) + 1
-                col_off = 0
-                do j = 1, nk(1)
-                  do i = 1, nsubs_t(1,j)
-                    if (newconf(col_off + i) == at) then
-                      sp_slot = j
-                      exit
-                    end if
-                  end do
-                  if (sp_slot <= nk(1)) exit
-                  col_off = col_off + nsubs_t(1,j)
+              call resolve_target_atom(at, sp, site_action, site_sym, site_mol)
+              if (site_action == site_molecule) then
+                call mol_rotate_frac(site_mol, coords(at,1), coords(at,2), coords(at,3), &
+                                     cellvector, mol_frac_buf, mol_natoms(site_mol))
+                do im = 1, mol_natoms(site_mol)
+                  write (72, 337) mol_sym_arr(site_mol, im), &
+                                  mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
                 end do
-                write (72, 337) newsymbol(1,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-              else if (ntarget >= 2 .and. any(nk(1:ntarget) >= 2)) then
-!               Phase 4: find target and slot for this atom
-                col_off = 0
-                do t = 1, ntarget
-                  if (sp == sptarget(t)) then
-                    sp_slot = nk(t) + 1
-                    col_off_t = col_off
-                    do j = 1, nk(t)
-                      do i = 1, nsubs_t(t, j)
-                        if (newconf(col_off_t + i) == at) then
-                          sp_slot = j; exit
-                        end if
-                      end do
-                      if (sp_slot <= nk(t)) exit
-                      col_off_t = col_off_t + nsubs_t(t, j)
-                    end do
-                    write (72, 337) newsymbol(t,sp_slot)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                    exit
-                  end if
-                  col_off = col_off + nsubs_tot_t(t)
-                end do
-              else
-              call member(nsubs_tot, newconf, at, ifound)
-              if (sp == sptarget(1)) then
-                if (ifound == 1) then
-                  if (is_mol1) then
-                    call mol_rotate_frac(mol_idx1, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1))
-                    do im = 1, mol_natoms(mol_idx1)
-                      write (72, 337) mol_sym_arr(mol_idx1, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (is_vac1) then
-                    ! skip
-                  else
-                    write (72, 337) newsymbol(1,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                else
-                  if (is_mol2) then
-                    call mol_rotate_frac(mol_idx2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2))
-                    do im = 1, mol_natoms(mol_idx2)
-                      write (72, 337) mol_sym_arr(mol_idx2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (is_vac2) then
-                    ! skip
-                  else
-                    write (72, 337) newsymbol(1,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                end if
-              else  ! sp == sptarget(2)
-                if (ifound == 1) then
-                  if (is_mol1_t2) then
-                    call mol_rotate_frac(mol_idx1_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx1_t2))
-                    do im = 1, mol_natoms(mol_idx1_t2)
-                      write (72, 337) mol_sym_arr(mol_idx1_t2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (.not. is_vac1_t2) then
-                    write (72, 337) newsymbol(2,1)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                else
-                  if (is_mol2_t2) then
-                    call mol_rotate_frac(mol_idx2_t2, coords(at,1), coords(at,2), coords(at,3), &
-                                         cellvector, mol_frac_buf, mol_natoms(mol_idx2_t2))
-                    do im = 1, mol_natoms(mol_idx2_t2)
-                      write (72, 337) mol_sym_arr(mol_idx2_t2, im), &
-                                      mol_frac_buf(im,1), mol_frac_buf(im,2), mol_frac_buf(im,3)
-                    end do
-                  else if (.not. is_vac2_t2) then
-                    write (72, 337) newsymbol(2,2)(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
-                  end if
-                end if
+              else if (site_action == site_plain) then
+                write (72, 337) site_sym(1:3), coords(at, 1), coords(at, 2), coords(at, 3)
               end if
-              end if  ! multi-nary / else
             end if
           end do
 
@@ -2612,6 +1841,17 @@ contains
 
 !---------------------------------------------------------------------------
 ! Append the (unique) atom types of molecule MIDX to the all_sym registry.
+  ! Append a symbol to the all_sym table unless it is already there.
+  subroutine add_unique_sym(symstr)
+    character(len=*), intent(in) :: symstr
+    integer :: m_loc
+    do m_loc = 1, all_nsp_gulp
+      if (trim(all_sym(m_loc)) == trim(symstr)) return
+    end do
+    all_nsp_gulp = all_nsp_gulp + 1
+    all_sym(all_nsp_gulp) = symstr
+  end subroutine add_unique_sym
+
   subroutine add_mol_types(midx)
     integer, intent(in) :: midx
     integer :: im_loc, m_loc
@@ -2806,6 +2046,54 @@ contains
   end subroutine random_rotation_matrix
 
 !---------------------------------------------------------------------------
+  ! ---------------------------------------------------------------------------
+  !  Resolve one atom sitting on a substitution target.
+  !
+  !  The configuration row lists substituted sites target by target and, within
+  !  a target, species by species, so walking that layout gives the (target,
+  !  slot) this atom belongs to; slot nk(t)+1 means "not substituted".  Doing it
+  !  here rather than in each writer is what makes every writer correct for any
+  !  number of targets and any number of species per target.
+  ! ---------------------------------------------------------------------------
+  subroutine resolve_target_atom(at_in, sp_in, action, sym_out, mol_out)
+    integer, intent(in)  :: at_in, sp_in
+    integer, intent(out) :: action, mol_out
+    character(len=*), intent(out) :: sym_out
+    integer :: tt, jj, ii, slot, off, off_t
+
+    action  = site_plain
+    mol_out = 0
+    sym_out = ''
+
+    off = 0
+    do tt = 1, ntarget
+      if (sp_in == sptarget(tt)) then
+        slot  = nk(tt) + 1
+        off_t = off
+        do jj = 1, nk(tt)
+          do ii = 1, nsubs_t(tt, jj)
+            if (newconf(off_t + ii) == at_in) then
+              slot = jj
+              exit
+            end if
+          end do
+          if (slot <= nk(tt)) exit
+          off_t = off_t + nsubs_t(tt, jj)
+        end do
+        if (is_vac_t(tt, slot)) then
+          action = site_vacancy
+        else if (is_mol_t(tt, slot)) then
+          action  = site_molecule
+          mol_out = mol_idx_t(tt, slot)
+        else
+          sym_out = newsymbol(tt, slot)
+        end if
+        return
+      end if
+      off = off + nsubs_tot_t(tt)
+    end do
+  end subroutine resolve_target_atom
+
   subroutine mol_rotate_frac(mol_idx, fx, fy, fz, cv, frac_out, nm)
     integer, intent(in) :: mol_idx, nm
     real(real64), intent(in)    :: fx, fy, fz, cv(3,3)

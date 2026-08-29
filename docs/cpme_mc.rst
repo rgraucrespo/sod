@@ -103,6 +103,10 @@ CPME outputs under the target folder:
 - ``nXX/cpme.model`` — copy of the ``cpme.model`` file used for the run, when
   present (kept as a record).
 
+Each predicted ``ENERGIES`` is an ordinary indexed two-column file, so the level
+can be analysed like any other: copy the level's ``ENSEMBLE`` next to the chosen
+``CPMEx/ENERGIES`` and run ``sod_stat.sh`` there (:doc:`thermodynamics`).
+
 **Phase 2 — Calibrating** (optional) fits the epsilon correction terms ε from a
 small set of DFT calculations at the target concentration, improving accuracy:
 

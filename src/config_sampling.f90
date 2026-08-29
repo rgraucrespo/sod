@@ -12,7 +12,7 @@
 !      (2) Sampling helpers: uniform random subsets, symmetry canonicalization,
 !          EQMATRIX loading, RNG seeding and small input/string helpers.
 !
-!    Part of the SOD package (v0.90) — GNU GPL v3+.
+!    Part of the SOD package (v0.91) — GNU GPL v3+.
 !*******************************************************************************
 
 module config_sampling

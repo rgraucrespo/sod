@@ -27,7 +27,7 @@
 !    Required input files: INSOD, SGO (always); EQMATRIX (when -symmetry on).
 !    Output: nXX/random/ENSEMBLE (XX = target level).
 !
-!    Part of the SOD package (v0.90) — GNU GPL v3+.
+!    Part of the SOD package (v0.91) — GNU GPL v3+.
 !*******************************************************************************
 
 program randomsod
@@ -61,7 +61,7 @@ program randomsod
   character(len=256) :: ensemble_path
   integer :: unit_ens
 
-  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.90 - randomsod"
+  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - randomsod"
 
   ! --- Defaults ---
   nconfigs      = 0
