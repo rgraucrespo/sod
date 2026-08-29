@@ -16,8 +16,7 @@ with the corresponding worked examples in :doc:`examples`.
 Contact
 -------
 
-Ricardo Grau-Crespo (r.grau-crespo@qmul.ac.uk) and Said Hamad
-(said@upo.es).
+Ricardo Grau-Crespo (r.grau-crespo@qmul.ac.uk).
 
 Source code, releases and issue tracker: `github.com/rgraucrespo/sod
 <https://github.com/rgraucrespo/sod>`_.

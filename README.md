@@ -933,4 +933,4 @@ If you use SOD in your research work, please include a citation to this article:
 
 Happy SODing!!!
 
-Ricardo Grau-Crespo (r.grau-crespo@qmul.ac.uk) and Said Hamad (said@upo.es)
+Ricardo Grau-Crespo (r.grau-crespo@qmul.ac.uk)
