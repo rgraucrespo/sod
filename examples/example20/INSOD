@@ -1,0 +1,42 @@
+# Title
+MA/FA/vacancy on the A site and Br/vacancy/I on the X site of a 2x2x2 perovskite
+
+# a, b, c, alpha, beta, gamma
+6.3225  6.3225  6.3225  90.000  90.000  90.000
+
+# nsp: Number of species in the parent structure
+3
+
+# symbol(1:nsp): Atom symbols.  Cs is a placeholder for the A site.
+Cs Pb I
+
+# natsp0(1:nsp): Number of atoms per species
+1 1 3
+
+# coords0: Fractional coordinates
+0.0  0.0  0.0
+0.5  0.5  0.5
+0.5  0.5  0.0
+0.5  0.0  0.5
+0.0  0.5  0.5
+
+# na, nb, nc: Supercell multipliers
+2 2 2
+
+# sptarget: Target 1 is the A site (Cs), target 2 is the X site (I)
+1 3
+
+# nsubs: Substitution counts per target
+# Target 1 (8 A sites):  1 FA, 1 A vacancy, remaining 6 MA
+1 1
+# Target 2 (24 X sites): 1 Br, 1 X vacancy, remaining 22 I
+1 1
+
+# newsymbol: One line per target.  Both targets are multi-nary (nk = 2) and mix
+# molecules (@), vacancies (%) and plain atoms; on target 1 even the remaining
+# species is a molecule.
+@FA %VA @MA
+Br %VX I
+
+# FILER: 11 VASP
+11

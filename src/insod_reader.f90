@@ -123,6 +123,15 @@ contains
     do j = 1, d%nsp
       if (rawsym(j)(1:1) == '@') then
         ip = ip + 1
+        ! The name is stored in fixed-length fields, so a long one would be
+        ! truncated here and the failure would surface much later as a missing
+        ! NAME.xyz the user never typed.  Reject it while the name is still intact.
+        if (len_trim(rawsym(j)(2:)) > len(d%parentmol_name)) then
+          write(*, '(3A,I0,A)') 'Error: parent-molecule name "', trim(rawsym(j)(2:)), &
+            '" is longer than the ', len(d%parentmol_name), ' characters SOD stores.'
+          write(*, '(A)') '       Rename the molecule and its .xyz file to fit.'
+          stop 1
+        end if
         d%symbol(j)            = rawsym(j)(2:)   ! species label, @ stripped
         d%parentmol_sym(ip)    = d%symbol(j)
         d%parentmol_name(ip)   = rawsym(j)(2:)   ! molecule file NAME (NAME.xyz)
@@ -292,6 +301,7 @@ contains
       write(*, *) 'Error: could not parse newsymbol for target 1 from INSOD: ', trim(line)
       stop 1
     end if
+    call check_newsymbol_widths(line, d%nk(1)+1, 1, len(d%newsymbol))
     do t = 2, d%ntarget
       call next_data_line(unit_in, line, ok)
       if (.not. ok) then
@@ -304,6 +314,7 @@ contains
           ' from INSOD: ', trim(line)
         stop 1
       end if
+      call check_newsymbol_widths(line, d%nk(t)+1, t, len(d%newsymbol))
     end do
 
     ! filer
@@ -370,5 +381,31 @@ contains
       stop 1
     end if
   end subroutine check_nsubs_token_count
+
+  ! A newsymbol token wider than the fixed-length slot would be truncated on
+  ! read, and for an @NAME molecule the failure only surfaces later as a missing
+  ! NAME.xyz the user never typed.  Re-read the line into a wide buffer and
+  ! reject the token while it is still intact.
+  subroutine check_newsymbol_widths(line_in, ntok, target_idx, width)
+    character(len=*), intent(in) :: line_in
+    integer, intent(in) :: ntok, target_idx, width
+    character(len=64) :: tok(insod_nkmax+1)
+    integer :: j, ios_loc
+
+    if (ntok > size(tok)) return
+    tok = ''
+    read(line_in, *, iostat=ios_loc) (tok(j), j = 1, ntok)
+    if (ios_loc /= 0) return          ! already reported by the caller
+    do j = 1, ntok
+      if (len_trim(tok(j)) > width) then
+        write(*, '(3A,I0,A,I0,A)') 'Error: newsymbol token "', trim(tok(j)), &
+          '" on target ', target_idx, ' is longer than the ', width, &
+          ' characters SOD stores.'
+        write(*, '(A)') '       For @NAME the name would be truncated and NAME.xyz not found.'
+        write(*, '(A)') '       Shorten the symbol, or rename the molecule and its .xyz file.'
+        stop 1
+      end if
+    end do
+  end subroutine check_newsymbol_widths
 
 end module insod_reader

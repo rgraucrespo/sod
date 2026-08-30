@@ -76,6 +76,8 @@ program combsod
   real(real64), dimension(:), allocatable :: elapsed_per_level
   integer, dimension(:), allocatable :: nsubs_level_list
   integer(int64), allocatable :: binom(:,:)
+  logical :: eqmatrix_only
+  character(len=64) :: arg_text
 
 ! Stage 2: recursive enumeration variables
   integer :: nsubs_prev, ncand, ncand_max, ic, jpar, jj, k, j_remove, nic_prev, idummy, npos_check
@@ -112,6 +114,24 @@ program combsod
   open (unit=12, file="SGO")
 
 ! Output files written once (not per substitution level)
+
+! Arguments.  -eqmatrix-only stops after the symmetry analysis, see below.
+  eqmatrix_only = .false.
+  if (command_argument_count() >= 1) then
+    if (command_argument_count() > 1) then
+      write (*, *) "Error: combsod takes at most one argument."
+      write (*, *) "Usage: combsod [-eqmatrix-only]"
+      stop 1
+    end if
+    call get_command_argument(1, arg_text)
+    if (trim(arg_text) == '-eqmatrix-only') then
+      eqmatrix_only = .true.
+    else
+      write (*, '(2A)') " Error: unknown argument: ", trim(arg_text)
+      write (*, *) "Usage: combsod [-eqmatrix-only]"
+      stop 1
+    end if
+  end if
 
   open (unit=26, file="EQMATRIX")
   open (unit=31, file="supercell.cif")
@@ -150,7 +170,7 @@ program combsod
 ! tol0                General tolerance
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - combsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.92 - combsod"
   call system_clock(t_start_total, clock_rate, clock_max)
 
   write (*, *) " > Reading input files..."
@@ -197,6 +217,20 @@ program combsod
   call write_supercell_cif()
   call build_symmetry()
   call setup_targets()
+
+! -eqmatrix-only: supercell.cif, EQMATRIX and OPERATORS are all written by the
+! two calls above, and everything past this point is the enumeration, which is
+! what becomes infeasible on a large supercell.  randomsod -sym on and the CPME
+! Hamiltonian need only the symmetry data, so stop here and report success
+! rather than letting the run die in the allocator having already produced it.
+! setup_targets runs first so an INSOD whose nsubs exceeds the available sites
+! is still rejected here rather than much later inside randomsod.
+  if (eqmatrix_only) then
+    write (*, '(a)') " > -eqmatrix-only: supercell.cif, EQMATRIX and OPERATORS written."
+    write (*, '(a)') " > Skipping configuration enumeration."
+    write (*, *)
+    stop
+  end if
 
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         Loop over substitution levels
@@ -2501,6 +2535,12 @@ contains
     end do
 
     deallocate (fulleqmatrix)
+    flush (26)
+    flush (31)
+    flush (46)
+    close (26)
+    close (31)
+    close (46)
   end subroutine build_symmetry
 
   ! ---------------------------------------------------------------------------

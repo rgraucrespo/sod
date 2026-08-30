@@ -85,11 +85,45 @@ Prerequisites: ``sod_comb.sh`` must have been run (for ``EQMATRIX`` and
       cd nXX/random/
       sod_sqs.sh        # reads ENSEMBLE and INSQS here; writes OUTSQS here
 
-3. Inspect ``OUTSQS`` and pick the best configuration (rank 1 is nearest to
-   ideal randomness).  Generate calculator input files for the chosen index::
+3. Generate calculator input files for the best configuration (rank 1 is
+   nearest to ideal randomness)::
 
-      sod_gener.sh -choose <index>   # still from nXX/random/
+      sod_gener.sh -choose bestSQS   # still from nXX/random/
                                      # writes cYY/ under nXX/random/
+
+   ``-choose`` takes either explicit configuration indices or a selection
+   label naming a rule, optionally followed by how many to take (default 1)::
+
+      sod_gener.sh -choose bestSQS 10   # the ten best SQS, in rank order
+
+   ``bestSQS`` reads ``OUTSQS`` from the same directory as the ``ENSEMBLE``
+   being generated, so the ranking always belongs to that ensemble, and it
+   fails rather than falling back if no ``OUTSQS`` is there.  Labels are
+   case-insensitive.  The count is bounded by how many rows ``sqssod`` wrote:
+   ``OUTSQS`` lists the top ``n_top_sqs`` configurations, 10 by default, so
+   asking for more is an error telling you to raise ``n_top_sqs`` in ``INSQS``
+   or set it to ``0`` to rank the whole ensemble.  ``lowestENERGY`` and
+   ``highestENERGY`` read ``ENERGIES`` from that same directory and are bounded
+   only by the number of entries in it.
+
+   To generate some other configuration, take the **Config** column of the row
+   you want and pass it explicitly::
+
+      sod_gener.sh -choose <index>
+
+   The first ``OUTSQS`` column is the rank and the second is the configuration
+   index.  They are rarely equal, so ``-choose 1`` almost never generates the
+   best SQS -- it silently produces a valid but unremarkable configuration.
+   That is the mistake the label removes.
+
+   .. note::
+
+      There is no ``bestGQS`` label.  ``gqssod`` prints its ranking to the
+      terminal only -- ``OUTGQS`` holds thermal averages of the cluster
+      correlations, not a ranked list of configurations -- and it ranks once
+      per temperature, so "the best GQS" would not name a single structure.
+      Adding the label would mean giving ``gqssod`` a ranked output file and
+      the label a temperature.
 
 Input file: INSQS
 -----------------

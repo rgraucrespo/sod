@@ -30,7 +30,7 @@ program mcsod
   character(len=256) :: line, start_config_line, model_filename_arg
   character(len=256) :: output_dir, energies_dir
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - mcsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.92 - mcsod"
 
   ! --- Read INMC ---
   open(newunit=unit_in, file='INMC', status='old', action='read', iostat=ios)

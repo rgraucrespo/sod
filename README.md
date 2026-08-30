@@ -1,4 +1,4 @@
-# SOD 0.91 - Notes for users
+# SOD 0.92 - Notes for users
 
 SOD (standing for Site-Occupancy Disorder) is a package of tools for the computer modelling of periodic systems with site disorder, using the supercell ensemble method. 
 
@@ -63,7 +63,7 @@ You can find below the essential info needed to use SOD. Please note that SOD au
 
 ## Compiling and installing SOD
 
-- Download the file sod(version).tar.gz (e.g. sod0.91.tar.gz) and copy to a directory, say ROOTSOD:
+- Download the file sod(version).tar.gz (e.g. sod0.92.tar.gz) and copy to a directory, say ROOTSOD:
  
 ```bash
 tar xzvf sod(version).tar.gz
@@ -228,6 +228,14 @@ Once `INSOD`, `SGO` and any template file are in place, run:
 sod_comb.sh
 ```
 
+#### Symmetry data without enumeration: `-eqmatrix-only`
+
+```bash
+sod_comb.sh -eqmatrix-only
+```
+
+Stops after the symmetry analysis, writing `supercell.cif`, `EQMATRIX` and `OPERATORS` but no `ENSEMBLE`, and exits successfully. Use it when the supercell is too large to enumerate but the symmetry data is wanted on its own — in particular `sod_random.sh -sym on`, which folds draws onto symmetry orbits and therefore requires an `EQMATRIX`. A plain `sod_comb.sh` cannot supply one at those sizes: on example18 (C(192,96) ≈ 3×10¹⁷ configurations) it writes the three files in under a second and then aborts in the allocator with `problem too large for SOD`, so the data was only ever obtainable as the by-product of a failed run. The files written are identical either way; the flag only changes where combsod stops. The `INSOD` substitution counts are still validated, so a level that exceeds the available sites is still rejected.
+
 ### Output of sod_comb.sh
 
 - When the programme finishes, it writes to the standard output the total number of configurations and the number of independent configurations according to the crystal symmetry, plus some other useful information.
@@ -285,7 +293,7 @@ The table below specifies from which directory each post-processing script shoul
 | Script | Call from | What it does |
 |---|---|---|
 | `sod_comb.sh` | SODPROJECT/ | Runs combinatorics and generates calculator input files |
-| `sod_gener.sh` | SODPROJECT/ | Re-generates calculator input files from existing ENSEMBLE (skips combinatorics; useful to regenerate files after changing FILER or template) |
+| `sod_gener.sh` | SODPROJECT/ or nXX/ (incl. `nXX/random/`) | Re-generates calculator input files from existing ENSEMBLE (skips combinatorics; useful to regenerate files after changing FILER or template). `-first N`, or `-choose` with configuration indices or a selection label (`bestSQS`, `lowestENERGY`, `highestENERGY`, `random`) optionally followed by how many to take |
 | `sod_gulp_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from GULP `output.gout` files |
 | `sod_vasp_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from VASP `OUTCAR` files |
 | `sod_castep_ener.sh` | SODPROJECT/ or nXX/ | Extracts final energies from CASTEP `castep.castep` files |
@@ -519,6 +527,35 @@ When modeling disordered alloys, the goal is often to find configurations that m
 
 - **Full enumeration** (`sod_comb.sh` → `nXX/ENSEMBLE`): the symmetry-inequivalent configurations at the composition. This guarantees the true best SQS *within the supercell* is present, but is only feasible when the space is small enough to enumerate.
 - **Uniform random sampling** (`sod_random.sh` → `nXX/random/ENSEMBLE`): a large random sample of configurations. This is the practical route when the full space is **too large to enumerate** — generate a big uniform ensemble and extract the best SQS from it. Point `sqssod` at the `random/` directory (which holds the sampled `ENSEMBLE`) while `EQMATRIX`, `supercell.cif`, and `INSOD` remain in the parent folder. Random sampling needs no reference energies, so this works before any DFT is run; for GQS, supply `ENERGIES` for the sampled configurations. `sod_random.sh` reads the same `INSOD` substitution model as `sod_comb.sh`, so multinary and multi-target compositions are sampled directly, with `-sym on` folding to colored symmetry orbits.
+
+Once `sod_sqs.sh` has written `OUTSQS`, generate the winning configuration with `sod_gener.sh -choose bestSQS`, run from the directory holding the `ENSEMBLE` that was scored.
+
+`-choose` takes either explicit configuration indices or a selection label naming a rule, optionally followed by how many to take:
+
+```bash
+sod_gener.sh -choose bestSQS        # the best one (default)
+sod_gener.sh -choose bestSQS 10     # the ten best, in rank order
+sod_gener.sh -choose lowestENERGY 5 # the five lowest-energy configurations
+sod_gener.sh -choose random 20      # twenty drawn at random, all different
+sod_gener.sh -choose 3 7 12         # exactly these three
+```
+
+| Label | Selects | Reads |
+|---|---|---|
+| `bestSQS` | the best-ranked configurations | `OUTSQS` (from `sod_sqs.sh`) |
+| `lowestENERGY` | the lowest-energy configurations | `ENERGIES` |
+| `highestENERGY` | the highest-energy configurations | `ENERGIES` |
+| `random` | a degeneracy-weighted sample, without repeats | `ENSEMBLE` |
+
+Each file is read from the same directory as the `ENSEMBLE` being generated, so the answer always belongs to that ensemble — including when it lives in `nXX/random/`. Labels are case-insensitive and fail with a clear error rather than falling back if the file they need is absent. `random N` is useful when the ensemble is too large to compute in full and you want a representative subset to run. Each configuration is drawn **with probability proportional to its degeneracy**, because the rows of `ENSEMBLE` are symmetry-inequivalent configurations standing for `degen` microstates each: drawing the rows equiprobably would over-represent the rare ones, and a property averaged over such a subset would not estimate the ensemble average. Weighting this way makes the subset a fair sample of configuration space, so a plain mean over it is an unbiased estimate.
+
+The N configurations are always **all different** — the draw is without replacement, which is required as well as desirable, since each selection becomes a `cNNN/` directory and a repeat would silently collapse two into one. The chosen indices are printed, so the same selection can be reproduced later with `sod_gener.sh -choose <those indices>`.
+
+Note that `bestSQS N` is limited by how many rows `sqssod` wrote: `OUTSQS` lists the top `n_top_sqs` configurations (default 10), so asking for more is an error that tells you to raise `n_top_sqs` in `INSQS`, or set it to `0` to rank the whole ensemble.
+
+To generate a different configuration, take the **Config** column of the row you want and pass it as `sod_gener.sh -choose <index>`. The first `OUTSQS` column is the rank and the second is the configuration index; they are rarely equal, so `-choose 1` almost never generates the best SQS — it quietly produces a valid but unremarkable configuration. That is the mistake `bestSQS` removes.
+
+There is deliberately no `bestGQS` label: `gqssod` prints its ranking to the terminal only (`OUTGQS` holds thermal averages of cluster correlations, not a ranked configuration list), and it ranks once per temperature, so the label would not name a single structure without also naming a temperature.
 
 With random sampling the result is the best SQS *found in the sample*, not provably the global optimum — enlarge the sample to improve it.
 
@@ -921,7 +958,9 @@ See [Grau-Crespo et al. Chemical Science Chemical Science 16 (2025) 19357-19369]
 
 - **example18**: MAPbI₃–MAPbBr₃ equimolar solid solution (x=0.5, MAPbI₁.₅Br₁.₅) in a 4×4×4 supercell of cubic perovskite (Pm-3m, 192 halide sites) — demonstrates **SQS identification via random sampling**. C(192,96)≈10⁵⁷ makes full enumeration impossible; instead 50,000 uniform random configurations are drawn with `sod_random.sh -nconf 50000 -sym on` and scored against the ideal random alloy with `sod_sqs.sh` (van de Walle criterion using species-resolved pair probabilities; legacy higher-order INSQS entries are ignored by the generalized SQS scorer). The top-ranked SQS (configuration c04258) is written as a VASP POSCAR (FILER=11, 768 atoms: 64 C + 64 N + 384 H + 64 Pb + 96 I + 96 Br). Also demonstrates the **`@MA` parent-molecule syntax**: methylammonium (MA = CH₃NH₃⁺) occupies every A-site of the parent structure (not as a substitution), declared with the `@MA` prefix in the INSOD `symbol` list. `randomsod` treats it as a spherical Pm-3m placeholder; `genersod` materialises each site into an 8-atom MA molecule with a random Shoemake orientation. Contrast with example08 (MA substitutes for Cs) and example16 (SQS on a fully enumerated ensemble).
 
-- **example19**: Equimolar fcc CoCrFeNi alloy in a 2×2×2 conventional fcc supercell (32 metal sites: 8 Co, 8 Cr, 8 Fe, 8 Ni) — demonstrates **multinary SQS identification via random sampling** for a quaternary metallic alloy. The labelled configuration space 32!/(8!⁴)≈10¹⁷ is too large to enumerate, so 20,000 uniform random configurations are drawn with `sod_random.sh -nconf 20000 -sym on -seed 20260710`, ranked with `sod_sqs.sh` using species-resolved pair probabilities up to 6.0 Å, and the best sampled SQS (configuration c09367) is written as a CIF with `sod_gener.sh -choose 9367` (FILER=0).
+- **example19**: Equimolar fcc CoCrFeNi alloy in a 2×2×2 conventional fcc supercell (32 metal sites: 8 Co, 8 Cr, 8 Fe, 8 Ni) — demonstrates **multinary SQS identification via random sampling** for a quaternary metallic alloy. The labelled configuration space 32!/(8!⁴)≈10¹⁷ is too large to enumerate, so 20,000 uniform random configurations are drawn with `sod_random.sh -nconf 20000 -sym on -seed 20260710`, ranked with `sod_sqs.sh` using species-resolved pair probabilities up to 6.0 Å, and the best sampled SQS (configuration c09367) is written as a CIF with `sod_gener.sh -choose bestSQS`, or equivalently `sod_gener.sh -choose 9367` (FILER=0).
+
+- **example20**: (MA,FA)Pb(I,Br)₃ with Schottky vacancies in a 2×2×2 supercell of cubic perovskite (8 A-sites, 24 halide sites) — demonstrates **molecules and vacancies together on multi-nary target sites**. Both targets carry two substituent species plus a remaining species (`nk = 2`) and mix all three occupancy kinds `genersod` understands: the A-site is `@FA %VA @MA` (1 formamidinium, 1 vacancy, 6 methylammonium — so even the *remaining* species is a molecule), and the halide site is `Br %VX I` (1 Br, 1 vacancy, 22 I). Before 0.91 an `@` or `%` prefix on a target with `nk ≥ 2` aborted `genersod` at startup; the generic site resolver introduced in that release handles every slot of every target. Full enumeration gives 114 inequivalent configurations, each written as an 88-atom VASP POSCAR (FILER=11: 7 C + 42 H + 8 N + 8 Pb + 1 Br + 22 I), the two vacancies contributing no atoms. Contrast with example06 (vacancy on a binary target) and example08 (molecule on a binary target).
 
 ## Citing SOD
 

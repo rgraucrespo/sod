@@ -38,9 +38,10 @@ How this documentation is organised
 **Getting started** introduces the method and gets SOD built on your machine.
 **Running SOD** follows the standard workflow in order: enumerate the
 configurations, generate and run the calculations, then analyse the ensemble.
-**Methods** covers what to do when full enumeration is not the right tool —
-sampling, quasirandom structures, and effective Hamiltonians. **Reference**
-holds the worked examples, terminology and citations.
+**Alternatives to enumeration** covers what to do when enumerating the
+configurations and averaging over all of them is out of reach: sampling,
+quasirandom structures, and effective Hamiltonians. **Reference** holds the
+worked examples, terminology and citations.
 
 .. toctree::
    :maxdepth: 2
@@ -60,7 +61,7 @@ holds the worked examples, terminology and citations.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Methods
+   :caption: Alternatives to enumeration
 
    random
    sqs_gqs

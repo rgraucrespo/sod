@@ -31,6 +31,8 @@ program genersod
   integer :: i, j, l, m
   integer :: arg_count, max_generate, gen_limit
   integer :: mode, n_chosen, gen_count, ic
+  character(len=32) :: choose_label
+  integer :: itest, choose_count
   integer :: ifound
   integer :: sp_slot, col_off, col_off_t  ! for multi-nary species-slot determination
   integer :: sp, nsp, ssp
@@ -110,9 +112,9 @@ program genersod
   logical :: haslibrary_gulp, hasinline_ff, haskimmodel_gulp, relevant_line
   character(len=20) :: numfmt
   character(len=10) :: numstr
-  character(len=30) :: confdir_gulp
-  character(len=60) :: inpfile_gulp
-  character(len=40) :: ndir_gulp
+  character(len=256) :: confdir_gulp
+  character(len=256) :: inpfile_gulp
+  character(len=256) :: ndir_gulp
 
   ! Variables for LAMMPS logic (FILER=2)
   character(len=20) :: lammps_atom_style
@@ -138,6 +140,8 @@ program genersod
   mode = 0
   max_generate = -1
   n_chosen = 0
+  choose_label = ''
+  choose_count = 1
   arg_count = command_argument_count()
   if (arg_count >= 1) then
     call get_command_argument(1, arg_text)
@@ -155,23 +159,58 @@ program genersod
       mode = 1
     else if (trim(arg_text) == '-choose') then
       if (arg_count < 2) then
-        write (*, *) "Error: -choose requires at least one configuration index."
+        write (*, *) "Error: -choose requires a configuration index or a selection label."
+        call write_choose_usage()
         stop 1
       end if
-      n_chosen = arg_count - 1
-      allocate(chosen_indices(n_chosen))
-      do i = 1, n_chosen
-        call get_command_argument(i + 1, arg_text)
-        read (arg_text, *, iostat=ios) chosen_indices(i)
-        if (ios /= 0 .or. chosen_indices(i) <= 0) then
-          write (*, *) "Error: -choose indices must be positive integers."
+      ! -choose takes either explicit configuration indices or a single label
+      ! naming a rule that picks one.  A label cannot be resolved yet: it needs
+      ! the level directory and the configuration count, which are only known
+      ! once the ENSEMBLE has been located, so it is validated here and applied
+      ! further below.
+      call get_command_argument(2, arg_text)
+      read (arg_text, *, iostat=ios) itest
+      if (ios /= 0) then
+        if (arg_count > 3) then
+          write (*, *) "Error: -choose <label> takes at most one count."
+          call write_choose_usage()
           stop 1
         end if
-      end do
+        choose_label = to_lower(trim(arg_text))
+        if (choose_label /= 'bestsqs' .and. choose_label /= 'lowestenergy' &
+            .and. choose_label /= 'highestenergy' .and. choose_label /= 'random') then
+          write (*, '(3A)') " Error: '", trim(arg_text), &
+              "' is neither a configuration index nor a known selection label."
+          call write_choose_usage()
+          stop 1
+        end if
+        ! Optional count: how many of the best to take.  Default 1.
+        if (arg_count == 3) then
+          call get_command_argument(3, arg_text)
+          read (arg_text, *, iostat=ios) choose_count
+          if (ios /= 0 .or. choose_count <= 0) then
+            write (*, '(2A)') " Error: the count after a -choose label must be a", &
+                " positive integer."
+            stop 1
+          end if
+        end if
+      else
+        n_chosen = arg_count - 1
+        allocate(chosen_indices(n_chosen))
+        do i = 1, n_chosen
+          call get_command_argument(i + 1, arg_text)
+          read (arg_text, *, iostat=ios) chosen_indices(i)
+          if (ios /= 0 .or. chosen_indices(i) <= 0) then
+            write (*, *) "Error: -choose indices must be positive integers."
+            stop 1
+          end if
+        end do
+      end if
       mode = 2
     else
       write (*, '(2A)') "Error: unknown argument: ", trim(arg_text)
-      write (*, *) "Usage: genersod [-first N | -choose i1 i2 ...]"
+      write (*, *) "Usage: genersod [-first N | -choose <index ...|label [N]>]"
+      call write_choose_usage()
       stop 1
     end if
   end if
@@ -208,7 +247,7 @@ program genersod
 !
 !
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - genersod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.92 - genersod"
   write (*, *) "Reading INSOD, supercell.cif, and ENSEMBLE to generate calculation input files"
   write (*, *) " "
 
@@ -437,19 +476,23 @@ program genersod
     block
       character(len=256) :: sod_edir
       integer :: edir_len
-      call get_environment_variable('SOD_ENSEMBLE_DIR', sod_edir, length=edir_len)
-      if (edir_len > 0) ndir_gulp = trim(adjustl(sod_edir))
-    end block
-
-    block
       integer :: ntarget_rd, nic_rd, iflat
       integer, allocatable :: nsfl_rd(:), npst_rd(:), degen_rd(:), indconf_rd(:,:)
       real(real64) :: tsampling_rd
       logical :: ensemble_ok
 
+      call get_environment_variable('SOD_ENSEMBLE_DIR', sod_edir, length=edir_len)
+      if (edir_len > 0) ndir_gulp = trim(adjustl(sod_edir))
+
       call read_ensemble(trim(ndir_gulp) // '/ENSEMBLE', ntarget_rd, nsfl_rd, npst_rd, &
                          nic_rd, indconf_rd, degen_rd, tsampling_rd, ensemble_ok)
       if (.not. ensemble_ok) then
+        ! An explicit SOD_ENSEMBLE_DIR names one directory and nothing else can
+        ! stand in for it, so a missing ENSEMBLE there is an error, not a skip.
+        if (edir_len > 0) then
+          write (*, *) "Error: ", trim(ndir_gulp), "/ENSEMBLE not found or invalid."
+          stop 1
+        end if
         write (*, *) "Warning: ", trim(ndir_gulp), "/ENSEMBLE not found or invalid, skipping."
         if (ntarget >= 2 .or. (ntarget == 1 .and. nk(1) >= 2)) exit
         cycle
@@ -483,7 +526,241 @@ program genersod
       if (nsubs_tot > 0) indconf(1:nic, 1:nsubs_tot) = indconf_rd(1:nic, 1:nsubs_tot)
     end block
     ndigits = max(1, int(log10(real(nic))) + 1)
-    write (fmtstr, '(a,i0,a,i0,a)') '(a,i', ndigits, '.', ndigits, ')'
+
+    ! Resolve a -choose selection label now that the level directory and the
+    ! configuration count are known.  Each label names a file in that same
+    ! directory, so the answer always belongs to the ENSEMBLE just loaded --
+    ! including when SOD_ENSEMBLE_DIR points at nXX/random/.  The optional count
+    ! takes the best choose_count of them, in rank order.
+    if (len_trim(choose_label) > 0) then
+      block
+        integer :: iu_sel, rank_read, idx_read, nread, kk, jbest, nfound, ndup
+        integer :: itmp
+        real(real64) :: rnd
+        integer, allocatable :: picked(:)
+        real(real64), allocatable :: cand_e(:)
+        logical, allocatable :: taken(:), have_e(:)
+        real(real64) :: e_read, e_best
+        character(len=256) :: line, selfile
+        character(len=16) :: label_shown
+        ! Echo the label in its canonical spelling, not as the user cased it.
+        select case (trim(choose_label))
+        case ('bestsqs');       label_shown = 'bestSQS'
+        case ('lowestenergy');  label_shown = 'lowestENERGY'
+        case ('random');        label_shown = 'random'
+        case default;           label_shown = 'highestENERGY'
+        end select
+
+        allocate (picked(choose_count))
+        picked = 0
+        nfound = 0
+
+        if (choose_label == 'random') then
+          ! A random sample of the ENSEMBLE, weighted by degeneracy, drawn
+          ! without replacement.
+          !
+          ! Weighted, because the rows of ENSEMBLE are symmetry-inequivalent
+          ! configurations standing for degen(i) microstates each.  Sampling the
+          ! rows uniformly would over-represent the rare ones, and a property
+          ! averaged over such a subset would not estimate the ensemble average.
+          ! Drawing with probability proportional to degeneracy makes the subset
+          ! a fair sample of configuration space, so a plain mean over it is an
+          ! unbiased estimate.
+          !
+          ! Without replacement, because each selection becomes a directory
+          ! cNNN: a repeat would collapse two selections into one and silently
+          ! yield fewer structures than asked for.
+          !
+          ! Efraimidis-Spirakis exponential race: give configuration i the key
+          ! -ln(u_i)/degen(i) with u_i uniform on (0,1], and take the N smallest.
+          ! That draws exactly the weighted-without-replacement sample, in one
+          ! pass, with no rejection loop that could stall as N approaches nic.
+          selfile = 'ENSEMBLE'
+          if (choose_count > nic) then
+            write (*, '(A,I0,A,I0,A)') " Error: ", choose_count, &
+                " configurations requested but the ENSEMBLE has only ", nic, "."
+            stop 1
+          end if
+          call random_seed()
+          allocate (cand_e(nic))
+          do i = 1, nic
+            if (degen(i) <= 0) then
+              ! Cannot represent any microstate; never selected.
+              cand_e(i) = huge(1.0_real64)
+              cycle
+            end if
+            call random_number(rnd)
+            ! random_number can return exactly 0; -ln(0) is not finite.
+            if (rnd <= 0.0_real64) rnd = tiny(1.0_real64)
+            cand_e(i) = -log(rnd) / real(degen(i), real64)
+          end do
+          allocate (taken(nic))
+          taken = .false.
+          do kk = 1, choose_count
+            jbest = 0
+            do i = 1, nic
+              if (taken(i)) cycle
+              if (jbest == 0) then
+                jbest = i
+              else if (cand_e(i) < cand_e(jbest)) then
+                jbest = i
+              end if
+            end do
+            taken(jbest) = .true.
+            picked(kk) = jbest
+          end do
+          deallocate (cand_e, taken)
+          ! No meaningful order among random draws; ascending reads best.
+          do kk = 2, choose_count
+            itmp = picked(kk)
+            jbest = kk - 1
+            do while (jbest >= 1)
+              if (picked(jbest) <= itmp) exit
+              picked(jbest + 1) = picked(jbest)
+              jbest = jbest - 1
+            end do
+            picked(jbest + 1) = itmp
+          end do
+          nfound = choose_count
+
+        else if (choose_label == 'bestsqs') then
+          ! OUTSQS is written sorted by ascending Q with ties broken on
+          ! configuration index, so its data rows are already ranks 1, 2, 3...
+          ! The SECOND column is the configuration number; the first is the
+          ! rank, and confusing the two is what this label exists to prevent.
+          selfile = trim(ndir_gulp)//'/OUTSQS'
+          open (newunit=iu_sel, file=trim(selfile), status='old', iostat=ios)
+          if (ios /= 0) then
+            write (*, '(3A)') " Error: -choose bestSQS requires ", trim(selfile), &
+                ", which was not found."
+            write (*, '(A)') " Run sod_sqs.sh in that directory first."
+            stop 1
+          end if
+          do
+            if (nfound >= choose_count) exit
+            read (iu_sel, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+            line = adjustl(line)
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == '#') cycle
+            read (line, *, iostat=ios) rank_read, idx_read
+            if (ios /= 0) cycle
+            if (idx_read < 1) cycle
+            nfound = nfound + 1
+            picked(nfound) = idx_read
+          end do
+          close (iu_sel)
+          if (nfound < choose_count) then
+            write (*, '(A,I0,3A,I0,A)') " Error: ", choose_count, " configurations requested but ", &
+                trim(selfile), " lists only ", nfound, "."
+            if (nfound > 0) then
+              write (*, '(A)') " sqssod writes the top n_top_sqs rows only (default 10)."
+              write (*, '(A)') " Raise n_top_sqs in INSQS, or set it to 0 to rank every configuration."
+            end if
+            stop 1
+          end if
+
+        else
+          ! ENERGIES holds one "index energy" pair per configuration, the same
+          ! file statsod averages over.
+          selfile = trim(ndir_gulp)//'/ENERGIES'
+          open (newunit=iu_sel, file=trim(selfile), status='old', iostat=ios)
+          if (ios /= 0) then
+            write (*, '(4A)') " Error: -choose ", trim(label_shown), " requires ", &
+                trim(selfile)//", which was not found."
+            write (*, '(A)') " Collect energies first (see the sod_*_ener.sh scripts)."
+            stop 1
+          end if
+          ! Store by configuration index, not by line number.  ENERGIES is
+          ! written by the sod_*_ener.sh scripts and edited by hand, so it can
+          ! carry repeated or partial entries; counting lines into a
+          ! nic-sized buffer would run off the end of it.
+          allocate (cand_e(nic), have_e(nic), taken(nic))
+          have_e = .false.
+          taken = .false.
+          cand_e = 0.0_real64
+          ndup = 0
+          do
+            read (iu_sel, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+            line = adjustl(line)
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == '#') cycle
+            read (line, *, iostat=ios) idx_read, e_read
+            if (ios /= 0) cycle
+            if (idx_read < 1 .or. idx_read > nic) then
+              write (*, '(A,I0,A,I0,A)') " Error: ENERGIES names configuration ", idx_read, &
+                  " which is outside 1..", nic, " for this level."
+              stop 1
+            end if
+            if (have_e(idx_read)) ndup = ndup + 1
+            have_e(idx_read) = .true.
+            cand_e(idx_read) = e_read       ! a repeated index keeps its last value
+          end do
+          close (iu_sel)
+          nread = count(have_e)
+          if (ndup > 0) then
+            write (*, '(A,I0,3A)') " Warning: ", ndup, " repeated configuration index(es) in ", &
+                trim(selfile), "; the last value of each was used."
+          end if
+          if (nread == 0) then
+            write (*, '(3A)') " Error: no usable entries in ", trim(selfile), "."
+            stop 1
+          end if
+          if (nread /= nic) then
+            write (*, '(A,I0,A,I0,A)') " Warning: ENERGIES covers ", nread, &
+                " of the ", nic, " configurations in the ENSEMBLE."
+          end if
+          if (choose_count > nread) then
+            write (*, '(A,I0,3A,I0,A)') " Error: ", choose_count, " configurations requested but ", &
+                trim(selfile), " has energies for only ", nread, "."
+            stop 1
+          end if
+          ! Repeated extremum selection: choose_count is small in practice.
+          do kk = 1, choose_count
+            jbest = 0
+            do i = 1, nic
+              if (.not. have_e(i)) cycle
+              if (taken(i)) cycle
+              if (jbest == 0) then
+                jbest = i
+              else if (choose_label == 'lowestenergy') then
+                if (cand_e(i) < cand_e(jbest)) jbest = i
+              else
+                if (cand_e(i) > cand_e(jbest)) jbest = i
+              end if
+            end do
+            taken(jbest) = .true.
+            picked(kk) = jbest
+            if (kk == 1) e_best = cand_e(jbest)
+          end do
+          nfound = choose_count
+          write (*, '(3A,ES16.8)') " > -choose ", trim(label_shown), ": best energy ", e_best
+          deallocate (cand_e, have_e, taken)
+        end if
+
+        if (choose_label == 'random') then
+          write (*, '(3A,I0,A,I0,A)') " > -choose ", trim(label_shown), ": ", choose_count, &
+              " of ", nic, " configurations, drawn without replacement"
+          write (*, '(A)') "   with probability proportional to degeneracy:"
+          write (*, '(A,*(1X,I0))') "  ", (picked(kk), kk = 1, choose_count)
+          write (*, '(A)') "   (repeat this exact selection with -choose followed by those indices)"
+        else if (choose_count == 1) then
+          write (*, '(3A,I0,3A)') " > -choose ", trim(label_shown), " selects configuration ", &
+              picked(1), " (from ", trim(selfile), ")"
+        else
+          write (*, '(3A,I0,3A)') " > -choose ", trim(label_shown), " selects the best ", &
+              choose_count, " configurations (from ", trim(selfile), "):"
+          write (*, '(A,*(1X,I0))') "  ", (picked(kk), kk = 1, choose_count)
+        end if
+        if (allocated(chosen_indices)) deallocate (chosen_indices)
+        n_chosen = choose_count
+        allocate (chosen_indices(n_chosen))
+        chosen_indices(1:n_chosen) = picked(1:n_chosen)
+        deallocate (picked)
+      end block
+    end if
+
     if (mode == 2) then
       do i = 1, n_chosen
         if (chosen_indices(i) > nic) then
@@ -1842,6 +2119,36 @@ contains
 !---------------------------------------------------------------------------
 ! Append the (unique) atom types of molecule MIDX to the all_sym registry.
   ! Append a symbol to the all_sym table unless it is already there.
+  ! Lowercase a string, so -choose labels can be typed in any case.
+  function to_lower(str) result(out)
+    character(len=*), intent(in) :: str
+    character(len=32) :: out
+    integer :: k, code
+    out = ''
+    do k = 1, min(len_trim(str), len(out))
+      code = iachar(str(k:k))
+      if (code >= iachar('A') .and. code <= iachar('Z')) then
+        out(k:k) = achar(code + 32)
+      else
+        out(k:k) = str(k:k)
+      end if
+    end do
+  end function to_lower
+
+  ! The -choose labels, listed in one place so the usage text cannot drift from
+  ! the set the parser accepts.
+  subroutine write_choose_usage()
+    write (*, '(A)') " -choose takes either configuration indices or a selection label:"
+    write (*, '(A)') "   -choose i1 i2 ...        those configurations"
+    write (*, '(A)') "   -choose <label> [N]      the best N by that label (default 1)"
+    write (*, '(A)') " Labels, case-insensitive:"
+    write (*, '(A)') "   bestSQS         best-ranked in OUTSQS   (written by sod_sqs.sh)"
+    write (*, '(A)') "   lowestENERGY    lowest in ENERGIES"
+    write (*, '(A)') "   highestENERGY   highest in ENERGIES"
+    write (*, '(A)') "   random          a degeneracy-weighted sample, no repeats"
+    write (*, '(A)') " OUTSQS and ENERGIES are read from the directory holding the ENSEMBLE."
+  end subroutine write_choose_usage
+
   subroutine add_unique_sym(symstr)
     character(len=*), intent(in) :: symstr
     integer :: m_loc

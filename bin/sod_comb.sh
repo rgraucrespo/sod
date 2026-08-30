@@ -10,11 +10,35 @@ export PATH="${SCRIPT_DIR}:${PATH}"
 SODPROJECT="$(sod_require_project_root "$PWD")" || exit 1
 cd "$SODPROJECT" || exit 1
 
+# -eqmatrix-only stops combsod after the symmetry analysis, leaving
+# supercell.cif, EQMATRIX and OPERATORS but no ENSEMBLE.  It exists for
+# supercells too large to enumerate, where the symmetry data is wanted on its
+# own: randomsod -sym on requires EQMATRIX, and until now the only way to get
+# one at that size was to run combsod and let it fail in the allocator after
+# the file had already been written.  With no ENSEMBLE there is nothing for
+# genersod to materialise, so the FILER stage below is skipped.
+EQMATRIX_ONLY=false
+COMBSOD_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -eqmatrix-only)
+      EQMATRIX_ONLY=true; COMBSOD_ARGS+=("-eqmatrix-only"); shift ;;
+    *)
+      echo "Error: unrecognised argument to sod_comb.sh: $1"
+      echo "Usage: sod_comb.sh [-eqmatrix-only]"
+      exit 1 ;;
+  esac
+done
+
 rm -f ENSEMBLE supercell.cif EQMATRIX OPERATORS cSGO
 
 clear
 
-combsod || { echo "Error: combsod failed"; exit 1; }
+combsod "${COMBSOD_ARGS[@]}" || { echo "Error: combsod failed"; exit 1; }
+
+if $EQMATRIX_ONLY; then
+  exit 0
+fi
 
 # Read FILER from the last non-blank, non-comment INSOD line.
 FILER="$(sod_read_insod_filer INSOD)" || exit 1

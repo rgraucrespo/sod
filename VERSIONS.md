@@ -1,4 +1,33 @@
-## Unreleased
+## Version 0.92 (30 August 2026)
+
+Structure generation gains a way to say *which* configurations you want, symmetry
+data can be produced for supercells too large to enumerate, and three defects
+found in a pre-release audit are fixed.
+
+- **`genersod`: `-choose` now takes a selection label as well as configuration indices.** The SQS workflow used to end with "read `OUTSQS`, then `sod_gener.sh -choose <index>`" — a manual step whose answer is fixed, and whose file invites one specific silent mistake: `OUTSQS` begins with a **Rank** column followed by a **Config** column, and rank 1 is almost never configuration 1, so `-choose 1` generates a perfectly valid structure that is not the SQS. `-choose` now also accepts `bestSQS`, `lowestENERGY`, `highestENERGY` or `random`, each optionally followed by how many to take:
+
+  ```
+  sod_gener.sh -choose bestSQS          # the best-ranked configuration in OUTSQS
+  sod_gener.sh -choose bestSQS 10       # the ten best, in rank order
+  sod_gener.sh -choose lowestENERGY 5   # the five lowest-energy configurations
+  sod_gener.sh -choose random 20        # twenty at random, all different
+  ```
+
+  Labels are case-insensitive, and each reads its file (`OUTSQS`, `ENERGIES`, `ENSEMBLE`) from the same directory as the ensemble being generated, so the answer always belongs to that ensemble — including when it lives in `nXX/random/`. `random` draws with probability proportional to degeneracy, because the rows of `ENSEMBLE` stand for `degen` microstates each: drawing them equiprobably would over-represent the rare ones and a property averaged over the subset would not estimate the ensemble average. The draw is without replacement, so the selected configurations are always all different. There is deliberately no `bestGQS`: `gqssod` prints its ranking to the terminal only, and ranks once per temperature, so the label could not name a single structure.
+
+- **`sod_comb.sh -eqmatrix-only`: symmetry data without enumeration.** `randomsod -sym on` needs an `EQMATRIX`, but the only thing that produced one was the enumeration that is infeasible at exactly the supercell sizes where random sampling is the point. The files were in fact already obtainable — on a 4×4×4 halide ensemble of ~3×10¹⁷ configurations, `combsod` writes `supercell.cif`, `EQMATRIX` and `OPERATORS` in about a second and only then aborts in the allocator — but only as the by-product of a run that fails. This makes it a supported operation that exits successfully. The `INSOD` substitution counts are still validated, so an impossible level is still rejected.
+
+- **Structure generation through a symlinked project directory silently produced nothing.** `SODPROJECT` was canonicalised but `LAUNCH_DIR` was not, so on any path containing a symlink — macOS `mktemp` under `/var`, or any symlinked project folder — the level name failed to resolve, the resulting absolute path was truncated to the 40 characters of an internal buffer, the level was reported as "skipped", and `sod_gener.sh` exited 0 having written no structures and then wrote a `job_sender` for them. All three faults are fixed. Reported and fixed by Antonio Rivas.
+
+- **`-choose lowestENERGY`/`highestENERGY` could overrun a buffer.** An `ENERGIES` file with more usable lines than the ensemble has configurations — plausible, since it is written by the `sod_*_ener.sh` scripts and edited by hand — wrote past the end of an array. Energies are now stored by configuration index, and partial or repeated files are reported rather than mishandled.
+
+- **INSOD rejected long molecule names instead of truncating them in silence.** `@WATER` became `WATE` and surfaced much later as `Error: WATE.xyz not found`, a filename the user never wrote. Both the target-site and parent-molecule paths now fail at once, naming the token and the limit.
+
+- **`sod_sqs.sh` no longer reports success having scored nothing**, and distinguishes an ensemble it could not find from one it found but could not score — the two need different advice.
+
+- **New `example20`**: molecules and vacancies together on multi-nary target sites — a 2×2×2 (MA,FA)Pb(I,Br)₃ perovskite with Schottky vacancies, whose A site is `@FA %VA @MA` and halide site `Br %VX I`. This is the case 0.91 enabled but nothing exercised.
+
+- **Everyone in `CONTRIBUTORS.md` is now credited on the public repository.** Releases are squashed into a single commit, so only the person running the release appeared as a contributor; the release commit now carries a `Co-authored-by:` trailer for each contributor, which GitHub's Contributors sidebar counts. `AUTHORS.md` becomes `CONTRIBUTORS.md`, naming the project lead separately from the people who have contributed code.
 
 ## Version 0.91 (29 August 2026)
 

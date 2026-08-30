@@ -1,0 +1,60 @@
+Example 20: molecules and vacancies together on multi-nary target sites
+=======================================================================
+
+Physical system
+---------------
+A hybrid organic-inorganic perovskite, (MA,FA)Pb(I,Br)3, with Schottky
+vacancies on both sublattices.  The A site is shared by two molecular cations
+-- methylammonium (MA = CH3NH3+) and formamidinium (FA = HC(NH2)2+) -- and by
+A-site vacancies; the X site is shared by iodide, bromide and halide vacancies.
+
+What it exercises
+-----------------
+Both targets are multi-nary (nk = 2, i.e. two substituent species plus the
+remaining species) and both mix all three kinds of occupancy that genersod
+knows about:
+
+  Target 1, the A site (8 sites):   @FA  %VA  @MA
+      1 FA molecule, 1 vacancy, 6 MA molecules.
+      Note the *remaining* species is itself a molecule.
+
+  Target 2, the X site (24 sites):  Br   %VX  I
+      1 Br, 1 vacancy, 22 I -- plain atoms either side of a vacancy.
+
+Until version 0.90 genersod refused this input outright: molecule (@) and
+vacancy (%) prefixes were only honoured on binary targets, and any @ or % on a
+target with nk >= 2 aborted at startup.  The generic site resolver introduced
+in 0.91 handles them on any target and in any slot, and this example is the
+regression test for that.
+
+Files
+-----
+  INSOD          SOD input (2x2x2 supercell, 2 targets, nk = 2 each, FILER = 11)
+  SGO            Symmetry operations for Pm-3m (space group 221)
+  MA.xyz         Methylammonium geometry (8 atoms: C, N, 6 H)
+  FA.xyz         Formamidinium geometry (9 atoms: C, 2 N, 6 H)
+  EQMATRIX       Site-equivalence matrix written by combsod
+  OPERATORS      Symmetry operators written by combsod
+  supercell.cif  2x2x2 CsPbI3 supercell in P1 (40 sites)
+  n01_01_01_01/ENSEMBLE   The 114 inequivalent configurations
+
+How to run
+----------
+   ../../bin/sod_comb.sh      # enumerate -> n01_01_01_01/ENSEMBLE
+   ../../bin/sod_gener.sh     # materialise -> n01_01_01_01/c*/POSCAR
+
+Expected output
+---------------
+114 inequivalent configurations, each written as a VASP POSCAR of 88 atoms:
+
+  C   7     1 from FA + 6 from MA
+  H  42     6 from FA + 36 from MA
+  N   8     2 from FA + 6 from MA
+  Pb  8     the untouched B site
+  Br  1
+  I  22
+
+The two vacancies contribute no atoms, which is why the 40 parent sites give
+88 atoms rather than the 96 that eight fully occupied molecular A sites and 24
+occupied X sites would produce.  Molecule orientations are sampled at random,
+so coordinates differ from run to run but the composition above does not.

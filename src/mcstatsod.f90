@@ -68,7 +68,7 @@ program mcstatsod
   character(len=256) :: ensemble_line
   integer :: k, m, j, kpos_mc, kpos2_mc
 
-  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - mcstatsod"
+  write (*, '(A)') "SOD (Site-Occupancy Disorder) version 0.92 - mcstatsod"
 
   ! -----------------------------------------------------------------------
   ! 0. Resolve the CPME variant subdirectory (sampling method first, Hamiltonian

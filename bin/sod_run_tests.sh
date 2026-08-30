@@ -366,6 +366,591 @@ EOF
     pass_line "$label"; pass=$((pass+1))
 }
 
+# ── test_gener_best ───────────────────────────────────────────────────────────
+# sod_gener.sh -choose <label> resolves a rule to a configuration index.
+#
+# The workflow it replaces was "inspect OUTSQS and pick the best configuration,
+# then sod_gener.sh -choose <index>".  OUTSQS opens with a Rank column followed
+# by a Config column, and rank 1 is almost never configuration 1, so the manual
+# step invites -choose 1: a valid structure that is not the SQS, with nothing to
+# signal the mistake.  The test pins the behaviour that prevents it -- that
+# bestSQS resolves to the *second* column -- by requiring its output to equal
+# -choose <that column> exactly, and by requiring the two to differ from
+# -choose 1 (which would otherwise be a vacuous comparison).
+#
+# $1 = display label   $2 = example16 directory   $3 = level name
+test_gener_best() {
+    local label="$1" dir="$2" level="$3"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/$level/ENSEMBLE" ]; then
+        skip_line "$label" "(missing example16 inputs)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/EQMATRIX" "$dir/supercell.cif" "$tmp/" 2>/dev/null
+    cp "$dir/template_input.gin" "$dir/catlow.lib" "$tmp/" 2>/dev/null
+    mkdir -p "$tmp/$level"
+    cp "$dir/$level/ENSEMBLE" "$tmp/$level/"
+    cat > "$tmp/INSQS" <<'INSQSEOF'
+# Maximum cluster order
+2
+
+# Cutoff radii (Angstroms) for orders 2..MaxOrder
+8.0
+
+# Weights for orders 2..MaxOrder
+1.0
+
+# omega and eps_tol for van de Walle scoring
+10  1.0E-6
+INSQSEOF
+
+    local out rc
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_sqs.sh" 2>&1); rc=$?
+    if [ $rc -ne 0 ] || [ ! -f "$tmp/$level/OUTSQS" ]; then
+        fail_line "$label" "[sod_sqs.sh did not produce OUTSQS]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local cfg; cfg=$(grep -v '^#' "$tmp/$level/OUTSQS" | head -1 | awk '{print $2}')
+    # Total configurations, from the "# Top N of M configurations" header line.
+    local nic_count hi_idx
+    nic_count=$(awk '/^# Top /{for(i=1;i<=NF;i++) if($i=="of"){print $(i+1)+0; exit}}' \
+                "$tmp/$level/OUTSQS")
+    if [ -z "$nic_count" ] || [ "$nic_count" -lt 20 ]; then
+        skip_line "$label" "(could not read configuration count from OUTSQS)"
+        skip=$((skip+1)); rm -rf "$tmp"; return
+    fi
+    hi_idx=$(( nic_count - 1 ))
+    if [ -z "$cfg" ] || [ "$cfg" = "1" ]; then
+        skip_line "$label" "(rank 1 is configuration ${cfg:-none}; comparison would be vacuous)"
+        skip=$((skip+1)); rm -rf "$tmp"; return
+    fi
+
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bestSQS 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[sod_gener.sh -choose bestSQS exited $rc]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! echo "$out" | grep -q "selects configuration $cfg"; then
+        fail_line "$label" "[bestSQS did not report configuration $cfg]"
+        echo "$out" | grep -i best | head -2 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local bestdir; bestdir=$(ls -d "$tmp/$level"/c* 2>/dev/null | head -1)
+    if [ -z "$bestdir" ]; then
+        fail_line "$label" "[bestSQS generated no configuration directory]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local keep="$tmp/best_keep"; cp -r "$bestdir" "$keep"
+    rm -rf "$tmp/$level"/c*
+
+    # bestSQS must equal -choose <Config>, ...
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose "$cfg" 2>&1)
+    local choosedir; choosedir=$(ls -d "$tmp/$level"/c* 2>/dev/null | head -1)
+    if [ -z "$choosedir" ] || ! diff -r "$keep" "$choosedir" >/dev/null 2>&1; then
+        fail_line "$label" "[bestSQS differs from -choose $cfg]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    rm -rf "$tmp/$level"/c*
+
+    # ... and must NOT equal -choose 1, the mistake it exists to prevent.
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose 1 2>&1)
+    local onedir; onedir=$(ls -d "$tmp/$level"/c* 2>/dev/null | head -1)
+    if [ -n "$onedir" ] && diff -r "$keep" "$onedir" >/dev/null 2>&1; then
+        fail_line "$label" "[bestSQS matched -choose 1; rank and index are being confused]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Energy labels: plant a known minimum and maximum and require them back.
+    rm -rf "$tmp/$level"/c*
+    awk -v n="$nic_count" -v hi="$hi_idx" \
+        'BEGIN{for(i=1;i<=n;i++){e=-100+(i%97)/97;
+                if(i==12)e=-200; if(i==13)e=-199;
+                if(i==hi)e=50; if(i==hi-1)e=49;
+                printf "%d  %.6f\n", i, e}}' \
+        > "$tmp/$level/ENERGIES"
+
+    local lbl want
+    for lbl in lowestENERGY:12 highestENERGY:"$hi_idx"; do
+        want="${lbl#*:}"; lbl="${lbl%%:*}"
+        rm -rf "$tmp/$level"/c*
+        out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose "$lbl" 2>&1); rc=$?
+        if [ $rc -ne 0 ] || ! echo "$out" | grep -q "selects configuration $want"; then
+            fail_line "$label" "[-choose $lbl did not select configuration $want]"
+            echo "$out" | grep -i choose | head -2 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+    done
+
+    # ... and with a count, the two extremes in order.
+    for lbl in "lowestENERGY:12 13" "highestENERGY:$hi_idx $((hi_idx-1))"; do
+        want="${lbl#*:}"; lbl="${lbl%%:*}"
+        rm -rf "$tmp/$level"/c*
+        out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose "$lbl" 2 2>&1); rc=$?
+        if [ $rc -ne 0 ] || ! echo "$out" | grep -q "$want"; then
+            fail_line "$label" "[-choose $lbl 2 did not select '$want']"
+            echo "$out" | grep -iA1 "selects" | head -3 | indent
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+    done
+
+    # A missing ENERGIES must be an error, and an unknown label must be rejected.
+    rm -f "$tmp/$level/ENERGIES"
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose lowestENERGY 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[-choose lowestENERGY succeeded with no ENERGIES]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bogus 2>&1); rc=$?
+    if [ $rc -eq 0 ] || ! echo "$out" | grep -q "neither a configuration index nor a known selection label"; then
+        fail_line "$label" "[unknown label was not rejected]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    # Explicit indices must still work.
+    rm -rf "$tmp/$level"/c*
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose 3 7 2>&1); rc=$?
+    if [ $rc -ne 0 ] || [ "$(ls -d "$tmp/$level"/c* 2>/dev/null | wc -l)" -ne 2 ]; then
+        fail_line "$label" "[-choose with two indices no longer generates two configurations]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # A count after the label takes that many, in rank order.  The first three
+    # OUTSQS data rows are ranks 1-3, so their Config column is the expectation.
+    local want3 got3
+    want3=$(grep -v '^#' "$tmp/$level/OUTSQS" | head -3 | awk '{printf "%s ", $2}')
+    rm -rf "$tmp/$level"/c*
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bestSQS 3 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[-choose bestSQS 3 exited $rc]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    got3=$(ls -d "$tmp/$level"/c* 2>/dev/null | sed 's|.*/c||' | sed 's/^0*//' | sort -n | tr '\n' ' ')
+    if [ "$got3" != "$(printf '%s ' $(printf '%s\n' $want3 | sort -n))" ]; then
+        fail_line "$label" "[-choose bestSQS 3 gave '$got3', expected '$want3']"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Asking for more than OUTSQS lists must fail, and say why.
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bestSQS 100000 2>&1); rc=$?
+    if [ $rc -eq 0 ] || ! echo "$out" | grep -q "n_top_sqs"; then
+        fail_line "$label" "[over-large bestSQS count not rejected with an n_top_sqs hint]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # A non-positive count is rejected.
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bestSQS 0 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[-choose bestSQS 0 was accepted]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Missing OUTSQS must be an error, not a silent fallback.
+    rm -f "$tmp/$level/OUTSQS" && rm -rf "$tmp/$level"/c*
+    out=$(cd "$tmp/$level" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose bestSQS 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[bestSQS succeeded with no OUTSQS]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! echo "$out" | grep -q "requires"; then
+        fail_line "$label" "[unexpected error for missing OUTSQS]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_gener_choose_random ──────────────────────────────────────────────────
+# sod_gener.sh -choose random N draws N configurations to generate.
+#
+# Two properties, one structural and one statistical.
+#
+# Without replacement is a requirement rather than a nicety: each selection
+# becomes a directory cNNN, so a repeated draw would collapse into one and the
+# run would quietly produce fewer structures than asked for.  The test pins
+# that by asking for the whole ensemble, where any repeat must show up as a
+# missing configuration: N = nic has to come back as a permutation of 1..nic.
+# It also checks a small draw is distinct, in range, and differs between runs
+# (nic = 114 and N = 6 makes a coincidental match a ~1e-8 event), and that
+# asking for more than the ensemble holds is an error.
+#
+# The draw is weighted by degeneracy, so that a subset is a fair sample of
+# configuration space rather than of the ENSEMBLE's rows.  That is checked on
+# the mean degeneracy of the configuration drawn, whose two models are computed
+# from the ENSEMBLE itself: sum(d)/nic if rows were equiprobable, sum(d^2)/sum(d)
+# under correct weighting.  For example20 those are 271.2 and 320.2.  A single
+# draw is far too noisy to separate them -- measured over 40 trials of N=57, the
+# top-degeneracy count ranged 27 to 42 against an equiprobable expectation of 28
+# -- so the check aggregates 200 single draws and requires the observed mean to
+# land above the midpoint, which puts both false-fail and false-pass below 1e-3.
+# The draws run with FILER = -1 so no structures are written: 11 ms each.
+#
+# $1 = display label   $2 = example20 directory
+test_gener_choose_random() {
+    local label="$1" dir="$2"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/SGO" ]; then
+        skip_line "$label" "(missing example20 inputs)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/MA.xyz" "$dir/FA.xyz" "$tmp/" 2>/dev/null
+
+    local out rc
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[combsod error]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local ndir; ndir=$(ls -d "$tmp"/n*/ 2>/dev/null | head -1)
+    local nic; nic=$(awk 'NR==1{for(i=1;i<=NF;i++) if($i=="configurations;"){print $(i-1); exit}}' "$ndir/ENSEMBLE")
+    if [ -z "$nic" ] || [ "$nic" -lt 20 ]; then
+        skip_line "$label" "(could not read configuration count from ENSEMBLE)"
+        skip=$((skip+1)); rm -rf "$tmp"; return
+    fi
+
+    # Helper: run a draw and echo the generated indices, ascending.
+    draw() {
+        rm -rf "$ndir"/c*
+        (cd "$ndir" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose random "$1" >/dev/null 2>&1) || return 1
+        ls -d "$ndir"/c* 2>/dev/null | sed 's|.*/c||' | sed 's/^0*//' | sort -n | tr '\n' ' '
+    }
+
+    local a b
+    a=$(draw 6) || { fail_line "$label" "[-choose random 6 failed]"; fail=$((fail+1)); rm -rf "$tmp"; return; }
+    if [ "$(echo $a | wc -w)" -ne 6 ]; then
+        fail_line "$label" "[-choose random 6 generated $(echo $a | wc -w) configurations]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if [ "$(echo $a | tr ' ' '\n' | sort -u | wc -l)" -ne 6 ]; then
+        fail_line "$label" "[-choose random 6 repeated a configuration: $a]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if echo "$a" | tr ' ' '\n' | awk -v n="$nic" 'NF && ($1<1 || $1>n){exit 1}'; then :; else
+        fail_line "$label" "[-choose random 6 produced an out-of-range index: $a]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    b=$(draw 6) || { fail_line "$label" "[second -choose random 6 failed]"; fail=$((fail+1)); rm -rf "$tmp"; return; }
+    if [ "$a" = "$b" ]; then
+        fail_line "$label" "[two draws of 6 from $nic were identical; not random]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # N = nic must be a permutation: every configuration exactly once.
+    local all expect
+    all=$(draw "$nic") || { fail_line "$label" "[-choose random $nic failed]"; fail=$((fail+1)); rm -rf "$tmp"; return; }
+    expect=$(seq 1 "$nic" | tr '\n' ' ')
+    if [ "$all" != "$expect" ]; then
+        fail_line "$label" "[-choose random $nic is not a permutation of 1..$nic]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # More than the ensemble holds is an error.
+    rm -rf "$ndir"/c*
+    out=$(cd "$ndir" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose random $((nic + 1)) 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[-choose random $((nic+1)) was accepted for an ensemble of $nic]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # The draw must be weighted by degeneracy.  Expectations from the ENSEMBLE.
+    local means lo hi mid
+    means=$(awk 'NF>2 && $1 ~ /^[0-9]+$/ {n++; s+=$2; s2+=$2*$2}
+                 END{if(n>0 && s>0) printf "%.4f %.4f", s/n, s2/s}' "$ndir/ENSEMBLE")
+    lo=${means%% *}; hi=${means##* }
+    if [ -z "$lo" ] || [ -z "$hi" ] || \
+       ! awk -v a="$hi" -v b="$lo" 'BEGIN{exit !(a > b*1.05)}'; then
+        skip_line "$label" "(degeneracies too flat to test weighting)"
+        skip=$((skip+1)); rm -rf "$tmp"; return
+    fi
+    mid=$(awk -v a="$lo" -v b="$hi" 'BEGIN{printf "%.4f", (a+b)/2}')
+
+    # FILER = -1: resolve and report the draw without writing any structure.
+    sed -i.bak 's/^11$/-1/' "$tmp/INSOD" && rm -f "$tmp/INSOD.bak"
+    rm -rf "$ndir"/c*
+    local ndraw=200 picks
+    picks=$(for _ in $(seq 1 $ndraw); do
+                (cd "$ndir" && PATH="$BIN:$PATH" "$BIN/sod_gener.sh" -choose random 1 2>/dev/null) \
+                  | awk '/proportional to degeneracy/{getline; print $1}'
+            done)
+    local got; got=$(echo "$picks" | wc -w)
+    if [ "$got" -ne "$ndraw" ]; then
+        fail_line "$label" "[expected $ndraw draws, captured $got]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    local obs
+    obs=$(awk 'NR==FNR{ if(NF>2 && $1 ~ /^[0-9]+$/) d[$1]=$2; next }
+               NF{s+=d[$1]; n++} END{if(n>0) printf "%.4f", s/n}' "$ndir/ENSEMBLE" <(echo "$picks"))
+    if ! awk -v o="$obs" -v m="$mid" 'BEGIN{exit !(o > m)}'; then
+        fail_line "$label" "[draw looks unweighted: mean degeneracy $obs, expected near $hi, equiprobable would give $lo]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_sqs_no_ensemble_scored ───────────────────────────────────────────────
+# sod_sqs.sh run from SODPROJECT/ when the ensemble is one level down.
+#
+# sod_random.sh writes to nXX/random/, and the sweep over nXX/ then finds no
+# ENSEMBLE, printed one "Skipping" line and exited 0 -- a silent no-op reporting
+# success, the same shape as the symlink fault fixed in e4ec9295.  It must now
+# fail and say where the ensembles actually are.
+#
+# The two ways of scoring nothing must be told apart: an ENSEMBLE that was never
+# found, and one that was found but that sqssod failed on.  Reporting the first
+# when it was the second sends the user after the wrong problem, so both
+# messages are checked.
+#
+# $1 = display label   $2 = example16 directory   $3 = level name
+test_sqs_no_ensemble_scored() {
+    local label="$1" dir="$2" level="$3"
+
+    if [ ! -f "$dir/$level/ENSEMBLE" ]; then
+        skip_line "$label" "(missing example16 ensemble)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/EQMATRIX" "$dir/supercell.cif" "$tmp/" 2>/dev/null
+    # Put the ensemble one level down, as sod_random.sh would.
+    mkdir -p "$tmp/$level/random"
+    cp "$dir/$level/ENSEMBLE" "$tmp/$level/random/"
+    cat > "$tmp/INSQS" <<'INSQSEOF'
+# Maximum cluster order
+2
+
+# Cutoff radii (Angstroms) for orders 2..MaxOrder
+8.0
+
+# Weights for orders 2..MaxOrder
+1.0
+
+# omega and eps_tol for van de Walle scoring
+10  1.0E-6
+INSQSEOF
+
+    local out rc
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" "$BIN/sod_sqs.sh" 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[scored nothing but exited 0]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! echo "$out" | grep -q "no ENSEMBLE was found to score"; then
+        fail_line "$label" "[unexpected error output]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! echo "$out" | grep -q "$level/random"; then
+        fail_line "$label" "[error did not point at $level/random]"
+        echo "$out" | tail -4 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Run from the directory that does hold the ensemble: must succeed.
+    out=$(cd "$tmp/$level/random" && PATH="$BIN:$PATH" "$BIN/sod_sqs.sh" 2>&1); rc=$?
+    if [ $rc -ne 0 ] || [ ! -f "$tmp/$level/random/OUTSQS" ]; then
+        fail_line "$label" "[scoring from $level/random/ failed]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # An ENSEMBLE that is found but cannot be scored must say so, and must not
+    # claim the ensemble is missing: without INSQS anywhere, sqssod fails.
+    local tmp2; tmp2=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/EQMATRIX" "$dir/supercell.cif" "$tmp2/" 2>/dev/null
+    mkdir -p "$tmp2/$level"; cp "$dir/$level/ENSEMBLE" "$tmp2/$level/"
+    out=$(cd "$tmp2" && PATH="$BIN:$PATH" "$BIN/sod_sqs.sh" 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[unscorable ensemble exited 0]"
+        fail=$((fail+1)); rm -rf "$tmp" "$tmp2"; return
+    fi
+    if ! echo "$out" | grep -q "sqssod failed for every ensemble it found"; then
+        fail_line "$label" "[scoring failure was not distinguished from a missing ensemble]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp" "$tmp2"; return
+    fi
+    rm -rf "$tmp2"
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_eqmatrix_only ────────────────────────────────────────────────────────
+# sod_comb.sh -eqmatrix-only on a supercell too large to enumerate.
+#
+# randomsod -sym on requires EQMATRIX, but the only producer of one is combsod,
+# whose enumeration is infeasible at exactly the sizes where random sampling is
+# wanted: example18 is C(192,96) ~ 3e17 configurations and combsod dies in the
+# allocator.  It dies *after* writing supercell.cif, EQMATRIX and OPERATORS, so
+# the files were obtainable, but only as the by-product of a failed run that
+# exits 1 and prints "problem too large for SOD".  -eqmatrix-only makes that an
+# intentional, successful operation.
+#
+# Checks that the run succeeds, that the three artefacts are byte-identical to
+# the ones committed for example18 (i.e. the flag changes when combsod stops,
+# not what it writes), that no ENSEMBLE is produced, and that randomsod -sym on
+# then works against the result.  Also checks that the site-count validation
+# still fires, since the whole point of stopping after setup_targets rather
+# than before it is that a bad INSOD is still rejected.
+#
+# $1 = display label   $2 = example18 directory
+test_eqmatrix_only() {
+    local label="$1" dir="$2"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/SGO" ] || [ ! -f "$dir/EQMATRIX" ]; then
+        skip_line "$label" "(missing example18 inputs)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$tmp/"
+
+    local out rc
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" "$BIN/sod_comb.sh" -eqmatrix-only 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[sod_comb.sh -eqmatrix-only exited $rc]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local f
+    for f in supercell.cif EQMATRIX OPERATORS; do
+        if [ ! -s "$tmp/$f" ]; then
+            fail_line "$label" "[$f not written]"
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+        if ! cmp -s "$tmp/$f" "$dir/$f"; then
+            fail_line "$label" "[$f differs from the committed example18 copy]"
+            fail=$((fail+1)); rm -rf "$tmp"; return
+        fi
+    done
+
+    if [ -e "$tmp/ENSEMBLE" ] || ls "$tmp"/n*/ENSEMBLE >/dev/null 2>&1; then
+        fail_line "$label" "[an ENSEMBLE was produced; enumeration did not stop]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # The EQMATRIX is usable: symmetry-folded random sampling needs one.
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" "$BIN/sod_random.sh" -nconf 50 -sym on -seed 12345 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        fail_line "$label" "[randomsod -sym on failed against the generated EQMATRIX]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    if ! ls "$tmp"/n*/random/ENSEMBLE >/dev/null 2>&1; then
+        fail_line "$label" "[randomsod wrote no ENSEMBLE]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Stopping after setup_targets, not before it, keeps the site-count check.
+    local bad; bad=$(mktemp -d)
+    cp "$dir/SGO" "$bad/"
+    sed 's/^96$/9999/' "$dir/INSOD" > "$bad/INSOD"
+    out=$(cd "$bad" && PATH="$BIN:$PATH" "$BIN/sod_comb.sh" -eqmatrix-only 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
+        fail_line "$label" "[nsubs exceeding available sites was not rejected]"
+        fail=$((fail+1)); rm -rf "$tmp" "$bad"; return
+    fi
+    if ! echo "$out" | grep -q "exceeds number of available sites"; then
+        fail_line "$label" "[unexpected error for oversized nsubs]"
+        echo "$out" | tail -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp" "$bad"; return
+    fi
+
+    rm -rf "$tmp" "$bad"
+    pass_line "$label"; pass=$((pass+1))
+}
+
+# ── test_genersod_multinary_mol_vac ───────────────────────────────────────────
+# Molecules (@) and vacancies (%) on *multi-nary* targets (nk >= 2).
+#
+# Until 0.90 the @ and % prefixes were only honoured on binary targets and any
+# occurrence on a target with nk >= 2 aborted genersod at startup; the generic
+# site resolver added in 0.91 handles every slot of every target.  example20
+# puts both on both targets at once: the A site is @FA / %VA / @MA, so even the
+# remaining species is a molecule, and the X site is Br / %VX / I, a vacancy
+# between two plain atoms.  Composition of the 2x2x2 cell:
+#
+#   1 FA  = 1 C, 2 N,  6 H        6 MA = 6 C, 6 N, 36 H
+#   1 A-site vacancy, 1 X-site vacancy, both contributing no atoms
+#   8 Pb (untouched B site), 1 Br, 22 I
+#                                  88 atoms in total
+#
+# Molecule orientations are sampled at random and the VASP writer lists species
+# in order of first appearance, so the check is on the label -> count mapping,
+# which is invariant, rather than on the file or the species line as written.
+#
+# $1 = display label   $2 = example20 directory
+test_genersod_multinary_mol_vac() {
+    local label="$1" dir="$2"
+
+    if [ ! -f "$dir/INSOD" ] || [ ! -f "$dir/SGO" ] || \
+       [ ! -f "$dir/MA.xyz" ] || [ ! -f "$dir/FA.xyz" ]; then
+        skip_line "$label" "(missing example20 inputs)"
+        skip=$((skip+1)); return
+    fi
+
+    local tmp; tmp=$(mktemp -d)
+    cp "$dir/INSOD" "$dir/SGO" "$dir/MA.xyz" "$dir/FA.xyz" "$tmp/"
+
+    local out
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" combsod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[combsod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+    out=$(cd "$tmp" && PATH="$BIN:$PATH" genersod 2>&1)
+    if [ $? -ne 0 ]; then
+        fail_line "$label" "[genersod error]"
+        echo "$out" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local poscar; poscar=$(ls "$tmp"/n*/c*/POSCAR 2>/dev/null | head -1)
+    if [ -z "$poscar" ]; then
+        fail_line "$label" "[no POSCAR generated]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # Lines 6 and 7 are the species labels and their counts.
+    local comp; comp=$(awk 'NR==6{split($0,s)} NR==7{for(i=1;i<=NF;i++) print s[i]":"$i; exit}' \
+                       "$poscar" | sort | tr '\n' ' ')
+    if [ "$comp" != "Br:1 C:7 H:42 I:22 N:8 Pb:8 " ]; then
+        fail_line "$label" "[composition wrong: $comp]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    local natoms; natoms=$(awk 'NR==7{s=0; for(i=1;i<=NF;i++) s+=$i; print s}' "$poscar")
+    if [ "$natoms" != "88" ]; then
+        fail_line "$label" "[expected 88 atoms, got ${natoms:-none}]"
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    # The vacancy tokens must never reach the structure file as atom labels.
+    if grep -qE '(^|[[:space:]])(%|@|VA|VX)' "$poscar"; then
+        fail_line "$label" "[vacancy or molecule token leaked into POSCAR]"
+        grep -nE '(^|[[:space:]])(%|@|VA|VX)' "$poscar" | head -3 | indent
+        fail=$((fail+1)); rm -rf "$tmp"; return
+    fi
+
+    rm -rf "$tmp"
+    pass_line "$label"; pass=$((pass+1))
+}
+
 # ── test_wrapper_filer_tail ───────────────────────────────────────────────────
 # Ensure the shell wrappers read FILER from the last INSOD data line rather than
 # literally the last file line, so trailing comments/blanks do not break them.
@@ -2532,6 +3117,11 @@ test_genersod "example01/FILER13_QE"     "$EX/example01/FILER13_QE"     "n04/c01
 test_genersod_multitarget "example13 (3 targets, vacancy on target 3)" "$EX/example13" \
     "n01_01_01/c1/configuration.cif" "$EX/example13/genersod_ref/configuration.cif"
 test_genersod_molecule_second_target "example08 (@MA on the second target, LAMMPS)" "$EX/example08"
+test_genersod_multinary_mol_vac "example20 (@ and % on two multi-nary targets)" "$EX/example20"
+test_eqmatrix_only "example18 (-eqmatrix-only on a non-enumerable cell)" "$EX/example18"
+test_gener_best "example16 (-choose bestSQS picks the OUTSQS rank 1)" "$EX/example16" "n08"
+test_sqs_no_ensemble_scored "example16 (sod_sqs.sh fails when it scores nothing)" "$EX/example16" "n08"
+test_gener_choose_random "example20 (-choose random N draws without replacement)" "$EX/example20"
 test_wrapper_filer_tail "sod_comb.sh ignores trailing INSOD comment" "comb" "$EX/example01/FILER1_gulp" "n04/c01/input.gin"
 test_wrapper_filer_tail "sod_gener.sh ignores trailing INSOD comment" "gener" "$EX/example01/FILER1_gulp" "job_sender"
 test_wrapper_model_flag_error "sod_cpme.sh rejects missing -model filename" "$BIN/sod_cpme.sh" "$EX/example15"

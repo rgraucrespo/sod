@@ -61,7 +61,7 @@ program randomsod
   character(len=256) :: ensemble_path
   integer :: unit_ens
 
-  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.91 - randomsod"
+  write(*, '(A)') "SOD (Site-Occupancy Disorder) version 0.92 - randomsod"
 
   ! --- Defaults ---
   nconfigs      = 0

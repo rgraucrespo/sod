@@ -23,6 +23,27 @@ Then run::
 
    sod_comb.sh
 
+Symmetry data without enumeration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+   sod_comb.sh -eqmatrix-only
+
+stops after the symmetry analysis, writing ``supercell.cif``, ``EQMATRIX`` and
+``OPERATORS`` but no ``ENSEMBLE``, and exits successfully.
+
+Use it when the supercell is too large to enumerate but the symmetry data is
+wanted on its own.  ``sod_random.sh -sym on`` folds its draws onto symmetry
+orbits and so requires an ``EQMATRIX``, and a plain ``sod_comb.sh`` cannot
+supply one at those sizes: on example18, C(192,96) is about 3x10^17
+configurations, and combsod writes the three files in under a second before
+aborting in the allocator with ``problem too large for SOD``.  The data was
+therefore obtainable only as the by-product of a run that failed.  The files
+are identical either way -- the flag changes only where combsod stops -- and
+the ``INSOD`` substitution counts are still validated, so a level that exceeds
+the available sites is still rejected.
+
 .. _insod:
 
 The INSOD file

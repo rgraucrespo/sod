@@ -110,10 +110,54 @@ from within ``nXX/random/``:
    writes ``OUTSQS`` there.  ``EQMATRIX``, ``supercell.cif``, and ``INSOD``
    are taken from SODPROJECT/ automatically.
 
-3. Pick the best SQS from ``OUTSQS`` (rank 1) and generate calculator input
-   files for it::
+3. Generate calculator input files for the best SQS::
+
+      sod_gener.sh -choose bestSQS
+
+   ``-choose`` takes either explicit configuration indices or a selection
+   label naming a rule, optionally followed by how many to take (default 1)::
+
+      sod_gener.sh -choose bestSQS 10       # the ten best, in rank order
+      sod_gener.sh -choose lowestENERGY 5   # the five lowest in energy
+
+   ================= ==========================================================
+   Label             Selects, best first
+   ================= ==========================================================
+   ``bestSQS``       best-ranked in ``OUTSQS`` (written by ``sod_sqs.sh``)
+   ``lowestENERGY``  lowest entries of ``ENERGIES``
+   ``highestENERGY`` highest entries of ``ENERGIES``
+   ``random``        a degeneracy-weighted sample of ``ENSEMBLE``, all different
+   ================= ==========================================================
+
+   Each file is read from the same directory as the ``ENSEMBLE`` being
+   generated.  Labels are case-insensitive.
+
+   ``random N`` is for the case where the ensemble is too large to compute in
+   full and a representative subset is wanted.  Each configuration is drawn
+   with probability proportional to its degeneracy: the rows of ``ENSEMBLE``
+   are symmetry-inequivalent configurations standing for ``degen`` microstates
+   each, so drawing them equiprobably would over-represent the rare ones and a
+   property averaged over the subset would not estimate the ensemble average.
+   Weighting makes the subset a fair sample of configuration space, and a plain
+   mean over it an unbiased estimate.
+
+   The N configurations are always different -- the draw is without
+   replacement, which is required as much as desired, since each selection
+   becomes a ``cNNN/`` directory and a repeat would collapse two into one.  The
+   chosen indices are printed, so the same selection can be repeated later with
+   ``sod_gener.sh -choose <those indices>``.
+
+   ``bestSQS N`` is bounded by how many rows ``sqssod`` wrote -- ``OUTSQS`` lists the top ``n_top_sqs``
+   configurations, 10 by default -- and asking for more is an error naming
+   ``n_top_sqs``.
+   To pick some other configuration, read the **Config** column of the row you
+   want and pass it explicitly::
 
       sod_gener.sh -choose <index>
+
+   Note that the first column of ``OUTSQS`` is the rank and the second is the
+   configuration index; they are rarely the same number, so ``-choose 1`` is
+   almost never the best SQS.  ``bestSQS`` exists to remove that trap.
 
    Calculation subdirectories (``c01/``, etc.) are created under
    ``nXX/random/``, keeping the random-sample workflow self-contained.
