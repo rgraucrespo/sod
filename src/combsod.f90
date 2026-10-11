@@ -103,7 +103,8 @@ program combsod
   integer, dimension(nspmax) :: natsp0, natsp1, natsp
   real(real64), dimension(3) :: coordstemp
   integer, dimension(:, :), allocatable:: conf, indconf
-  real(real64) :: a1, b1, c1, alpha, beta, gamma, a, b, c, cc
+  real(real64) :: a1, b1, c1, alpha, beta, gamma, a, b, c
+  real(real64), external :: cc
   real(real64) :: prod, x, maxentropy, ientropy, perc
   character(len=3), dimension(nspmax) :: symbol
   character(len=5), dimension(ntargetmax, nkmax+1) :: newsymbol
